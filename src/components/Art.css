@@ -1,0 +1,45 @@
+.art {
+  --rarity: #9aa6b8;
+  position: relative;
+  display: block;
+  overflow: hidden;
+  border-radius: 10px;
+  background: #0b1220;
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--rarity) 55%, transparent),
+    0 0 14px color-mix(in srgb, var(--rarity) 22%, transparent);
+}
+
+.art img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.art--portrait {
+  aspect-ratio: 3 / 4;
+}
+
+/* The card art window sits in the upper-middle of the card; show that, not the frame. */
+.art--square {
+  aspect-ratio: 1;
+}
+
+.art--square img {
+  object-position: 50% 28%;
+  transform: scale(1.45);
+  transform-origin: 50% 30%;
+}
+
+.token-icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: -3px;
+  border-radius: 50%;
+}
+
+.planet-icon {
+  display: inline-block;
+  flex: none;
+  vertical-align: -4px;
+}

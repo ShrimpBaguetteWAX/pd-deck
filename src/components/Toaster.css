@@ -1,0 +1,123 @@
+/* Centred under the top bar, so a toast unfolds from beneath the mine button, where the eye is. */
+.toaster {
+  position: fixed;
+  top: calc(var(--header-h) + 12px);
+  left: 50%;
+  z-index: 9999;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(380px, calc(100vw - 32px));
+  transform: translateX(-50%);
+}
+
+/*
+ * The outcome colours the whole toast: its top edge (the side facing the button), a tint that
+ * fades downwards, the icon, the timer and the one ring of light it sends out as it lands.
+ */
+.toast {
+  --edge: var(--green);
+  --tint: 14, 212, 168;
+
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  min-height: 56px;
+  padding: 12px 14px 15px;
+  overflow: hidden;
+  border: 1px solid rgba(var(--tint), 0.4);
+  border-top: 2px solid var(--edge);
+  border-radius: 12px;
+  background: linear-gradient(180deg, rgba(var(--tint), 0.2), rgba(var(--tint), 0.05) 75%), rgba(9, 24, 40, 0.97);
+  backdrop-filter: blur(10px);
+  color: var(--text);
+  text-align: left;
+  font-size: 14px;
+  box-shadow: var(--shadow);
+  transform-origin: top center;
+  animation:
+    toast-in 0.38s cubic-bezier(0.2, 0.9, 0.3, 1.2),
+    toast-ring 1.1s ease-out 0.3s 1;
+}
+
+.toast--error {
+  --edge: var(--red);
+  --tint: 255, 77, 94;
+}
+
+.toast--info {
+  --edge: var(--blue);
+  --tint: 0, 186, 255;
+}
+
+.toast__icon {
+  display: grid;
+  place-items: center;
+  flex: 0 0 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--edge);
+  color: #04121f;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* The time left, running down from both ends to the middle. */
+.toast__bar {
+  position: absolute;
+  left: 14px;
+  bottom: 5px;
+  width: calc(100% - 28px);
+  height: 2px;
+  border-radius: 2px;
+  background: var(--edge);
+  transform-origin: center;
+  animation: toast-bar var(--toast-life, 6.5s) linear forwards;
+}
+
+@keyframes toast-in {
+  from {
+    opacity: 0;
+    transform: translateY(-14px) scale(0.55);
+  }
+}
+
+@keyframes toast-ring {
+  from {
+    box-shadow:
+      var(--shadow),
+      0 0 0 0 rgba(var(--tint), 0.65);
+  }
+  to {
+    box-shadow:
+      var(--shadow),
+      0 0 0 14px rgba(var(--tint), 0);
+  }
+}
+
+@keyframes toast-bar {
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes toast-fade {
+  from {
+    opacity: 0;
+  }
+}
+
+/* Phones keep toasts under the top bar, where the eye already is after pressing mine. */
+@media (max-width: 768px) {
+  .toaster {
+    top: calc(var(--header-h) + 8px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast {
+    animation: toast-fade 0.2s ease-out;
+  }
+}

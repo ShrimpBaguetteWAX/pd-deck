@@ -1,0 +1,60 @@
+/* A red-edged banner plate in place of the page that failed. */
+.crash {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 22px;
+  border: 1px solid var(--plate-edge);
+  border-left: 2px solid #ff4f6b;
+  border-radius: var(--plate-radius);
+  background: radial-gradient(60% 220% at 0 50%, rgba(255, 79, 107, 0.14), transparent 60%), var(--plate-face);
+}
+
+.crash__title {
+  font-family: var(--font-heading);
+  font-size: 16px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.crash__text {
+  color: var(--text-dim);
+}
+
+.crash__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.crash__button {
+  min-height: 38px;
+  padding: 0 18px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
+  color: var(--text);
+  font-family: var(--font-heading);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  transition:
+    border-color 0.15s ease,
+    background 0.15s ease;
+}
+
+.crash__button:hover {
+  border-color: rgba(255, 255, 255, 0.35);
+}
+
+.crash__button--primary {
+  border-color: rgba(0, 186, 255, 0.45);
+  border-left: 2px solid var(--blue);
+  background: linear-gradient(90deg, rgba(0, 186, 255, 0.2), rgba(0, 186, 255, 0.06));
+  color: #8fdcff;
+}
+
+.crash__button--primary:hover {
+  border-color: var(--blue);
+}

@@ -1,0 +1,320 @@
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  /* Tooltip bubbles near the right edge must not make the page scroll sideways when a button is focused. */
+  overflow-x: clip;
+}
+
+.topbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  border-bottom: 1px solid var(--border);
+  background: rgba(6, 10, 20, 0.82);
+  backdrop-filter: blur(14px);
+}
+
+.topbar__inner {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  height: var(--header-h);
+  max-width: var(--content-w);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+}
+
+.brand img {
+  width: 36px;
+  height: 36px;
+  filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.45));
+}
+
+.brand span {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.brand strong {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+}
+
+.brand small {
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+}
+
+.nav__link {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 0 14px;
+  border-radius: 10px;
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease;
+}
+
+.nav__link svg {
+  width: 17px;
+  height: 17px;
+}
+
+.nav__link:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.nav__link.is-active {
+  background: rgba(0, 212, 255, 0.12);
+  color: var(--cyan);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.3);
+}
+
+.nav__badge {
+  display: inline-grid;
+  place-items: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--surface-3);
+  color: var(--text);
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+}
+
+.nav__badge--ready {
+  background: var(--green);
+  color: #052b1c;
+  box-shadow: 0 0 12px rgba(46, 229, 157, 0.6);
+  animation: pd-pulse 1.6s ease-in-out infinite;
+}
+
+.topbar__right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: auto;
+}
+
+.balances {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--surface);
+}
+
+.balance {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  font-size: 13px;
+  cursor: default;
+}
+
+.balance b {
+  font-weight: 700;
+}
+
+.account {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 3px 3px 12px;
+  border: 1px solid rgba(0, 212, 255, 0.3);
+  border-radius: 999px;
+  background: rgba(0, 212, 255, 0.08);
+}
+
+.account.is-spectating {
+  border-color: rgba(255, 215, 94, 0.4);
+  background: rgba(255, 215, 94, 0.08);
+}
+
+.account__name {
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.account__tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(255, 215, 94, 0.18);
+  color: var(--tlm);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.account__tag--forge {
+  background: rgba(255, 106, 61, 0.2);
+  color: #ff9a6a;
+}
+
+.shell__main {
+  flex: 1;
+}
+
+.shell__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: var(--content-w);
+  width: 100%;
+  margin: 0 auto;
+  padding: 14px var(--gutter) 22px;
+  border-top: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-dim);
+}
+
+.shell__foot a {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--cyan);
+}
+
+.shell__foot span {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+@media (max-width: 1100px) {
+  .brand span {
+    display: none;
+  }
+
+  .balances {
+    display: none;
+  }
+}
+
+@media (max-width: 760px) {
+  :root {
+    --header-h: 56px;
+  }
+
+  .topbar__inner {
+    gap: 8px;
+  }
+
+  .nav {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 100;
+    justify-content: space-around;
+    margin: 0;
+    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+    border-top: 1px solid var(--border);
+    background: rgba(6, 10, 20, 0.92);
+    backdrop-filter: blur(14px);
+  }
+
+  .nav__link {
+    flex-direction: column;
+    gap: 3px;
+    min-height: 44px;
+    padding: 4px 10px;
+    font-size: 10px;
+  }
+
+  .nav__badge {
+    position: absolute;
+    top: 0;
+    right: 4px;
+  }
+
+  .account__name {
+    max-width: 90px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .shell__main {
+    padding-bottom: 72px;
+  }
+
+  .shell__foot {
+    display: none;
+  }
+}
+
+/* Eight destinations: on wide screens the labels stay, on mid-size ones only the active label. */
+@media (max-width: 1320px) and (min-width: 761px) {
+  .nav__link:not(.is-active) span {
+    display: none;
+  }
+
+  .nav__link {
+    padding: 0 10px;
+  }
+}
+
+@media (max-width: 760px) {
+  .nav {
+    justify-content: space-between;
+    padding-left: 2px;
+    padding-right: 2px;
+  }
+
+  .nav__link {
+    flex: 1;
+    min-width: 0;
+    padding: 4px 2px;
+    font-size: 9px;
+    letter-spacing: 0;
+  }
+
+  .nav__link span {
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+}

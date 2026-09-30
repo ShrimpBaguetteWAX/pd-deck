@@ -1,0 +1,37 @@
+/*
+ * :where() keeps these at zero specificity, so a page's own dialog class (width, accent border,
+ * background) always wins, whichever stylesheet happens to load last.
+ */
+:where(.modal) {
+  width: min(92vw, 420px);
+  max-height: 92vh;
+  /* The global reset zeroes margins; auto centres the modal. */
+  margin: auto;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: #0b1a2c;
+  color: var(--text);
+}
+
+:where(.modal)::backdrop {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(4px);
+}
+
+:where(.modal[open]) {
+  animation: modal-in 0.18s ease-out;
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :where(.modal[open]) {
+    animation: none;
+  }
+}

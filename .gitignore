@@ -1,0 +1,14 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.local
+.env
+.env.*
+.DS_Store
+Thumbs.db
+
+# Report written by scripts/check-nodes.mjs
+node-health.md
+
+# Local tool settings
+.claude/
