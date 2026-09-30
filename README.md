@@ -1,7 +1,8 @@
 # Planetary Defense — command deck
 
 A faster front end for the [Planetary Defense](https://beta.planetarydefense.io) web game on WAX
-(Alien Worlds ecosystem). Four screens, each built to need as few clicks as possible:
+(Alien Worlds ecosystem), live at **https://shrimpbaguettewax.github.io/pd-deck/**. Each screen is built to need as few
+clicks as possible:
 
 | Route          | What it does                                                                                                                                                                                                                                                                                                              |
 | -------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -15,6 +16,9 @@ A faster front end for the [Planetary Defense](https://beta.planetarydefense.io)
 | `/ledger`      | Everything spent on and earned from the game, from the chain: NFTs bought and sold in the collection, Forge levels and slots, mission entry fees and rewards, old-game (V2) rewards. Valued in WAX and USD on the day of each entry (CoinGecko daily prices; DEF through Alcor), with what is still held at market value. |
 
 ## Run
+
+Every push to `main` runs the tests, builds with `BASE_PATH=/pd-deck/` and publishes to GitHub Pages
+(`.github/workflows/pages.yml`).
 
 ```bash
 npm install
