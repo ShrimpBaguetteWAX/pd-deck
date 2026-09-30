@@ -80,6 +80,8 @@ export interface SolveInput {
   def: number
   /** The division's move cost may not exceed this (unset: no limit). */
   maxMove?: number
+  /** Grid steps per stat at most (default GRID_1D / GRID_2D): a smaller grid is faster and a little coarser. */
+  gridMax?: number
   warlords: WarlordOption[]
   items: Candidate[]
   economy: Economy
@@ -307,8 +309,9 @@ function prepareGrid(input: SolveInput, ta: number, td: number, L: number) {
   const eco = input.economy
   const levelWax = eco.levelWax[L]
   const both = ta > 0 && td > 0
-  const ga = ta > 0 ? Math.min(Math.ceil(ta), both ? GRID_2D : GRID_1D) : 0
-  const gd = td > 0 ? Math.min(Math.ceil(td), both ? GRID_2D : GRID_1D) : 0
+  const cap = Math.min(both ? GRID_2D : GRID_1D, input.gridMax ?? Infinity)
+  const ga = ta > 0 ? Math.min(Math.ceil(ta), cap) : 0
+  const gd = td > 0 ? Math.min(Math.ceil(td), cap) : 0
   const g = makeGrid(ga, gd)
   const sa = ga ? ta / ga : 1
   const sd = gd ? td / gd : 1
@@ -489,7 +492,8 @@ export function levelUnlocks(input: SolveInput, L: number) {
 /** One grid step of target t: how far rounding can leave an answer short. */
 export function gridStep(input: SolveInput, t: number): number {
   const both = input.atk > 0 && input.def > 0
-  return t > 0 ? t / Math.min(Math.ceil(t), both ? GRID_2D : GRID_1D) : 0
+  const cap = Math.min(both ? GRID_2D : GRID_1D, input.gridMax ?? Infinity)
+  return t > 0 ? t / Math.min(Math.ceil(t), cap) : 0
 }
 
 function solveAtLevel(input: SolveInput, L: number, bound: number): Bundle | null {

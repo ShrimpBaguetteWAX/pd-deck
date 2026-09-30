@@ -10,14 +10,26 @@ import { Figure, StatTrio } from '@/components/Stat'
 import { Ticking } from '@/components/Ticking'
 import { Tooltip } from '@/components/Tooltip'
 import type { AssetRef } from '@/data/assets'
-import { useArmy, useDeployments, usePlayer, useWalletNfts, type Division, type Unit } from '@/data/game'
+import {
+  useArmy,
+  useDeployments,
+  useMarket,
+  useMissionConfig,
+  usePlayer,
+  useWalletNfts,
+  type Division,
+  type Unit
+} from '@/data/game'
 import { CheckIcon, ChevronIcon, GiftIcon, LockIcon, PlusIcon, SparkIcon, TimerIcon, XIcon } from '@/icons'
-import { formatDuration } from '@/lib/format'
+import { bestLoop } from '@/lib/armyOptimizer'
+import { formatDuration, formatNumber } from '@/lib/format'
+import { missionEconomics } from '@/lib/loop'
 import { GEAR_KINDS, KIND_LABEL, missionLockSeconds, power, unitTotals, type GearKind, type Kind } from '@/lib/stats'
 import { chainDate, shortDuration, useClockFor } from '@/lib/time'
 import { useTransaction } from '@/wallet/useTransaction'
 
 import { DisbandAllModal, MissionDivisionModal, disbandActions } from './ArmyMissions'
+import { OptimizeArmyModal } from './ArmyOptimize'
 
 import { divisionAllowance, FREE_DIVISIONS } from '@/chain/config'
 
@@ -54,6 +66,9 @@ export default function Army() {
   const [preview, setPreview] = useState<AutoPlan | null>(null)
   const [disbandAllOpen, setDisbandAllOpen] = useState(false)
   const [missionOpen, setMissionOpen] = useState(false)
+  const [optimizeOpen, setOptimizeOpen] = useState(false)
+  const config = useMissionConfig()
+  const market = useMarket()
 
   const divisions = army.data?.divisions ?? []
   const selected = divisions.find((d) => d.id === selectedId) ?? divisions[0] ?? null
@@ -68,6 +83,12 @@ export default function Army() {
     return m
   }, [deployments.data])
   const now = useClockFor([...readyByDivision.values()])
+
+  // Every mission as the loop planner sees it, for what each division earns.
+  const missions = useMemo(
+    () => (config.data ? config.data.missions.map((row) => missionEconomics(row, config.data!)) : []),
+    [config.data]
+  )
 
   if (!army.data || !player.data) return <Loading inline label="Mustering the army" />
 
@@ -92,6 +113,8 @@ export default function Army() {
     }),
     { atk: 0, def: 0, move: 0 }
   )
+  // What the army earns now: each division on the mission that pays it the most per hour.
+  const currentPerHour = divisions.reduce((n, d) => n + (d.units.length ? (bestLoop(d, missions, market)?.perHour ?? 0) : 0), 0)
   const freeUnits = free.mercenary.length
   const freeGear = free.weapon.length + free.supply.length + free.creature.length + free.lavalux.length
 
@@ -193,6 +216,12 @@ export default function Army() {
           <Figure label="Defense" value={totals.def.toLocaleString('en-US')} tone="c-def" />
           <Figure label="Move" value={totals.move.toLocaleString('en-US')} tone="c-mov" />
           <Figure
+            label="TLM / h"
+            value={formatNumber(currentPerHour, 1)}
+            tone="c-tlm"
+            help="What your divisions earn together per hour, each on the mission that pays it the most (net of entry fees and DEF swaps). Optimize rebuilds the army for the highest total."
+          />
+          <Figure
             label="Reserve"
             value={`${freeUnits} + ${freeGear}`}
             help="Staked mercenaries and gear not assigned to a division yet."
@@ -207,6 +236,15 @@ export default function Army() {
               Disband all
             </Button>
           )}
+          <Button
+            size="sm"
+            color="gradientYellow"
+            disabled={!missions.length}
+            title="Rebuild the army from everything staked to earn the most TLM an hour"
+            onClick={() => setOptimizeOpen(true)}
+          >
+            <SparkIcon /> Optimize
+          </Button>
           <Button
             size="sm"
             color="gradientGreen"
@@ -480,6 +518,27 @@ export default function Army() {
           onDone={() => {
             setDisbandAllOpen(false)
             setSelectedId(null)
+          }}
+        />
+      )}
+      {optimizeOpen && (
+        <OptimizeArmyModal
+          account={account}
+          divisions={divisions}
+          disbandable={(d) => {
+            const t = stateOf(d).tone
+            return !!d.leader && (t === 'is-idle' || t === 'is-empty')
+          }}
+          free={free}
+          forgeLevel={forgeLevel}
+          powerups={powerups}
+          allowance={allowance}
+          missions={missions}
+          market={market}
+          onClose={() => setOptimizeOpen(false)}
+          onDone={(id) => {
+            setOptimizeOpen(false)
+            if (id !== null) setSelectedId(id)
           }}
         />
       )}

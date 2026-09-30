@@ -369,7 +369,15 @@ export function MissionDivisionModal({
 }
 
 /** The troops a mission would get, as a row of small portraits (or why there are none). */
-function MissionStrip({ plan, pending }: { plan: MissionPlan | null | undefined; pending: boolean }) {
+export function MissionStrip({
+  plan,
+  pending,
+  gearNote = true
+}: {
+  plan: MissionPlan | null | undefined
+  pending: boolean
+  gearNote?: boolean
+}) {
   if (pending) return <span className="mdiv__strip faint">…</span>
   if (!plan) return <span className="mdiv__strip faint">not enough in reserve</span>
   const b = plan.bundle
@@ -382,7 +390,7 @@ function MissionStrip({ plan, pending }: { plan: MissionPlan | null | undefined;
         <CardArt key={key} asset={plan.assets.get(key)!} shape="square" className="mdiv__face" />
       ))}
       {faces.length > shown.length && <small className="faint">+{faces.length - shown.length}</small>}
-      {gear > 0 && <small className="faint">· {gear} gear</small>}
+      {gearNote && gear > 0 && <small className="faint">· {gear} gear</small>}
     </span>
   )
 }

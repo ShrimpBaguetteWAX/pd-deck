@@ -14,7 +14,9 @@ import { kindOf, type Kind } from './stats'
  */
 
 /** One move point costs as much as this many stat points (it lengthens every mission cycle). */
-const MOVE_WEIGHT = 3
+export const MOVE_WEIGHT = 3
+/** Weighted like this, move matters more than strength: the fastest division that meets the mission. */
+export const FAST_MOVE_WEIGHT = 30
 /** A bigger warlord is kept for bigger missions, when a smaller one fits. */
 const WARLORD_SLOT_WEIGHT = 2
 
@@ -29,8 +31,10 @@ export function planMissionDivision(
   target: { atk: number; def: number },
   forgeLevel: number,
   /** Forge slots still free per gear kind (creatures need none). */
-  slotsFree: Record<SlotKind, number>
+  slotsFree: Record<SlotKind, number>,
+  options: { moveWeight?: number; gridMax?: number } = {}
 ): MissionPlan | null {
+  const moveWeight = options.moveWeight ?? MOVE_WEIGHT
   const assets = new Map<string, AssetRef>()
   const warlords: WarlordOption[] = []
   const items: Candidate[] = []
@@ -65,8 +69,8 @@ export function planMissionDivision(
           : null
       const cost = lava
         ? // A multiplier's worth, in stat points on a typical line.
-          (lava.atkMult - 1 + lava.defMult - 1) * 100 + (lava.moveMult - 1) * 20 * MOVE_WEIGHT
-        : Math.max(0.1, atk + def + MOVE_WEIGHT * (move - moveReduction))
+          (lava.atkMult - 1 + lava.defMult - 1) * 100 + (lava.moveMult - 1) * 20 * moveWeight
+        : Math.max(0.1, atk + def + moveWeight * (move - moveReduction))
       assets.set(key, a)
       items.push({
         key,
@@ -87,6 +91,7 @@ export function planMissionDivision(
   const bundle = solveBundle({
     atk: target.atk,
     def: target.def,
+    ...(options.gridMax ? { gridMax: options.gridMax } : {}),
     warlords,
     items,
     economy: {
