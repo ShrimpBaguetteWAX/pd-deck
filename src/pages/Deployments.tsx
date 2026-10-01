@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 
+import type { AnyAction } from '@wharfkit/session'
+
 import { claimMission, deployActions } from '@/chain/actions/pd'
 import { IpfsImg, PlanetIcon } from '@/components/Art'
 import { Button } from '@/components/Button'
@@ -23,7 +25,7 @@ import { useTransaction } from '@/wallet/useTransaction'
 import './Deployments.css'
 
 export default function Deployments() {
-  const { account, run, pending } = useTransaction()
+  const { account, run, runSequence, pending } = useTransaction()
   const deployments = useDeployments(account)
   const config = useMissionConfig()
   const army = useArmy(account)
@@ -71,9 +73,10 @@ export default function Deployments() {
   const wallet = player.data ? { tlm: player.data.tlm, def: player.data.def } : null
 
   /**
-   * Claims `claims` and sends `redeploy` back out, as one transaction. The claimed TLM and DEF land
-   * before the next action runs, so they pay the new entries; DEF still missing is bought with TLM,
-   * and with cash-out on, the claimed DEF the entries do not need is sold for TLM.
+   * Claims `claims` and sends `redeploy` back out. The claims, the DEF purchase and the cash-out
+   * go in the first transaction; the claimed TLM and DEF land before the next action runs, so they
+   * pay the new entries. The contract takes one join per transaction, so each division sent back
+   * out is a transaction of its own (a single division goes with the claims in one).
    */
   function cycle(claims: Deployment[], redeploy: Deployment[]) {
     const sum = (list: Deployment[], f: (e: MissionEconomics) => number) =>
@@ -85,17 +88,36 @@ export default function Deployments() {
     const funding = quoteFunding(market, cost, after)
     const surplusDef = cashOut ? Math.max(0, earnedDef - cost.def) : 0
     const sold = surplusDef > 0 ? tlmForDef(market, surplusDef) : 0
-    const build = (a: string, p: string) => [
+    const head = (a: string, p: string) => [
       ...claims.map((d) => claimMission(a, p, d.missionId, d.divisionId)),
       ...fundEntries(a, p, market, cost, after).actions,
-      ...groupByMission(redeploy).flatMap(({ missionId, items }) => {
-        const ids = items.map((d) => d.divisionId)
-        const stale = ids.filter((id) => divisionById.get(id) && !divisionById.get(id)!.fresh)
-        return deployActions(a, p, missionId, ids, stale, econ.get(missionId)!.costs)
-      }),
       ...(surplusDef > 0 ? [sellDefAction(a, p, market, surplusDef).action] : [])
     ]
-    return { build, funding, surplusDef, sold, earnedTlm, earnedDef }
+    const out = (a: string, p: string, x: Deployment) =>
+      deployActions(
+        a,
+        p,
+        x.missionId,
+        x.divisionId,
+        !!divisionById.get(x.divisionId) && !divisionById.get(x.divisionId)!.fresh,
+        econ.get(x.missionId)!.costs
+      )
+    const parts: { build: (a: string, p: string) => AnyAction[]; success: string }[] =
+      redeploy.length <= 1
+        ? [
+            {
+              build: (a, p) => [...head(a, p), ...redeploy.flatMap((x) => out(a, p, x))],
+              success: redeploy.length ? `#${redeploy[0].divisionId} claimed and redeployed` : `${claims.length} claimed`
+            }
+          ]
+        : [
+            { build: head, success: `${claims.length} reward${claims.length === 1 ? '' : 's'} claimed` },
+            ...redeploy.map((x) => ({
+              build: (a: string, p: string) => out(a, p, x),
+              success: `#${x.divisionId} sent back to ${econ.get(x.missionId)?.title ?? 'its mission'}`
+            }))
+          ]
+    return { parts, build: parts[0].build, funding, surplusDef, sold, earnedTlm, earnedDef }
   }
 
   const all = cycle(ready, [])
@@ -109,12 +131,7 @@ export default function Deployments() {
       'claim-all'
     )
 
-  const redeployAll = () =>
-    run(
-      loopAll.build,
-      `Claimed ${ready.length} and redeployed ${loopable.length}${loopAll.surplusDef > 0 ? `, ${formatToken(loopAll.surplusDef)} DEF sold` : ''}`,
-      'loop-all'
-    )
+  const redeployAll = () => runSequence(loopAll.parts, 'loop-all')
 
   const nextReturn = running[0]?.unlockAt
 
@@ -156,7 +173,7 @@ export default function Deployments() {
           <Tooltip
             text={
               loopable.length
-                ? `Claims every ready reward and sends those divisions back to the same missions in one transaction. Rewards pay the new entries first${loopAll.funding.defBought > 0 ? `; ${formatToken(loopAll.funding.defBought)} DEF is bought with TLM` : ''}${loopAll.surplusDef > 0 ? `; ${formatToken(loopAll.surplusDef)} spare DEF is sold for ≈${formatToken(loopAll.sold)} TLM` : ''}.`
+                ? `Claims every ready reward and sends those divisions back to the same missions: the claims in one transaction, then one per division (the contract takes one join at a time). Rewards pay the new entries first${loopAll.funding.defBought > 0 ? `; ${formatToken(loopAll.funding.defBought)} DEF is bought with TLM` : ''}${loopAll.surplusDef > 0 ? `; ${formatToken(loopAll.surplusDef)} spare DEF is sold for ≈${formatToken(loopAll.sold)} TLM` : ''}.`
                 : 'Nothing ready whose mission is still open.'
             }
           >

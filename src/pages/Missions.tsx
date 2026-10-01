@@ -24,8 +24,7 @@ import {
   rewardParts,
   tlmPerHour,
   type CycleRoute,
-  type MissionEconomics,
-  type PlanLine
+  type MissionEconomics
 } from '@/lib/loop'
 import { fundEntries, quoteFunding, type Market } from '@/lib/market'
 import { publicUrl } from '@/lib/publicUrl'
@@ -58,7 +57,7 @@ interface Row {
 }
 
 export default function Missions() {
-  const { account, run, pending } = useTransaction()
+  const { account, runSequence, pending } = useTransaction()
   const config = useMissionConfig()
   const army = useArmy(account)
   const player = usePlayer(account)
@@ -167,28 +166,23 @@ export default function Missions() {
   const planCostDef = plan.reduce((n, l) => n + l.mission.costDef, 0)
   const planFunding = quoteFunding(market, { tlm: planCostTlm, def: planCostDef }, balance)
 
+  /**
+   * One transaction per division (the contract takes one join at a time); the first one also buys
+   * whatever DEF the whole plan's entries need.
+   */
   async function deployPlan() {
     if (!plan.length) return
-    const byMission = new Map<number, PlanLine[]>()
-    for (const l of plan) byMission.set(l.mission.id, [...(byMission.get(l.mission.id) ?? []), l])
-    const ok = await run(
-      (a, p) => [
-        ...fundEntries(a, p, market, { tlm: planCostTlm, def: planCostDef }, balance).actions,
-        ...[...byMission.entries()].flatMap(([id, lines]) =>
-          deployActions(
-            a,
-            p,
-            id,
-            lines.map((l) => l.division.id),
-            lines.filter((l) => !l.division.fresh).map((l) => l.division.id),
-            lines[0].mission.costs
-          )
-        )
-      ],
-      `${plan.length} division${plan.length === 1 ? '' : 's'} deployed`,
+    const done = await runSequence(
+      plan.map((l, i) => ({
+        build: (a: string, p: string) => [
+          ...(i === 0 ? fundEntries(a, p, market, { tlm: planCostTlm, def: planCostDef }, balance).actions : []),
+          ...deployActions(a, p, l.mission.id, l.division.id, !l.division.fresh, l.mission.costs)
+        ],
+        success: `#${l.division.id} sent to ${l.mission.title}`
+      })),
       'plan'
     )
-    if (ok) setPlanOpen(false)
+    if (done === plan.length) setPlanOpen(false)
   }
 
   const bestRow = best ? rows.find((r) => r.e.id === best.e.id) : undefined
@@ -225,7 +219,7 @@ export default function Missions() {
                   <p className="plan__sub">
                     Deploying every idle division to its best loop:{' '}
                     <b className="c-tlm num">{formatSigned(planPerDay)} TLM/day</b> · {plan.length} division
-                    {plan.length === 1 ? '' : 's'}, one transaction
+                    {plan.length === 1 ? '' : 's'}, one transaction each
                   </p>
                   <ul className="plan__lines">
                     {plan.slice(0, 6).map((l) => (
@@ -513,22 +507,18 @@ export default function Missions() {
           onDeploy={async (ids) => {
             const chosen = idle.filter((d) => ids.includes(d.id))
             const cost = { tlm: deploying.costTlm * ids.length, def: deploying.costDef * ids.length }
-            const ok = await run(
-              (a, p) => [
-                ...fundEntries(a, p, market, cost, balance).actions,
-                ...deployActions(
-                  a,
-                  p,
-                  deploying.id,
-                  ids,
-                  chosen.filter((d) => !d.fresh).map((d) => d.id),
-                  deploying.costs
-                )
-              ],
-              `${ids.length} division${ids.length === 1 ? '' : 's'} sent to ${deploying.title}`,
+            // One transaction per division; the first also buys the DEF all the entries need.
+            const done = await runSequence(
+              chosen.map((d, i) => ({
+                build: (a: string, p: string) => [
+                  ...(i === 0 ? fundEntries(a, p, market, cost, balance).actions : []),
+                  ...deployActions(a, p, deploying.id, d.id, !d.fresh, deploying.costs)
+                ],
+                success: `#${d.id} sent to ${deploying.title}`
+              })),
               'deploy'
             )
-            if (ok) setDeploying(null)
+            if (done === chosen.length) setDeploying(null)
           }}
         />
       )}
@@ -537,7 +527,7 @@ export default function Missions() {
         <Modal className="picker deploy" onClose={() => setPlanOpen(false)} label="Deploy plan">
           <header className="picker__head">
             <div>
-              <p className="eyebrow">One transaction</p>
+              <p className="eyebrow">{plan.length === 1 ? 'One transaction' : `${plan.length} transactions, one per division`}</p>
               <h3>Deploy the plan</h3>
               <p className="muted">
                 Each idle division goes to the mission that pays it the most TLM per hour.

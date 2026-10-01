@@ -93,5 +93,26 @@ export function useTransaction() {
     }
   }
 
-  return { run, busy: pending !== null, pending, account, permission, spectating }
+  /**
+   * Signs several transactions one after another, in order, each with its own success message;
+   * stops at the first that fails or is cancelled and says how many went through. Resolves to
+   * the number of transactions that went through.
+   */
+  async function runSequence(parts: { build: Build; success: string }[], key = 'tx'): Promise<number> {
+    for (let i = 0; i < parts.length; i++) {
+      if (parts.length > 1) toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].success}. Please sign.`)
+      const ok = await run(
+        parts[i].build,
+        parts.length > 1 ? `${i + 1} of ${parts.length}: ${parts[i].success}` : parts[i].success,
+        key
+      )
+      if (!ok) {
+        if (i > 0) toast.error(`Stopped at transaction ${i + 1} of ${parts.length}. The first ${i} went through.`)
+        return i
+      }
+    }
+    return parts.length
+  }
+
+  return { run, runSequence, busy: pending !== null, pending, account, permission, spectating }
 }

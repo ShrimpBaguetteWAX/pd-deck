@@ -1,6 +1,6 @@
 import type { AnyAction } from '@wharfkit/session'
 
-import { CONTRACTS, MAX_DIVISIONS_PER_JOIN } from '@/chain/config'
+import { CONTRACTS } from '@/chain/config'
 
 /*
  * Action builders for the Planetary Defense contracts. Every action is signed by the player alone;
@@ -96,24 +96,37 @@ export const claimMission = (a: string, p: string, missionId: number, divisionId
   action(CONTRACTS.MISSIONS, 'claim', a, p, { owner: a, mission_id: missionId, division_id: divisionId })
 
 /**
- * Everything one deployment needs, in order: the entry fee per division, a recalculation for every
- * division whose stats cache is stale, then the joins (at most MAX_DIVISIONS_PER_JOIN per action).
+ * Everything one division's deployment needs, in order: its entry fee, a recalculation when its
+ * stats cache is stale, then the join. The contract takes one division per join ("You need to
+ * deploy one division at a time"), and a transaction may hold only one join, so a deployment of
+ * several divisions is one of these per division, signed one after another (see deployParts).
  */
 export function deployActions(
   a: string,
   p: string,
   missionId: number,
-  divisionIds: number[],
-  staleDivisionIds: number[],
+  divisionId: number,
+  stale: boolean,
   costs: EntryCost[]
 ): AnyAction[] {
-  const out: AnyAction[] = []
-  for (let i = 0; i < divisionIds.length; i++) for (const cost of costs) out.push(payEntry(a, p, missionId, cost))
-  for (const id of staleDivisionIds) out.push(recalcDivision(a, p, id))
-  for (let i = 0; i < divisionIds.length; i += MAX_DIVISIONS_PER_JOIN) {
-    out.push(joinMission(a, p, missionId, divisionIds.slice(i, i + MAX_DIVISIONS_PER_JOIN)))
-  }
-  return out
+  return [
+    ...costs.map((cost) => payEntry(a, p, missionId, cost)),
+    ...(stale ? [recalcDivision(a, p, divisionId)] : []),
+    joinMission(a, p, missionId, [divisionId])
+  ]
+}
+
+/** One transaction per division: the actions of each, with the division it is for. */
+export function deployParts(
+  a: string,
+  p: string,
+  deployments: { missionId: number; divisionId: number; stale: boolean; costs: EntryCost[] }[]
+): { divisionId: number; missionId: number; actions: AnyAction[] }[] {
+  return deployments.map((d) => ({
+    divisionId: d.divisionId,
+    missionId: d.missionId,
+    actions: deployActions(a, p, d.missionId, d.divisionId, d.stale, d.costs)
+  }))
 }
 
 // ---- forge.pdef ----------------------------------------------------------------------------------
