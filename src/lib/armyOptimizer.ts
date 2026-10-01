@@ -45,7 +45,7 @@ export const STRATEGIES: Strategy[] = ['per-hour', 'per-mercenary', 'per-stat']
 /** Partial armies kept per step in the beam search (the 'per-hour' pass): wide while that is cheap. */
 const beamWidth = (input: OptimizeInput) => {
   const n = input.pool.mercenary.length
-  return n <= 20 ? 16 : n <= 40 ? 8 : 4
+  return n <= 60 ? 12 : n <= 120 ? 6 : 3
 }
 /** Past this much planning time the beam narrows to one, so a huge army still finishes. */
 const BEAM_BUDGET_MS = 10_000
@@ -59,11 +59,55 @@ const EXTRA_PASS_MIN_MS = 15_000
  */
 const PLANNER_GRID = 800
 /**
- * Each mission is planned two ways: the division that uses the least strength (move counts a
- * little), and the fastest one that meets it (move counts a lot). The search keeps whichever
- * leads to the better army: saving strength for later divisions, or cutting this one's cycle.
+ * Each mission is planned four ways: the division that uses the least strength (move counts a
+ * little), the fastest one that meets it (move counts a lot), the one with the fewest mercenaries,
+ * and the one made of the units worth the least elsewhere (see opportunityCost). The search keeps
+ * whichever leads to the better army.
  */
-const MOVE_WEIGHTS = [MOVE_WEIGHT, FAST_MOVE_WEIGHT]
+type Variant = { moveWeight: number; mercPenalty?: number; costOf?: (a: AssetRef, usual: number) => number }
+const VARIANTS: Variant[] = [
+  { moveWeight: MOVE_WEIGHT },
+  { moveWeight: FAST_MOVE_WEIGHT },
+  // Fewest mercenaries: strong units and gear, which keeps warlord slots and troops for other divisions.
+  { moveWeight: MOVE_WEIGHT, mercPenalty: 1000 }
+]
+/** One hour of what a unit could earn elsewhere counts as this many strength points. */
+const OPPORTUNITY_WEIGHT = 100
+
+/**
+ * The fourth way to plan a division: every unit costs what it could earn on its own (a mercenary
+ * alone on the best mission it reaches; a weapon by how much it lifts the best single mercenary),
+ * so the division is filled with the units that are worth the least anywhere else. The strength
+ * cost stays as a tie-break.
+ */
+function opportunityCost(input: OptimizeInput, missions: MissionEconomics[]): Variant['costOf'] {
+  const rate = (atk: number, def: number, move: number) => {
+    let r = 0
+    for (const m of missions) {
+      if (!meetsRequirements(m, atk, def)) continue
+      const v = tlmPerHour(m, move, input.market)
+      if (v > r) r = v
+    }
+    return r
+  }
+  const stat = (a: AssetRef) => ({
+    atk: Number(a.stats?.attack ?? 0),
+    def: Number(a.stats?.defense ?? 0),
+    move: Number(a.stats?.movecost ?? 0)
+  })
+  const alone = new Map(input.pool.mercenary.map((m) => [m.assetId, rate(stat(m).atk, stat(m).def, stat(m).move)]))
+  const value = new Map<string, number>(alone)
+  for (const w of input.pool.weapon) {
+    const ws = stat(w)
+    let gain = 0
+    for (const m of input.pool.mercenary) {
+      const ms = stat(m)
+      gain = Math.max(gain, rate(ms.atk + ws.atk, ms.def + ws.def, ms.move) - (alone.get(m.assetId) ?? 0))
+    }
+    value.set(w.assetId, gain)
+  }
+  return (a, usual) => (value.has(a.assetId) ? OPPORTUNITY_WEIGHT * value.get(a.assetId)! + usual / 100 : usual)
+}
 
 export interface OptimizeInput {
   /** Everything that may be rearranged: the reserve plus the NFTs of the divisions to be disbanded. */
@@ -86,6 +130,47 @@ interface Node {
   slots: Record<SlotKind, number>
   divisions: OptimizedDivision[]
   total: number
+  /** total plus what the rest of the pool could still earn: what the beam ranks by. */
+  rank: number
+}
+
+/**
+ * An optimistic guess at what a pool can still earn: for every division still allowed, the best
+ * rate one remaining mercenary could earn alone (with a remaining weapon, while weapon slots
+ * last), each mercenary and weapon counted once. It is the same guess for every branch at the same
+ * depth except through what the branch has used up, which is exactly what the ranking needs to
+ * see: a division that eats the strong single units or the weapons leaves less for the rest.
+ */
+function potential(node: Node, input: OptimizeInput, missions: MissionEconomics[]): number {
+  const left = Math.min(input.maxDivisions - node.divisions.length, node.pool.warlord.length, node.pool.mercenary.length)
+  if (left <= 0) return 0
+  const weapons = node.pool.weapon
+    .map((w) => ({ atk: Number(w.stats?.attack ?? 0), def: Number(w.stats?.defense ?? 0) }))
+    .sort((x, y) => y.atk + y.def - (x.atk + x.def))
+  const weaponSlots = Math.min(node.slots.weapon, weapons.length)
+  const best = weapons[0] ?? { atk: 0, def: 0 }
+  const rate = (atk: number, def: number, move: number) => {
+    let r = 0
+    for (const mission of missions) {
+      if (!meetsRequirements(mission, atk, def)) continue
+      const v = tlmPerHour(mission, move, input.market)
+      if (v > r) r = v
+    }
+    return r
+  }
+  const singles = node.pool.mercenary.map((m) => {
+    const atk = Number(m.stats?.attack ?? 0)
+    const def = Number(m.stats?.defense ?? 0)
+    const move = Number(m.stats?.movecost ?? 0)
+    const alone = rate(atk, def, move)
+    return { alone, armed: weaponSlots > 0 ? Math.max(alone, rate(atk + best.atk, def + best.def, move)) : alone }
+  })
+  // The best few mercenaries, one per open division; the weapon goes to those it helps most, at most once per slot.
+  singles.sort((x, y) => y.armed - x.armed)
+  const chosen = singles.slice(0, left)
+  const gains = chosen.map((c) => c.armed - c.alone).sort((x, y) => y - x)
+  const armedGain = gains.slice(0, weaponSlots).reduce((n, g) => n + g, 0)
+  return chosen.reduce((n, c) => n + c.alone, 0) + armedGain
 }
 
 /** The best token loop a division of these stats can run, or null when no mission pays. */
@@ -187,7 +272,8 @@ function search(
   const ordered = [...missions].filter((m) => ceiling.get(m.id)! > 0).sort((a, b) => ceiling.get(b.id)! - ceiling.get(a.id)!)
   const started = Date.now()
   let outOfTime = false
-  const start: Node = { pool: input.pool, slots: { ...input.slotsFree }, divisions: [], total: 0 }
+  const variants: Variant[] = [...VARIANTS, { moveWeight: MOVE_WEIGHT, costOf: opportunityCost(input, ordered) }]
+  const start: Node = { pool: input.pool, slots: { ...input.slotsFree }, divisions: [], total: 0, rank: 0 }
   // What a pool could reach at most: the strongest units up to the biggest warlord, plus all gear.
   const reach = (pool: Record<Kind, AssetRef[]>, stat: 'attack' | 'defense') => {
     const slots = Math.max(0, ...pool.warlord.map((w) => w.stats?.slots_max ?? 0))
@@ -235,8 +321,10 @@ function search(
           pool: without(node.pool, keys),
           slots,
           divisions: [...node.divisions, { mission: loop.mission, plan, perHour: loop.perHour, existingId: d.id }],
-          total: node.total + s
+          total: node.total + s,
+          rank: 0
         }
+        child.rank = child.total + (strategy === 'per-hour' ? potential(child, input, ordered) : 0)
         const sig = signature(child)
         if (seen.has(sig)) continue
         seen.add(sig)
@@ -255,8 +343,8 @@ function search(
         if (m.minAtk > maxAtk || m.minDef > maxDef) continue
         // A mission with no requirement takes the smallest division there is.
         const target = m.minAtk > 0 || m.minDef > 0 ? { atk: m.minAtk, def: m.minDef } : { atk: 1, def: 0 }
-        for (const moveWeight of MOVE_WEIGHTS) {
-          const plan = planMissionDivision(node.pool, target, input.forgeLevel, node.slots, { moveWeight, gridMax: PLANNER_GRID })
+        for (const variant of variants) {
+          const plan = planMissionDivision(node.pool, target, input.forgeLevel, node.slots, { ...variant, gridMax: PLANNER_GRID })
           if (!plan) break
           const perHour = tlmPerHour(m, plan.bundle.move, input.market)
           if (perHour <= 0) break
@@ -268,8 +356,10 @@ function search(
             pool: without(node.pool, usedKeys(plan)),
             slots,
             divisions: [...node.divisions, { mission: m, plan, perHour }],
-            total: node.total + s
+            total: node.total + s,
+            rank: 0
           }
+          child.rank = child.total + (strategy === 'per-hour' ? potential(child, input, ordered) : 0)
           // The same divisions reached in another order (or by both weights) are the same army.
           const sig = signature(child)
           if (seen.has(sig)) continue
@@ -279,7 +369,7 @@ function search(
       }
     }
     if (!children.length) break
-    children.sort((x, y) => y.total - x.total)
+    children.sort((x, y) => y.rank - x.rank)
     const keep = Date.now() - started > BEAM_BUDGET_MS ? 1 : width
     frontier = children.slice(0, keep)
     for (const c of frontier) if (earning(c) > earning(best)) best = c

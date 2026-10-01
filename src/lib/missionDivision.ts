@@ -34,9 +34,15 @@ export function planMissionDivision(
   forgeLevel: number,
   /** Forge slots still free per gear kind (creatures need none). */
   slotsFree: Record<SlotKind, number>,
-  options: { moveWeight?: number; gridMax?: number } = {}
+  /** mercPenalty: extra cost per mercenary, so that fewer, stronger units (and gear) are preferred. */
+  /**
+   * mercPenalty: extra cost per mercenary, so that fewer, stronger units (and gear) are preferred.
+   * costOf: the caller's own cost for a unit (given the usual one), e.g. what it would earn elsewhere.
+   */
+  options: { moveWeight?: number; gridMax?: number; mercPenalty?: number; costOf?: (a: AssetRef, usual: number) => number } = {}
 ): MissionPlan | null {
   const moveWeight = options.moveWeight ?? MOVE_WEIGHT
+  const mercPenalty = options.mercPenalty ?? 0
   const assets = new Map<string, AssetRef>()
   const warlords: WarlordOption[] = []
   const items: Candidate[] = []
@@ -69,10 +75,11 @@ export function planMissionDivision(
               moveMult: Number(st.movecost_mult_bp || 10000) / 10000
             }
           : null
-      const cost = lava
+      const usual = lava
         ? // A multiplier's worth, in stat points on a typical line.
           (lava.atkMult - 1 + lava.defMult - 1) * 100 + (lava.moveMult - 1) * 20 * moveWeight
-        : Math.max(0.1, atk + def + moveWeight * (move - moveReduction))
+        : Math.max(0.1, atk + def + moveWeight * (move - moveReduction) + (kind === 'mercenary' ? mercPenalty : 0))
+      const cost = options.costOf ? Math.max(0.1, options.costOf(a, usual)) : usual
       assets.set(key, a)
       items.push({
         key,
