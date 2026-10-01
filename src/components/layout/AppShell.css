@@ -187,11 +187,6 @@
   text-transform: uppercase;
 }
 
-.account__tag--forge {
-  background: rgba(255, 106, 61, 0.2);
-  color: #ff9a6a;
-}
-
 .shell__main {
   flex: 1;
 }

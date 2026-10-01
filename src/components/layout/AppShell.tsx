@@ -102,15 +102,6 @@ export function AppShell({ children }: { children: ReactNode }) {
             <div className={`account ${spectating ? 'is-spectating' : ''}`}>
               <span className="account__name">{account}</span>
               {spectating && <span className="account__tag">view only</span>}
-              {player.data && player.data.forgeLevel > 0 && (
-                <Tooltip
-                  text={`Your Forge level: ${player.data.forgeLevel}. It caps the slots you may buy and the gear tiers you may equip.`}
-                >
-                  <span className="account__tag account__tag--forge">
-                    <FlameIcon width={12} height={12} /> Forge {player.data.forgeLevel}
-                  </span>
-                </Tooltip>
-              )}
               <button type="button" className="icon-btn" title="Sign out" onClick={() => void logout()}>
                 <LogoutIcon />
               </button>
