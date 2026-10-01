@@ -27,7 +27,9 @@ import {
   type MissionEconomics
 } from '@/lib/loop'
 import { fundEntries, quoteFunding, type Market } from '@/lib/market'
+import { normalizeHash } from '@/lib/ipfs'
 import { publicUrl } from '@/lib/publicUrl'
+import { MISSION_THUMBS } from '@/data/missionThumbs'
 import { chainDate, shortDuration, useNow } from '@/lib/time'
 import { useTransaction } from '@/wallet/useTransaction'
 
@@ -385,7 +387,7 @@ export default function Missions() {
             >
               <div className="mrow__main" role="row" onClick={() => setExpanded(open ? null : e.id)}>
                 <div className="mrow__mission">
-                  <IpfsImg hash={e.image} alt="" className="mrow__art" fallback={publicUrl('/img/mission-fallback.webp')} />
+                  <MissionArt image={e.image} className="mrow__art" />
                   <div className="mrow__title">
                     <b>{e.title}</b>
                     <span className="mrow__sub">
@@ -396,6 +398,24 @@ export default function Missions() {
                       {e.state === 'upcoming' && <em className="mrow__flag">Starts {shortDuration(e.startAt - now)}</em>}
                       {e.state === 'full' && <em className="mrow__flag is-red">Full</em>}
                       {e.state === 'capped' && <em className="mrow__flag is-red">Shard budget spent</em>}
+                      {e.shardCap ? (
+                        <Tooltip
+                          text={`This mission can be joined ${formatNumber(e.shardCap.max, 0)} times in all, by every player together. ${formatNumber(e.shardCap.used, 0)} joins are used, ${formatNumber(e.shardCap.max - e.shardCap.used, 0)} are left.`}
+                        >
+                          <em className={`mrow__cap ${e.shardCap.used >= e.shardCap.max ? 'is-red' : ''}`}>
+                            <span className="mrow__cap-bar">
+                              <span style={{ width: `${Math.min(100, (e.shardCap.used / e.shardCap.max) * 100)}%` }} />
+                            </span>
+                            {formatNumber(e.shardCap.max - e.shardCap.used, 0)} of {formatNumber(e.shardCap.max, 0)} joins left
+                          </em>
+                        </Tooltip>
+                      ) : (
+                        <Tooltip
+                          text={`${formatNumber(e.joined, 0)} division${e.joined === 1 ? ' is' : 's are'} out on this mission right now. ${e.maxDivisions > 0 ? `At most ${formatNumber(e.maxDivisions, 0)} may be out at once` : 'There is no limit'}; there is no limit on how often it can be run.`}
+                        >
+                          <em className="mrow__cap">{formatNumber(e.joined, 0)} out now</em>
+                        </Tooltip>
+                      )}
                     </span>
                   </div>
                 </div>
@@ -749,4 +769,13 @@ function DeployModal({ mission: e, idle, market, balances, pending, onClose, onD
       </footer>
     </Modal>
   )
+}
+
+/** A mission's picture: the tiny thumbnail shipped with the app when there is one, else the IPFS image. */
+function MissionArt({ image, className }: { image: string; className?: string }) {
+  const cid = normalizeHash(image)
+  if (cid && MISSION_THUMBS.has(cid)) {
+    return <img className={className} src={publicUrl(`/img/missions/${cid}.webp`)} alt="" loading="lazy" decoding="async" />
+  }
+  return <IpfsImg hash={image} alt="" className={className} fallback={publicUrl('/img/mission-fallback.webp')} />
 }

@@ -34,6 +34,7 @@ npm run typecheck && npm run lint
 - **Endpoint rotation** (`src/chain/endpoints.ts`, `rpc.ts`): every WAX node is probed at boot, ranked by latency, reads round-robin across the fastest few with a per-node token bucket, failed nodes are benched. Same module as in Mission Control.
 - **Wallets** (`src/wallet/session.ts`): WharfKit with WAX Cloud Wallet and Anchor, loaded on first use.
 - **Contracts** (`src/chain/actions/pd.ts`): `core.pdef` (stake, divisions, units, gear), `miss.pdef` (join, claim), `forge.pdef` (paid by token transfers with memos `forge:<level>` / `shop:<item>`). First-time players get `regplayer` prepended automatically.
+- **Mission thumbnails**: `npm run thumbs` (`scripts/mission-thumbs.mjs`) reads the missions table and writes a 160 px webp of every mission image to `public/img/missions/` plus `src/data/missionThumbs.ts`; the Missions list uses those (about 5 KB each) and only falls back to IPFS for a mission without one. Run it again when new missions appear.
 - **NFT metadata**: `public/data/templates.json` is a snapshot of the `planetdefnft` templates (name, rarity, art hash); asset → template lookups go through AtomicAssets once and are cached in `localStorage`. Card art comes from AtomicHub's resizer with IPFS gateways as fallback.
 
 ## Game rules the UI relies on
