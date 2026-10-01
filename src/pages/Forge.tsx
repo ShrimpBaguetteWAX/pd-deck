@@ -7,10 +7,11 @@ import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure } from '@/components/Stat'
 import { Tooltip } from '@/components/Tooltip'
-import { useArmy, useAssetStats, useForgeConfig, usePlayer, useTemplates } from '@/data/game'
+import { useArmy, useAssetStats, useForgeConfig, useMarket, usePlayer, useTemplates } from '@/data/game'
 import type { ShopItemRow } from '@/data/types'
 import { CheckIcon, FlameIcon, LockIcon } from '@/icons'
 import { asset, formatNumber, formatToken, parseAsset } from '@/lib/format'
+import { tlmForDefOut } from '@/lib/market'
 import { publicUrl } from '@/lib/publicUrl'
 import { useTransaction } from '@/wallet/useTransaction'
 
@@ -70,6 +71,13 @@ export default function Forge() {
   const army = useArmy(account)
   const stats = useAssetStats()
   const templates = useTemplates()
+  const market = useMarket()
+  /**
+   * TLM it takes to buy this much DEF on Alcor right now (fee included). More DEF than the pool
+   * holds cannot be quoted, so such amounts are priced at the mid price instead.
+   */
+  const quotable = (def: number) => Number.isFinite(tlmForDefOut(market, def))
+  const tlmFor = (def: number) => (def <= 0 ? 0 : quotable(def) ? tlmForDefOut(market, def) : def * market.rate)
 
   const level = player.data?.forgeLevel ?? 0
   const next = forge.data?.levels.find((l) => Number(l.level) === level + 1)
@@ -88,6 +96,35 @@ export default function Forge() {
   }, [forge.data])
 
   /** What the next level opens: extra slots per category and newly usable gear. */
+  /** Everything still to buy: every remaining slot in every category, and every level above this one. */
+  const maxOut = useMemo(() => {
+    if (!forge.data || !player.data) return null
+    const perCategory = CATEGORIES.map((c) => {
+      const items = (shop.get(c.key) ?? []).slice(player.data!.powerups.get(c.key) ?? 0)
+      let def = 0
+      let tlm = 0
+      for (const i of items) {
+        const p = parseAsset(i.price)
+        if (p.symbol === 'DEF') def += p.amount
+        else if (p.symbol === 'TLM') tlm += p.amount
+      }
+      return { c, slots: items.length, def, tlm }
+    })
+    const slotsDef = perCategory.reduce((n, x) => n + x.def, 0)
+    const slotsTlm = perCategory.reduce((n, x) => n + x.tlm, 0)
+    const slots = perCategory.reduce((n, x) => n + x.slots, 0)
+    const paidSoFar = parseAsset(player.data.forgeProgress?.paid_tlm).amount
+    let levelsTlm = 0
+    const levelsLeft: number[] = []
+    for (const l of forge.data.levels) {
+      const L = Number(l.level)
+      if (L <= level) continue
+      levelsLeft.push(L)
+      levelsTlm += parseAsset(l.tlm_cost).amount - (L === level + 1 ? paidSoFar : 0)
+    }
+    return { perCategory, slots, slotsDef, slotsTlm, levelsLeft, levelsTlm }
+  }, [forge.data, player.data, shop, level])
+
   const unlocks = useMemo(() => {
     if (!next) return null
     const lvl = Number(next.level)
@@ -142,10 +179,14 @@ export default function Forge() {
                 </li>
               ))}
               {unlocks.gear.length > 0 && (
-                <li style={{ '--accent': '#ff9a6a' } as CSSProperties}>
-                  <b>Unlocks</b> {unlocks.gear.slice(0, 4).join(', ')}
-                  {unlocks.gear.length > 4 ? ` +${unlocks.gear.length - 4} more` : ''}
-                </li>
+                <Tooltip
+                  text={`Supplies and creatures with a minimum Forge level of ${next?.level} can only be equipped from that level. At level ${next?.level} these become usable: ${unlocks.gear.join(', ')}.`}
+                >
+                  <li style={{ '--accent': '#ff9a6a' } as CSSProperties}>
+                    <b>Lets you equip</b> {unlocks.gear.slice(0, 3).join(', ')}
+                    {unlocks.gear.length > 3 ? ` and ${unlocks.gear.length - 3} more` : ''}
+                  </li>
+                </Tooltip>
               )}
             </ul>
           )}
@@ -154,9 +195,11 @@ export default function Forge() {
           <div className="fhero__pay">
             <div className="fhero__pay-head">
               <span className="faint">Next level</span>
-              <span className="fhero__lvl">
-                <FlameIcon width={14} height={14} /> {next.level}
-              </span>
+              <Tooltip text={`Paying this takes your Forge from level ${level} to level ${next.level}.`}>
+                <span className="fhero__lvl">
+                  <FlameIcon width={14} height={14} /> Level {next.level}
+                </span>
+              </Tooltip>
             </div>
             <div className="fhero__amount">
               <TokenIcon symbol="TLM" size={20} />
@@ -211,6 +254,55 @@ export default function Forge() {
           tone="c-deft"
         />
       </div>
+
+      {maxOut && (maxOut.slots > 0 || maxOut.levelsLeft.length > 0) && (
+        <section className="fmax panel panel--tight">
+          <div className="fmax__text">
+            <p className="eyebrow">Everything to max</p>
+            <h3>
+              ≈{' '}
+              <span className="num c-tlm">
+                {formatNumber(maxOut.levelsTlm + maxOut.slotsTlm + tlmFor(maxOut.slotsDef), 0)} TLM
+              </span>{' '}
+              all in
+            </h3>
+            <p className="muted">
+              {maxOut.slots} slot{maxOut.slots === 1 ? '' : 's'} still for sale across the shop
+              {maxOut.levelsLeft.length
+                ? ` and ${maxOut.levelsLeft.length} Forge level${maxOut.levelsLeft.length === 1 ? '' : 's'}`
+                : ''}
+              .{' '}
+              {quotable(maxOut.slotsDef)
+                ? 'DEF is priced at what buying it with TLM on Alcor costs right now.'
+                : 'That is more DEF than the Alcor pool holds, so DEF is priced at today’s mid price; buying it would move the price.'}
+            </p>
+          </div>
+          <ul className="fmax__list">
+            {maxOut.levelsLeft.length > 0 && (
+              <li>
+                <span>
+                  Forge levels {maxOut.levelsLeft[0]}
+                  {maxOut.levelsLeft.length > 1 ? `–${maxOut.levelsLeft[maxOut.levelsLeft.length - 1]}` : ''}
+                </span>
+                <b className="num">{formatNumber(maxOut.levelsTlm, 0)} TLM</b>
+              </li>
+            )}
+            {maxOut.perCategory
+              .filter((x) => x.slots > 0)
+              .map((x) => (
+                <li key={x.c.key} style={{ '--accent': x.c.accent } as CSSProperties}>
+                  <span>
+                    {x.slots} {x.c.label.toLowerCase()}
+                  </span>
+                  <b className="num">
+                    {x.def > 0 && `${formatNumber(x.def, 0)} DEF ≈ ${formatNumber(tlmFor(x.def), 0)} TLM`}
+                    {x.tlm > 0 && `${x.def > 0 ? ' + ' : ''}${formatNumber(x.tlm, 0)} TLM`}
+                  </b>
+                </li>
+              ))}
+          </ul>
+        </section>
+      )}
 
       <div className={`fshop ${level === 0 ? 'is-locked' : ''}`}>
         {CATEGORIES.map((c) => {
@@ -291,8 +383,14 @@ export default function Forge() {
                       <span className="fcat__price">
                         <small className="faint">Slot {owned + 1}</small>
                         <b className="num">
-                          <TokenIcon symbol="DEF" size={16} /> {formatToken(price!.amount)} <span className="faint">DEF</span>
+                          <TokenIcon symbol={price!.symbol === 'TLM' ? 'TLM' : 'DEF'} size={16} /> {formatToken(price!.amount)}{' '}
+                          <span className="faint">{price!.symbol}</span>
                         </b>
+                        {price!.symbol === 'DEF' && (
+                          <Tooltip text="What buying this much DEF with TLM on Alcor costs right now, fee included.">
+                            <small className="faint num">≈ {formatNumber(tlmFor(price!.amount), 0)} TLM</small>
+                          </Tooltip>
+                        )}
                       </span>
                       {locked ? (
                         <span className="chip chip--gold">

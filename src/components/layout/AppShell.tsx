@@ -90,10 +90,11 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <b className="num">{player.data ? formatCompact(player.data.def) : '–'}</b>
                 </span>
               </Tooltip>
-              <Tooltip text="Alien Worlds shards you can redeem. Shard missions add to these.">
-                <span className="balance">
+              <Tooltip text="Shards: Alien Worlds points you can redeem. Shard missions (Valtori, Skarvex) add to these.">
+                <span className="balance balance--shards">
                   <ShardIcon width={16} height={16} />
                   <b className="num">{player.data ? formatCompact(player.data.shards) : '–'}</b>
+                  <small>shards</small>
                 </span>
               </Tooltip>
             </div>
@@ -102,9 +103,13 @@ export function AppShell({ children }: { children: ReactNode }) {
               <span className="account__name">{account}</span>
               {spectating && <span className="account__tag">view only</span>}
               {player.data && player.data.forgeLevel > 0 && (
-                <span className="account__tag account__tag--forge">
-                  <FlameIcon width={12} height={12} /> {player.data.forgeLevel}
-                </span>
+                <Tooltip
+                  text={`Your Forge level: ${player.data.forgeLevel}. It caps the slots you may buy and the gear tiers you may equip.`}
+                >
+                  <span className="account__tag account__tag--forge">
+                    <FlameIcon width={12} height={12} /> Forge {player.data.forgeLevel}
+                  </span>
+                </Tooltip>
               )}
               <button type="button" className="icon-btn" title="Sign out" onClick={() => void logout()}>
                 <LogoutIcon />

@@ -306,3 +306,53 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ---- Everything to max ---- */
+
+.fmax {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(0, 1.4fr);
+  gap: 18px;
+  align-items: center;
+}
+
+.fmax__text h3 {
+  margin: 2px 0 6px;
+  font-size: 22px;
+}
+
+.fmax__text .muted {
+  font-size: 12px;
+}
+
+.fmax__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fmax__list li {
+  --accent: var(--tlm);
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 5px 10px;
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 13px;
+}
+
+.fcat__price small {
+  display: block;
+  font-size: 11px;
+}
+
+@media (max-width: 760px) {
+  .fmax {
+    grid-template-columns: 1fr;
+  }
+}

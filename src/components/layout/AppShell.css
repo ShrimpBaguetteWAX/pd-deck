@@ -318,3 +318,17 @@
     text-overflow: ellipsis;
   }
 }
+
+.balance--shards small {
+  margin-left: 2px;
+  color: var(--text-faint);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@media (max-width: 760px) {
+  .balance--shards small {
+    display: none;
+  }
+}
