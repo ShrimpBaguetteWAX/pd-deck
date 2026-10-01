@@ -7,7 +7,7 @@ import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure } from '@/components/Stat'
 import { Tooltip } from '@/components/Tooltip'
-import { useArmy, useAssetStats, useForgeConfig, useMarket, usePlayer, useTemplates } from '@/data/game'
+import { useArmy, useAssetStats, useForgeConfig, useMarket, usePlayer, useTemplates, useWalletNfts } from '@/data/game'
 import type { ShopItemRow } from '@/data/types'
 import { CheckIcon, FlameIcon, LockIcon } from '@/icons'
 import { asset, formatNumber, formatToken, parseAsset } from '@/lib/format'
@@ -69,6 +69,7 @@ export default function Forge() {
   const forge = useForgeConfig()
   const player = usePlayer(account)
   const army = useArmy(account)
+  const wallet = useWalletNfts(account)
   const stats = useAssetStats()
   const templates = useTemplates()
   const market = useMarket()
@@ -132,12 +133,34 @@ export default function Forge() {
       c,
       n: (shop.get(c.key) ?? []).filter((i) => Number(i.min_forge_level) === lvl).length
     })).filter((x) => x.n > 0)
-    const gear = new Set<string>()
+    /*
+     * Creatures and supplies come in tiers: the same name at Forge levels 0, 1, 2 … with better
+     * stats each tier, and tier N needs Forge level N. So the next level does not add new names, it
+     * lets the next tier be equipped. What matters to the player is which of their own NFTs that is.
+     */
+    const tiers = { creature: 0, supply: 0 }
+    let example: string | null = null
     if (stats.data && templates.data)
-      for (const s of stats.data.values())
-        if (Number(s.min_forge_level) === lvl) gear.add(templates.data[String(s.template_id)]?.name ?? `#${s.template_id}`)
-    return { slots, gear: [...gear] }
-  }, [next, shop, stats.data, templates.data])
+      for (const s of stats.data.values()) {
+        if (Number(s.min_forge_level) !== lvl) continue
+        const kind = Number(s.category) === 4 ? 'creature' : Number(s.category) === 3 ? 'supply' : null
+        if (!kind) continue
+        tiers[kind]++
+        if (!example && kind === 'creature') {
+          const name = templates.data[String(s.template_id)]?.name ?? `#${s.template_id}`
+          const lower = [...stats.data.values()].find(
+            (x) => Number(x.min_forge_level) === lvl - 1 && templates.data![String(x.template_id)]?.name === name
+          )
+          example = lower ? `${name} ${lower.attack}/${lower.defense} becomes ${s.attack}/${s.defense}` : null
+        }
+      }
+    // The player's own NFTs (staked or in the wallet) that this level makes usable.
+    const own = new Map<string, number>()
+    const mine = [...(army.data?.assets.values() ?? []), ...(wallet.data ?? [])]
+    for (const a of mine) if (Number(a.stats?.min_forge_level) === lvl) own.set(a.name, (own.get(a.name) ?? 0) + 1)
+    const owned = [...own.entries()].sort((x, y) => y[1] - x[1]).map(([name, n]) => (n > 1 ? `${n}× ${name}` : name))
+    return { slots, tiers, example, owned }
+  }, [next, shop, stats.data, templates.data, army.data, wallet.data])
 
   if (!forge.data || !player.data) return <Loading inline label="Stoking the forge" />
 
@@ -178,13 +201,15 @@ export default function Forge() {
                   <b>+{n}</b> {c.label.toLowerCase()} to buy
                 </li>
               ))}
-              {unlocks.gear.length > 0 && (
+              {unlocks.tiers.creature + unlocks.tiers.supply > 0 && (
                 <Tooltip
-                  text={`Supplies and creatures with a minimum Forge level of ${next?.level} can only be equipped from that level. At level ${next?.level} these become usable: ${unlocks.gear.join(', ')}.`}
+                  text={`Creatures and supplies come in tiers with the same name: tier ${next?.level} needs Forge level ${next?.level} and has better stats${unlocks.example ? ` (${unlocks.example})` : ''}. This level lets you equip the tier-${next?.level} versions.${unlocks.owned.length ? ` Of yours: ${unlocks.owned.join(', ')}.` : ' You do not own any of that tier yet.'}`}
                 >
                   <li style={{ '--accent': '#ff9a6a' } as CSSProperties}>
-                    <b>Lets you equip</b> {unlocks.gear.slice(0, 3).join(', ')}
-                    {unlocks.gear.length > 3 ? ` and ${unlocks.gear.length - 3} more` : ''}
+                    <b>Lets you equip</b> tier-{next?.level} creatures and supplies
+                    {unlocks.owned.length
+                      ? `: ${unlocks.owned.slice(0, 3).join(', ')}${unlocks.owned.length > 3 ? ` and ${unlocks.owned.length - 3} more of yours` : ' of yours'}`
+                      : ' (none of yours yet)'}
                   </li>
                 </Tooltip>
               )}
