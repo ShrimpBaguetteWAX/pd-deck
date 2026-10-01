@@ -4,7 +4,7 @@ import type { Division } from '@/data/game'
 import type { SlotKind } from './bundle'
 import { isTokenLoop, meetsRequirements, tlmPerHour, type MissionEconomics } from './loop'
 import type { Market } from './market'
-import { FAST_MOVE_WEIGHT, MOVE_WEIGHT, planMissionDivision, type MissionPlan } from './missionDivision'
+import { FAST_MOVE_WEIGHT, MOVE_WEIGHT, planFromDivision, planMissionDivision, type MissionPlan } from './missionDivision'
 import { GEAR_KINDS, type Kind } from './stats'
 
 /*
@@ -20,13 +20,17 @@ import { GEAR_KINDS, type Kind } from './stats'
  * keeps the few best partial armies at every step instead of one. Two cheaper greedy passes with
  * other rankings (most per mercenary used; most per stat point used) run as well, and the army
  * that earns the most wins. Each division is the smallest that meets its mission (see
- * planMissionDivision), so the strong units stay for the missions that need them.
+ * planMissionDivision), so the strong units stay for the missions that need them. The divisions
+ * that exist now are candidates too, kept as they are, so the answer is never worse than leaving
+ * the army alone.
  */
 
 export interface OptimizedDivision {
   mission: MissionEconomics
   plan: MissionPlan
   perHour: number
+  /** Set when this is one of the existing divisions, kept exactly as it is. */
+  existingId?: number
 }
 
 export interface ArmyPlan {
@@ -71,6 +75,8 @@ export interface OptimizeInput {
   slotsFree: Record<SlotKind, number>
   /** New divisions allowed: the allowance minus the divisions that stay. */
   maxDivisions: number
+  /** The divisions whose NFTs are in the pool, as they stand: the search may keep any of them as it is. */
+  existing?: Division[]
 }
 
 export type Progress = { strategy: Strategy; strategyIndex: number; division: number }
@@ -197,6 +203,12 @@ function search(
     )
     return [...mercs, ...gear].reduce((n, v) => n + v, 0) * 1.7
   }
+  // The divisions that exist now, as candidates to keep as they are.
+  const keepable = (input.existing ?? [])
+    .map((d) => ({ d, plan: planFromDivision(d), loop: bestLoop(d, input.missions, input.market) }))
+    .filter(
+      (x): x is { d: Division; plan: MissionPlan; loop: { mission: MissionEconomics; perHour: number } } => !!x.plan && !!x.loop
+    )
   let frontier: Node[] = [start]
   let best: Node = start
   for (let step = 1; step <= input.maxDivisions && frontier.length; step++) {
@@ -206,6 +218,30 @@ function search(
     for (const node of frontier) {
       if (!node.pool.warlord.length || !node.pool.mercenary.length) continue
       let bestHere = -Infinity
+      // Keeping an existing division as it is, when every NFT of it is still in the pool.
+      const inPool = new Set(
+        [...node.pool.warlord, ...node.pool.mercenary, ...GEAR_KINDS.flatMap((k) => node.pool[k])].map((a) => a.assetId)
+      )
+      for (const { d, plan, loop } of keepable) {
+        const keys = usedKeys(plan)
+        if ([...keys].some((k) => !inPool.has(k))) continue
+        const b = plan.bundle
+        if ((['weapon', 'supply', 'lavalux'] as SlotKind[]).some((k) => b.gear[k].length > node.slots[k])) continue
+        const s = score(strategy, loop.perHour, plan)
+        bestHere = Math.max(bestHere, s)
+        const slots = { ...node.slots }
+        for (const k of ['weapon', 'supply', 'lavalux'] as SlotKind[]) slots[k] -= b.gear[k].length
+        const child: Node = {
+          pool: without(node.pool, keys),
+          slots,
+          divisions: [...node.divisions, { mission: loop.mission, plan, perHour: loop.perHour, existingId: d.id }],
+          total: node.total + s
+        }
+        const sig = signature(child)
+        if (seen.has(sig)) continue
+        seen.add(sig)
+        children.push(child)
+      }
       const maxAtk = reach(node.pool, 'attack')
       const maxDef = reach(node.pool, 'defense')
       for (const m of ordered) {
@@ -258,11 +294,21 @@ const earning = (n: Node) => n.divisions.reduce((sum, d) => sum + d.perHour, 0)
 export function optimizeArmy(input: OptimizeInput, onProgress?: (p: Progress) => void): ArmyPlan {
   const started = Date.now()
   const deadline = started + TOTAL_BUDGET_MS
-  let best: ArmyPlan | null = null
-  for (const strategy of STRATEGIES) {
-    if (best && deadline - Date.now() < EXTRA_PASS_MIN_MS) break
-    const plan = search(input, strategy, strategy === 'per-hour' ? beamWidth(input) : 1, deadline, onProgress)
-    if (!best || plan.perHour > best.perHour + 1e-9) best = plan
+  // Leaving every existing division as it is: the floor any answer has to beat.
+  const asIs: OptimizedDivision[] = []
+  for (const d of input.existing ?? []) {
+    const plan = planFromDivision(d)
+    const loop = bestLoop(d, input.missions, input.market)
+    if (plan && loop) asIs.push({ mission: loop.mission, plan, perHour: loop.perHour, existingId: d.id })
   }
-  return best!
+  let best: ArmyPlan =
+    asIs.length && asIs.length <= input.maxDivisions
+      ? { divisions: asIs, perHour: asIs.reduce((n, d) => n + d.perHour, 0), strategy: 'per-hour' }
+      : { divisions: [], perHour: 0, strategy: 'per-hour' }
+  for (const strategy of STRATEGIES) {
+    if (deadline - Date.now() < EXTRA_PASS_MIN_MS && strategy !== 'per-hour') break
+    const plan = search(input, strategy, strategy === 'per-hour' ? beamWidth(input) : 1, deadline, onProgress)
+    if (plan.perHour > best.perHour + 1e-9) best = plan
+  }
+  return best
 }

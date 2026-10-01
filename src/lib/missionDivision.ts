@@ -1,7 +1,9 @@
 import type { AssetRef } from '@/data/assets'
 
-import { solveBundle, type Bundle, type Candidate, type SlotKind, type WarlordOption } from './bundle'
-import { kindOf, type Kind } from './stats'
+import type { Division } from '@/data/game'
+
+import { evaluate, solveBundle, type Bundle, type Candidate, type SlotKind, type WarlordOption } from './bundle'
+import { GEAR_KINDS, kindOf, type Kind } from './stats'
 
 /*
  * The division for one mission, built only from the reserve (staked NFTs in no division).
@@ -106,4 +108,76 @@ export function planMissionDivision(
     }
   })
   return bundle ? { bundle, assets } : null
+}
+
+/** A staked NFT as a solver candidate (cost 0: nothing is bought), or null when it has no stats. */
+function candidateOf(a: AssetRef): Candidate | null {
+  const st = a.stats
+  const kind = kindOf(st)
+  if (!st || !kind || kind === 'warlord') return null
+  const lava = kind === 'lavalux'
+  return {
+    key: a.assetId,
+    kind,
+    group: a.templateId,
+    atk: Number(st.attack || 0),
+    def: Number(st.defense || 0),
+    move: Number(st.movecost || 0),
+    moveReduction: Number(st.movecost_reduction || 0),
+    ...(lava
+      ? {
+          atkMult: Number(st.attack_mult_bp || 10000) / 10000,
+          defMult: Number(st.defense_mult_bp || 10000) / 10000,
+          moveMult: Number(st.movecost_mult_bp || 10000) / 10000
+        }
+      : {}),
+    minLevel: Number(st.min_forge_level || 0),
+    cost: 0
+  }
+}
+
+/**
+ * A division exactly as it stands now, as a plan: so the army search can keep it as it is instead
+ * of taking it apart. Null when it has no warlord or no mercenaries.
+ */
+export function planFromDivision(d: Division): MissionPlan | null {
+  if (!d.leader || !d.units.length) return null
+  const assets = new Map<string, AssetRef>()
+  assets.set(d.leader.assetId, d.leader)
+  const mercs: Candidate[] = []
+  const gear: Bundle['gear'] = { weapon: [], supply: [], creature: [], lavalux: [] }
+  for (const u of d.units) {
+    const merc = candidateOf(u.asset)
+    if (!merc) return null
+    assets.set(u.asset.assetId, u.asset)
+    mercs.push(merc)
+    for (const k of GEAR_KINDS) {
+      const g = u.gear[k]
+      if (!g) continue
+      const c = candidateOf(g)
+      if (!c) return null
+      assets.set(g.assetId, g)
+      gear[k].push(c)
+    }
+  }
+  const warlord: WarlordOption = {
+    key: d.leader.assetId,
+    slots: d.slotsMax,
+    minLevel: Number(d.leader.stats?.min_forge_level || 0),
+    cost: 0
+  }
+  const ev = evaluate({ warlord, mercs, gear })
+  const bundle: Bundle = {
+    warlord,
+    mercs,
+    gear,
+    ...ev,
+    cost: 0,
+    nftCost: 0,
+    slotCost: 0,
+    forgeCost: 0,
+    level: 0,
+    slotsBought: { weapon: [], supply: [], lavalux: [] }
+  }
+  return { bundle, assets }
 }

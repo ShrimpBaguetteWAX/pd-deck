@@ -10,7 +10,7 @@ import { Tooltip } from '@/components/Tooltip'
 import type { AssetRef } from '@/data/assets'
 import { useArmy, type Division } from '@/data/game'
 import { CheckIcon, TimerIcon, XIcon } from '@/icons'
-import { bestLoop, poolOf, type ArmyPlan, type OptimizeInput } from '@/lib/armyOptimizer'
+import { bestLoop, poolOf, type OptimizeInput } from '@/lib/armyOptimizer'
 import type { SlotKind } from '@/lib/bundle'
 import { SLOT_POWERUP } from '@/lib/forgeEconomy'
 import { formatDuration, formatNumber } from '@/lib/format'
@@ -84,6 +84,7 @@ export function OptimizeArmyModal({
     ) as Record<SlotKind, number>
     return {
       pool: poolOf(free, rearrange),
+      existing: rearrange,
       missions,
       market,
       forgeLevel,
@@ -102,22 +103,34 @@ export function OptimizeArmyModal({
   const optimizedPerHour = plan ? keptPerHour + plan.perHour : null
   const gain = optimizedPerHour === null ? null : optimizedPerHour - currentPerHour
 
-  const steps: Step[] = [...(rearrange.length ? (['disband'] as Step[]) : []), 'create', 'fill']
+  // Divisions the plan keeps as they are stay untouched; only the rest is taken apart and rebuilt.
+  const keptIds = useMemo(
+    () => new Set((plan?.divisions ?? []).flatMap((d) => (d.existingId != null ? [d.existingId] : []))),
+    [plan]
+  )
+  const toDisband = rearrange.filter((d) => !keptIds.has(d.id))
+  const fresh = (plan?.divisions ?? []).filter((d) => d.existingId == null)
+  const nothingToDo = !!plan && fresh.length === 0 && toDisband.length === 0
+
+  const steps: Step[] = [
+    ...(toDisband.length ? (['disband'] as Step[]) : []),
+    ...(fresh.length ? (['create', 'fill'] as Step[]) : [])
+  ]
   const state: Run = runState ?? { steps, done: [], failed: null, created: new Map() }
   const busy = pending === 'optimize'
   const finished = state.done.length === steps.length && steps.length > 0 && !!plan
 
-  async function execute(from: Run, plan: ArmyPlan) {
+  async function execute(from: Run) {
     let cur: Run = { ...from, failed: null }
     setRunState(cur)
-    const leaders = plan.divisions.map((d) => d.plan.assets.get(d.plan.bundle.warlord.key)!.assetId)
+    const leaders = fresh.map((d) => d.plan.assets.get(d.plan.bundle.warlord.key)!.assetId)
     for (const step of steps) {
       if (cur.done.includes(step)) continue
       let ok = false
       if (step === 'disband') {
         ok = await run(
-          (a, p) => rearrange.flatMap((d) => disbandActions(a, p, d)),
-          `${rearrange.length} division${rearrange.length === 1 ? '' : 's'} disbanded`,
+          (a, p) => toDisband.flatMap((d) => disbandActions(a, p, d)),
+          `${toDisband.length} division${toDisband.length === 1 ? '' : 's'} disbanded`,
           'optimize'
         )
       } else if (step === 'create') {
@@ -145,7 +158,7 @@ export function OptimizeArmyModal({
         const created = cur.created
         ok = await run(
           (a, p) =>
-            plan.divisions.flatMap((d) => {
+            fresh.flatMap((d) => {
               const id = created.get(d.plan.assets.get(d.plan.bundle.warlord.key)!.assetId)!
               const asset = (key: string) => d.plan.assets.get(key)!.assetId
               return [
@@ -157,7 +170,7 @@ export function OptimizeArmyModal({
                 )
               ]
             }),
-          `${plan.divisions.length} division${plan.divisions.length === 1 ? '' : 's'} filled and equipped: about ${formatNumber(optimizedPerHour ?? 0, 1)} TLM an hour`,
+          `${fresh.length} division${fresh.length === 1 ? '' : 's'} filled and equipped: about ${formatNumber(optimizedPerHour ?? 0, 1)} TLM an hour`,
           'optimize'
         )
       }
@@ -173,9 +186,9 @@ export function OptimizeArmyModal({
 
   const stepLabel = (s: Step) =>
     s === 'disband'
-      ? `Disband ${rearrange.length} division${rearrange.length === 1 ? '' : 's'}`
+      ? `Disband ${toDisband.length} division${toDisband.length === 1 ? '' : 's'}`
       : s === 'create'
-        ? `Create ${plan?.divisions.length ?? '…'} division${plan?.divisions.length === 1 ? '' : 's'}`
+        ? `Create ${fresh.length} division${fresh.length === 1 ? '' : 's'}`
         : 'Add the mercenaries and their gear'
 
   return (
@@ -250,6 +263,11 @@ export function OptimizeArmyModal({
                     <div className="opt__title">
                       <PlanetIcon planet={d.mission.planet} size={16} />
                       <b>{d.mission.title}</b>
+                      {d.existingId != null && (
+                        <Tooltip text={`Division #${d.existingId} as it is now: it is not taken apart.`}>
+                          <span className="chip chip--green">kept as is</span>
+                        </Tooltip>
+                      )}
                       <small className="faint">
                         needs {formatNumber(d.mission.minAtk, 0)} ATK
                         {d.mission.minDef ? ` / ${formatNumber(d.mission.minDef, 0)} DEF` : ''}
@@ -297,21 +315,20 @@ export function OptimizeArmyModal({
                 <span className="c-red">
                   Step {steps.indexOf(state.failed) + 1} did not go through. The steps before it are done and stay done.
                 </span>
-                <Button color="gradientYellow" disabled={spectating} isLoading={busy} onClick={() => void execute(state, plan)}>
+                <Button color="gradientYellow" disabled={spectating} isLoading={busy} onClick={() => void execute(state)}>
                   Resume at step {steps.indexOf(state.failed) + 1}
                 </Button>
               </>
+            ) : nothingToDo || (gain !== null && gain <= 0.05) ? (
+              <span className="c-green">Your army already earns the most this search can find. Nothing to change.</span>
             ) : (
               <>
                 <span className="faint">
                   {steps.length} transaction{steps.length === 1 ? '' : 's'}: {steps.map(stepLabel).join(', ').toLowerCase()}.
+                  {keptIds.size > 0 &&
+                    ` ${keptIds.size} division${keptIds.size === 1 ? ' stays' : 's stay'} as ${keptIds.size === 1 ? 'it is' : 'they are'}.`}
                 </span>
-                <Button
-                  color="gradientYellow"
-                  disabled={spectating || !plan.divisions.length || (gain !== null && gain <= 0 && !rearrange.length)}
-                  isLoading={busy}
-                  onClick={() => void execute(state, plan)}
-                >
+                <Button color="gradientYellow" disabled={spectating} isLoading={busy} onClick={() => void execute(state)}>
                   Rebuild the army
                 </Button>
               </>

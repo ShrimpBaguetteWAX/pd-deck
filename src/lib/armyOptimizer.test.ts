@@ -125,3 +125,40 @@ describe('beam search', () => {
     expect(plan.divisions.filter((d) => d.mission.id === 1)).toHaveLength(1)
   })
 })
+
+describe('existing divisions', () => {
+  it('keeps a division as it is when nothing planned beats it, and never proposes less', () => {
+    // A single mercenary with a weapon reaches the 200 ATK mission; the planner alone would pick
+    // the same NFTs, so the answer is the existing division, kept, and the plan is never worse.
+    const warlord = nft(CATEGORY.WARLORD, { slots: 1 })
+    const merc = nft(CATEGORY.MERCENARY, { atk: 150, move: 10 })
+    const weapon = nft(CATEGORY.WEAPON, { atk: 60 })
+    const division = {
+      id: 7,
+      leader: warlord,
+      units: [{ asset: merc, gear: { weapon } }],
+      slotsMax: 1,
+      atk: 210,
+      def: 0,
+      move: 10,
+      lock: null
+    } as unknown as import('@/data/game').Division
+    const pool = empty()
+    pool.warlord.push(warlord)
+    pool.mercenary.push(merc)
+    pool.weapon.push(weapon)
+    const missions = [mission(1, 200, 10), mission(2, 100, 6)]
+    const plan = optimizeArmy({
+      pool,
+      missions,
+      market,
+      forgeLevel: 0,
+      slotsFree: { weapon: 1, supply: 0, lavalux: 0 },
+      maxDivisions: 3,
+      existing: [division]
+    })
+    expect(plan.divisions).toHaveLength(1)
+    expect(plan.divisions[0].existingId).toBe(7)
+    expect(plan.perHour).toBeCloseTo(bestLoop(division, missions, market)!.perHour, 6)
+  })
+})
