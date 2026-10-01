@@ -49,8 +49,13 @@ export const CONTRACTS = {
   TLM: 'alien.worlds',
   DEF: 'defensetoken',
   USER_POINTS: 'uspts.worlds',
-  ALCOR_SWAP: 'swap.alcor'
+  ALCOR_SWAP: 'swap.alcor',
+  /** Ascension: sacrifices (memo "burn") and star-ups (memo "ascend") by NFT transfer. */
+  ASCEND: 'ascend.pdef'
 } as const
+
+/** The Fragment material, ascension's currency. */
+export const FRAGMENT_TEMPLATE = '888509'
 
 /** Alcor TLM/DEF concentrated-liquidity pool: the DEF price used to value mixed-token loops. */
 export const ALCOR_TLM_DEF_POOL_ID = 10447

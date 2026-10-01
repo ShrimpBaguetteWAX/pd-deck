@@ -40,9 +40,11 @@ import {
 import { formatNumber, percent, titleCase } from '@/lib/format'
 import { useTransaction } from '@/wallet/useTransaction'
 
+import { Ascension } from './BlendsAscension'
+
 import './Blends.css'
 
-type Tab = 'recipes' | 'materials' | 'chests'
+type Tab = 'recipes' | 'materials' | 'chests' | 'ascension'
 
 const CATEGORY_ORDER = ['warlord', 'mercenary', 'equipment', 'supplies', 'creature', 'services', 'material']
 const CATEGORY_LABEL: Record<string, string> = {
@@ -107,7 +109,8 @@ export default function Blends() {
             [
               ['recipes', 'Recipes'],
               ['materials', 'Materials'],
-              ['chests', 'Chests & keys']
+              ['chests', 'Chests & keys'],
+              ['ascension', 'Ascension']
             ] as [Tab, string][]
           ).map(([k, label]) => (
             <button key={k} type="button" className={tab === k ? 'is-active' : ''} onClick={() => setTab(k)}>
@@ -129,6 +132,7 @@ export default function Blends() {
         />
       )}
       {tab === 'materials' && <Materials materials={values.materials} />}
+      {tab === 'ascension' && <Ascension account={account} market={market} />}
       {tab === 'chests' && (
         <Chests
           openings={values.openings}

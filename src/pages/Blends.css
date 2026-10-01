@@ -533,3 +533,106 @@
 .bl-reveal__item small {
   font-size: 11px;
 }
+
+/* ---- Ascension ---- */
+
+.asc {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.asc__top {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+
+.asc__note {
+  font-size: 12px;
+}
+
+.asc__h {
+  margin: 0 0 4px;
+  font-size: 17px;
+}
+
+.asc__row {
+  grid-template-columns: minmax(220px, 1.2fr) minmax(0, 1.6fr) auto auto;
+}
+
+.asc__art {
+  width: 54px;
+  height: 54px;
+  border-radius: 10px;
+}
+
+.asc__change {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 13px;
+}
+
+.asc__change > span {
+  display: flex;
+  flex-direction: column;
+}
+
+.asc__change small {
+  font-size: 10px;
+}
+
+.asc__arrow {
+  color: var(--text-faint);
+  font-size: 18px;
+}
+
+.asc__cost {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 11px;
+}
+
+.asc__table-head,
+.asc__table-row {
+  grid-template-columns: minmax(220px, 1.6fr) 150px 120px 130px 110px;
+}
+
+.asc__table-row.is-picked {
+  border-color: rgba(255, 93, 110, 0.5);
+  background: rgba(255, 93, 110, 0.06);
+}
+
+.asc__summary {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  border-color: rgba(255, 93, 110, 0.4);
+}
+
+.asc__summary .btn,
+.asc__summary button {
+  margin-left: auto;
+}
+
+@media (max-width: 1200px) {
+  .asc__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .asc__change {
+    grid-column: 1 / -1;
+  }
+
+  .asc__table-row {
+    grid-template-columns: 1fr 1fr 1fr;
+  }
+
+  .asc__table-row .bl-mat {
+    grid-column: 1 / -1;
+  }
+}
