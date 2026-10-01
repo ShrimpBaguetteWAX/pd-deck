@@ -236,7 +236,12 @@ export default function Deployments() {
                         <li key={`${d.missionId}-${d.divisionId}`} className={`dline ${isReady ? 'is-ready' : ''}`}>
                           <div className="dline__who">
                             <b>#{d.divisionId}</b>
-                            <StatTrio atk={d.entry.atk} def={d.entry.def} move={d.entry.movecost} size="sm" />
+                            <StatTrio
+                              atk={d.entry?.atk ?? divisionById.get(d.divisionId)?.atk ?? 0}
+                              def={d.entry?.def ?? divisionById.get(d.divisionId)?.def ?? 0}
+                              move={d.entry?.movecost ?? divisionById.get(d.divisionId)?.move ?? 0}
+                              size="sm"
+                            />
                           </div>
                           <div className="dline__time">
                             {isReady ? (

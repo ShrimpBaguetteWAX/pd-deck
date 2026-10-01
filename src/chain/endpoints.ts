@@ -42,6 +42,8 @@ export class EndpointPool {
   private candidates: string[]
   private health = new Map<string, EndpointHealth>()
   private ranked: string[] = []
+  /** Browser clock minus chain clock, in ms, from the last probe. */
+  clockSkewMs = 0
   private cursor = 0
   private penalties = new Map<string, number>()
   private inflight: Promise<PoolStatus> | null = null
@@ -95,6 +97,10 @@ export class EndpointPool {
       .then((results) => {
         for (const r of results) this.health.set(r.url, r)
         this.ranked = usable(results)
+        // How far this browser's clock runs ahead of the chain (negative: behind). The smallest lag
+        // over the healthy nodes: the node that answered fastest is the one closest to the truth.
+        const lags = results.filter((r) => r.ok && Number.isFinite(r.lag)).map((r) => r.lag)
+        if (lags.length) this.clockSkewMs = Math.min(...lags) * 1000
         this.cursor = 0
         this.penalties.clear()
         this.probedAt = Date.now()
@@ -184,3 +190,6 @@ export class EndpointPool {
 }
 
 export const endpointPool = new EndpointPool()
+
+/** The current time as the chain sees it: what decides whether a lock has passed. */
+export const chainNow = () => Date.now() - endpointPool.clockSkewMs

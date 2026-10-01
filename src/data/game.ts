@@ -397,32 +397,41 @@ export function useWalletNfts(account: string | null): UseQueryResult<AssetRef[]
 export interface Deployment {
   missionId: number
   divisionId: number
-  entry: MissionEntryRow
+  /** The mission's entry row (the division's stats at join time); missing when a lagging node left it out. */
+  entry?: MissionEntryRow
   joinedAt: number
   unlockAt: number
 }
 
+/**
+ * Every division out on a mission, from the account's own lock table: one row per deployment,
+ * kept until the reward is claimed, with when it locked and until when. That table is small and
+ * read in one go, so a deployment can never go missing between refreshes. The mission's entry
+ * table (every player's entries, read page by page) only adds the division's stats at join time.
+ */
 async function fetchDeployments(account: string): Promise<Deployment[]> {
-  // divlocks stays until the reward is claimed, so it indexes every open entry without scanning all missions.
-  const locks = await getRows<DivLockRow>({ code: CONTRACTS.CORE, table: 'divlocks', scope: account })
+  const locks = await getRows<DivLockRow>({ code: CONTRACTS.CORE, table: 'divlocks', scope: account }, { confirmEmpty: true })
   const missionIds = [...new Set(locks.map((l) => Number(l.mission_id)))]
   const entries = await Promise.all(
-    missionIds.map((id) => getRows<MissionEntryRow>({ code: CONTRACTS.MISSIONS, table: 'missentries', scope: String(id) }))
+    missionIds.map((id) =>
+      getRows<MissionEntryRow>({ code: CONTRACTS.MISSIONS, table: 'missentries', scope: String(id) }).catch(
+        () => [] as MissionEntryRow[]
+      )
+    )
   )
-  const out: Deployment[] = []
+  const byDivision = new Map<string, MissionEntryRow>()
   missionIds.forEach((missionId, i) => {
-    for (const entry of entries[i]) {
-      if (String(entry.owner) !== account) continue
-      out.push({
-        missionId,
-        divisionId: Number(entry.division_id),
-        entry,
-        joinedAt: +chainDate(entry.join_time),
-        unlockAt: +chainDate(entry.unlock_time)
-      })
-    }
+    for (const e of entries[i]) if (String(e.owner) === account) byDivision.set(`${missionId}:${e.division_id}`, e)
   })
-  return out.sort((a, b) => a.unlockAt - b.unlockAt)
+  return locks
+    .map((l) => ({
+      missionId: Number(l.mission_id),
+      divisionId: Number(l.division_id),
+      entry: byDivision.get(`${Number(l.mission_id)}:${Number(l.division_id)}`),
+      joinedAt: +chainDate(l.locked_at),
+      unlockAt: +chainDate(l.locked_until)
+    }))
+    .sort((a, b) => a.unlockAt - b.unlockAt)
 }
 
 export function useDeployments(account: string | null): UseQueryResult<Deployment[]> {

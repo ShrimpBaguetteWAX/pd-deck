@@ -32,6 +32,7 @@ npm run typecheck && npm run lint
 ## How it talks to the chain
 
 - **Endpoint rotation** (`src/chain/endpoints.ts`, `rpc.ts`): every WAX node is probed at boot, ranked by latency, reads round-robin across the fastest few with a per-node token bucket, failed nodes are benched. Same module as in Mission Control.
+- **Chain clock**: the node probe measures how far the browser clock runs ahead of the chain, and everything that decides whether a lock has passed (`useClockFor`, `useNow`) uses the chain's time, so a fast local clock never shows a division as ready before the contract agrees.
 - **Wallets** (`src/wallet/session.ts`): WharfKit with WAX Cloud Wallet and Anchor, loaded on first use.
 - **Contracts** (`src/chain/actions/pd.ts`): `core.pdef` (stake, divisions, units, gear), `miss.pdef` (join, claim), `forge.pdef` (paid by token transfers with memos `forge:<level>` / `shop:<item>`). First-time players get `regplayer` prepended automatically.
 - **Mission thumbnails**: `npm run thumbs` (`scripts/mission-thumbs.mjs`) reads the missions table and writes a 160 px webp of every mission image to `public/img/missions/` plus `src/data/missionThumbs.ts`; the Missions list uses those (about 5 KB each) and only falls back to IPFS for a mission without one. Run it again when new missions appear.

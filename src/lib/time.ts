@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 
+import { chainNow, endpointPool } from '@/chain/endpoints'
+
 /** Chain timestamps come without a zone suffix but are UTC. */
 export function chainDate(value?: string | number | null): Date {
   if (value === undefined || value === null || value === '') return new Date(NaN)
@@ -94,23 +96,25 @@ export function useRerenderAt(at: number | undefined): number {
 }
 
 /**
- * The current time, for deciding what is ready: the caller re-renders only when the next of
- * `times` passes, not on every tick. Pair it with `<Ticking>` for countdown text that must change
- * every second, so only that text re-renders.
+ * The current time on the chain's clock, for deciding what is ready (a browser clock that runs a
+ * minute fast would otherwise show a lock as over before the contract agrees): the caller
+ * re-renders only when the next of `times` passes, not on every tick. Pair it with `<Ticking>` for
+ * countdown text that must change every second, so only that text re-renders.
  */
 export function useClockFor(times: (number | undefined)[]): number {
-  const now = Date.now()
+  const now = chainNow()
   let next = Infinity
   for (const time of times) if (time !== undefined && time > now && time < next) next = time
-  useRerenderAt(Number.isFinite(next) ? next : undefined)
+  // Timers run on the browser's clock, so the wake-up is shifted by the skew.
+  useRerenderAt(Number.isFinite(next) ? next + endpointPool.clockSkewMs : undefined)
   return now
 }
 
-/** Re-renders the caller every `intervalMs` and returns the current time. */
+/** Re-renders the caller every `intervalMs` and returns the current time on the chain's clock. */
 export function useNow(intervalMs = 1000): number {
-  const [now, setNow] = useState(() => Date.now())
+  const [now, setNow] = useState(() => chainNow())
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), intervalMs)
+    const id = setInterval(() => setNow(chainNow()), intervalMs)
     return () => clearInterval(id)
   }, [intervalMs])
   return now
