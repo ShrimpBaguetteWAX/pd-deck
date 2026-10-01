@@ -147,84 +147,76 @@
   font-size: 16px;
 }
 
-.lg-chart__bars {
+.lg-days {
   display: flex;
-  gap: 6px;
+  gap: 3px;
   align-items: stretch;
   overflow-x: auto;
-  padding-bottom: 4px;
+  padding: 4px 0 2px;
 }
 
-.lg-chart__bars > .tip {
-  flex: 1 0 36px;
+.lg-days > .tip {
+  flex: 1 0 34px;
+  min-width: 0;
 }
 
-.lg-chart__col {
+.lg-day {
   display: flex;
   flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  min-width: 36px;
+  min-width: 34px;
   text-align: center;
 }
 
-.lg-chart__up,
-.lg-chart__down {
+.lg-day__up,
+.lg-day__down {
   display: flex;
-  height: 70px;
+  flex-direction: column;
+  align-items: center;
+  height: 78px;
 }
 
-.lg-chart__up {
-  align-items: flex-end;
+.lg-day__up {
+  justify-content: flex-end;
   border-bottom: 1px solid var(--border);
 }
 
-.lg-chart__down {
-  align-items: flex-start;
+.lg-day__down {
+  justify-content: flex-start;
 }
 
-.lg-chart__up span,
-.lg-chart__down span {
-  width: 100%;
-  min-height: 1px;
+.lg-day__bar {
+  width: 70%;
+  min-height: 2px;
   border-radius: 3px;
 }
 
-.lg-chart__up span {
+.lg-day.is-up .lg-day__bar {
   background: var(--green);
 }
 
-.lg-chart__down span {
+.lg-day.is-down .lg-day__bar {
   background: #ff5d6e;
 }
 
-.lg-chart__col small {
+.lg-day small.num {
+  padding: 1px 0;
   font-size: 10px;
+  font-weight: 700;
   white-space: nowrap;
 }
 
-.lg-chart__legend {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 6px;
-  font-size: 11px;
+.lg-day.is-up small.num {
+  color: var(--green);
 }
 
-.lg-dot {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
+.lg-day.is-down small.num {
+  color: #ff8a97;
 }
 
-.lg-dot.is-in {
-  background: var(--green);
-}
-
-.lg-dot.is-out {
-  margin-left: 8px;
-  background: #ff5d6e;
+.lg-day__date {
+  margin-top: 2px;
+  font-size: 10px;
+  white-space: nowrap;
 }
 
 /* Entries */

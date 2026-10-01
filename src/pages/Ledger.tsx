@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { TokenIcon } from '@/components/Art'
 import { Loading } from '@/components/Loading'
@@ -18,7 +18,7 @@ import {
 } from '@/data/ledger'
 import { useListings, useSwapPools } from '@/data/market'
 import { marketFrom, SALE_KEEP, valueOf } from '@/lib/blendEconomy'
-import { formatNumber } from '@/lib/format'
+import { formatCompact, formatNumber } from '@/lib/format'
 import { midPrice, type Pool } from '@/lib/pool'
 import { useTransaction } from '@/wallet/useTransaction'
 
@@ -185,7 +185,7 @@ export default function Ledger() {
         <CategoryPanel title="Earned" rows={byCategory(EARN)} money={money} tone="c-green" />
       </div>
 
-      <MonthChart entries={entries} val={val} money={money} />
+      <DayChart entries={entries} val={val} money={money} unit={unit} />
 
       <section className="lg-list panel">
         <header className="lg-list__head">
@@ -287,61 +287,95 @@ function CategoryPanel({
   )
 }
 
-/** Spent and earned per month, as bars around a zero line. */
-function MonthChart({
+/** Net per day over the last 30 days: one bar, up when the day earned more than it spent, with the amount on it. */
+const CHART_DAYS = 30
+
+function DayChart({
   entries,
   val,
-  money
+  money,
+  unit
 }: {
   entries: LedgerEntry[]
   val: (e: LedgerEntry) => number | null
   money: (n: number | null, signed?: boolean) => string
+  unit: Unit
 }) {
-  const months = useMemo(() => {
-    const m = new Map<string, { label: string; in: number; out: number }>()
+  const days = useMemo(() => {
+    const today = new Date()
+    today.setHours(0, 0, 0, 0)
+    const list: { key: string; date: Date; in: number; out: number }[] = []
+    for (let i = CHART_DAYS - 1; i >= 0; i--) {
+      const d = new Date(today)
+      d.setDate(today.getDate() - i)
+      list.push({ key: d.toDateString(), date: d, in: 0, out: 0 })
+    }
+    const byKey = new Map(list.map((d) => [d.key, d]))
     for (const e of entries) {
-      const d = new Date(e.time)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const row = m.get(key) ?? { label: d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }), in: 0, out: 0 }
-      row[e.direction] += val(e) ?? 0
-      m.set(key, row)
+      const row = byKey.get(new Date(e.time).toDateString())
+      if (row) row[e.direction] += val(e) ?? 0
     }
-    if (!entries.length) return []
-    const first = new Date(entries[0].time)
-    const last = new Date(entries[entries.length - 1].time)
-    const out: { label: string; in: number; out: number }[] = []
-    for (let d = new Date(first.getFullYear(), first.getMonth(), 1); d <= last; d.setMonth(d.getMonth() + 1)) {
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      out.push(m.get(key) ?? { label: d.toLocaleDateString(undefined, { month: 'short', year: '2-digit' }), in: 0, out: 0 })
-    }
-    return out
+    return list
   }, [entries, val])
-  if (!months.length) return null
-  const top = Math.max(1, ...months.map((m) => Math.max(m.in, m.out)))
+  const top = Math.max(1e-9, ...days.map((d) => Math.abs(d.in - d.out)))
+  const active = days.some((d) => d.in > 0 || d.out > 0)
+  // Opens on the most recent days when the strip is wider than the panel.
+  const strip = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (strip.current) strip.current.scrollLeft = strip.current.scrollWidth
+  }, [active])
+  // Short labels for the bars: −$1.2k, +38 WAX becomes +38.
+  const short = (n: number) => {
+    const abs = Math.abs(n)
+    const body =
+      unit === 'USD'
+        ? `$${abs >= 1000 ? formatCompact(abs) : abs.toFixed(abs >= 100 ? 0 : abs >= 10 ? 1 : 2)}`
+        : formatCompact(abs)
+    return `${n < 0 ? '−' : '+'}${body}`
+  }
   return (
     <section className="lg-chart panel">
-      <h3>By month</h3>
-      <div className="lg-chart__bars">
-        {months.map((m) => (
-          <Tooltip
-            key={m.label}
-            text={`${m.label}: earned ${money(m.in)}, spent ${money(m.out)}, net ${money(m.in - m.out, true)}`}
-          >
-            <div className="lg-chart__col">
-              <span className="lg-chart__up">
-                <span style={{ height: `${(m.in / top) * 100}%` }} />
-              </span>
-              <span className="lg-chart__down">
-                <span style={{ height: `${(m.out / top) * 100}%` }} />
-              </span>
-              <small className="faint">{m.label}</small>
-            </div>
-          </Tooltip>
-        ))}
-      </div>
-      <p className="faint lg-chart__legend">
-        <span className="lg-dot is-in" /> earned <span className="lg-dot is-out" /> spent
-      </p>
+      <h3>Last {CHART_DAYS} days, net per day</h3>
+      {!active ? (
+        <p className="muted">Nothing in the last {CHART_DAYS} days.</p>
+      ) : (
+        <div className="lg-days" ref={strip}>
+          {days.map((d, i) => {
+            const net = d.in - d.out
+            // Square-root scale: one big day would otherwise flatten every other bar; the labels carry the exact amounts.
+            const h = Math.sqrt(Math.abs(net) / top) * 100
+            const first = i === 0 || d.date.getDate() === 1
+            return (
+              <Tooltip
+                key={d.key}
+                text={`${d.date.toLocaleDateString()}: earned ${money(d.in)}, spent ${money(d.out)}, net ${money(net, true)}`}
+              >
+                <div className={`lg-day ${net > 0 ? 'is-up' : net < 0 ? 'is-down' : ''}`}>
+                  <span className="lg-day__up">
+                    {net > 0 && (
+                      <>
+                        <small className="num">{short(net)}</small>
+                        <span className="lg-day__bar" style={{ height: `${h}%` }} />
+                      </>
+                    )}
+                  </span>
+                  <span className="lg-day__down">
+                    {net < 0 && (
+                      <>
+                        <span className="lg-day__bar" style={{ height: `${h}%` }} />
+                        <small className="num">{short(net)}</small>
+                      </>
+                    )}
+                  </span>
+                  <small className="faint lg-day__date">
+                    {first ? d.date.toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : d.date.getDate()}
+                  </small>
+                </div>
+              </Tooltip>
+            )
+          })}
+        </div>
+      )}
     </section>
   )
 }
