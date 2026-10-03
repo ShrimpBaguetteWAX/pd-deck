@@ -75,8 +75,8 @@ export default function Deployments() {
   /**
    * Claims `claims` and sends `redeploy` back out. The claims, the DEF purchase and the cash-out
    * go in the first transaction; the claimed TLM and DEF land before the next action runs, so they
-   * pay the new entries. The contract takes one join per transaction, so each division sent back
-   * out is a transaction of its own (a single division goes with the claims in one).
+   * pay the new entries. The contract takes one join per transaction, so the first division sent
+   * back out goes with the claims and every further one is a transaction of its own.
    */
   function cycle(claims: Deployment[], redeploy: Deployment[]) {
     const sum = (list: Deployment[], f: (e: MissionEconomics) => number) =>
@@ -102,21 +102,21 @@ export default function Deployments() {
         !!divisionById.get(x.divisionId) && !divisionById.get(x.divisionId)!.fresh,
         econ.get(x.missionId)!.costs
       )
-    const parts: { build: (a: string, p: string) => AnyAction[]; success: string }[] =
-      redeploy.length <= 1
-        ? [
-            {
-              build: (a, p) => [...head(a, p), ...redeploy.flatMap((x) => out(a, p, x))],
-              success: redeploy.length ? `#${redeploy[0].divisionId} claimed and redeployed` : `${claims.length} claimed`
-            }
-          ]
-        : [
-            { build: head, success: `${claims.length} reward${claims.length === 1 ? '' : 's'} claimed` },
-            ...redeploy.map((x) => ({
-              build: (a: string, p: string) => out(a, p, x),
-              success: `#${x.divisionId} sent back to ${econ.get(x.missionId)?.title ?? 'its mission'}`
-            }))
-          ]
+    const [first, ...rest] = redeploy
+    const parts: { build: (a: string, p: string) => AnyAction[]; success: string }[] = [
+      {
+        build: (a, p) => [...head(a, p), ...(first ? out(a, p, first) : [])],
+        success: !first
+          ? `${claims.length} claimed`
+          : rest.length
+            ? `${claims.length} claimed, #${first.divisionId} sent back out`
+            : `#${first.divisionId} claimed and redeployed`
+      },
+      ...rest.map((x) => ({
+        build: (a: string, p: string) => out(a, p, x),
+        success: `#${x.divisionId} sent back to ${econ.get(x.missionId)?.title ?? 'its mission'}`
+      }))
+    ]
     return { parts, build: parts[0].build, funding, surplusDef, sold, earnedTlm, earnedDef }
   }
 

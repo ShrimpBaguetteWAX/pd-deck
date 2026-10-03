@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 import type { AnyAction } from '@wharfkit/session'
 import { useShallow } from 'zustand/react/shallow'
 
@@ -40,6 +40,9 @@ type Build = (account: string, permission: string) => AnyAction | AnyAction[]
  * the other and in the original order (a deposit always lands before what spends it). Each part is
  * signed separately. If a part fails, the ones before it have already gone through; the message
  * says so.
+ *
+ * With `refresh: false` the player's data is not read again afterwards; a sequence uses it for
+ * all but its last transaction, so the next signature is asked for right away.
  */
 export function useTransaction() {
   const { account, permission, spectating } = useSession(
@@ -47,9 +50,13 @@ export function useTransaction() {
   )
   const player = usePlayer(account)
   const [pending, setPending] = useState<string | null>(null)
+  /** Set once a transaction of this session registered the player, so the next does not again. */
+  const registered = useRef(false)
+
+  type Options = { split?: boolean; refresh?: boolean }
 
   /** Resolves true once signed and refreshed, false when cancelled, refused or failed. */
-  async function run(build: Build, success: string, key = 'tx', opts: { split?: boolean } = {}): Promise<boolean> {
+  async function run(build: Build, success: string, key = 'tx', opts: Options = {}): Promise<boolean> {
     if (!account) return false
     if (spectating) {
       toast.info('You are viewing this account read-only. Sign in with your wallet to act.')
@@ -57,9 +64,18 @@ export function useTransaction() {
     }
     setPending(key)
     try {
+      return await runOne(account, build, success, opts)
+    } finally {
+      setPending(null)
+    }
+  }
+
+  async function runOne(account: string, build: Build, success: string, opts: Options): Promise<boolean> {
+    try {
       const built = build(account, permission)
       let actions = Array.isArray(built) ? built : [built]
-      if (player.data && !player.data.registered) actions = [regPlayer(account, permission), ...actions]
+      const register = !!player.data && !player.data.registered && !registered.current
+      if (register) actions = [regPlayer(account, permission), ...actions]
       const parts = opts.split ? splitActions(actions) : [actions]
       for (let i = 0; i < parts.length; i++) {
         if (parts.length > 1) {
@@ -68,6 +84,7 @@ export function useTransaction() {
         }
         try {
           await transact(parts[i])
+          if (register) registered.current = true
         } catch (err) {
           if (i === 0) throw err
           // Earlier parts are on chain: say so, and show what is there now.
@@ -81,37 +98,55 @@ export function useTransaction() {
         }
       }
       if (success) toast.success(success)
-      await sleep(CATCH_UP_MS)
-      await refreshPlayer(account)
-      setTimeout(() => void refreshPlayer(account), LATE_NODE_MS)
+      if (opts.refresh !== false) {
+        await sleep(CATCH_UP_MS)
+        await refreshPlayer(account)
+        setTimeout(() => void refreshPlayer(account), LATE_NODE_MS)
+      }
       return true
     } catch (err) {
       if (!isUserCancel(err)) toast.error(formatTransactError(err))
       return false
-    } finally {
-      setPending(null)
     }
   }
 
   /**
    * Signs several transactions one after another, in order, each with its own success message;
    * stops at the first that fails or is cancelled and says how many went through. Resolves to
-   * the number of transactions that went through.
+   * the number of transactions that went through. The next signature is asked for as soon as the
+   * previous transaction is accepted: the player's data is read again only once, at the end (the
+   * parts are built from the state before the first one, and the wallet broadcasts them all
+   * through one node, so a later part sees what an earlier one did).
    */
   async function runSequence(parts: { build: Build; success: string }[], key = 'tx'): Promise<number> {
-    for (let i = 0; i < parts.length; i++) {
-      if (parts.length > 1) toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].success}. Please sign.`)
-      const ok = await run(
-        parts[i].build,
-        parts.length > 1 ? `${i + 1} of ${parts.length}: ${parts[i].success}` : parts[i].success,
-        key
-      )
-      if (!ok) {
-        if (i > 0) toast.error(`Stopped at transaction ${i + 1} of ${parts.length}. The first ${i} went through.`)
-        return i
-      }
+    if (!account) return 0
+    if (spectating) {
+      toast.info('You are viewing this account read-only. Sign in with your wallet to act.')
+      return 0
     }
-    return parts.length
+    setPending(key)
+    try {
+      for (let i = 0; i < parts.length; i++) {
+        const last = i === parts.length - 1
+        if (parts.length > 1) toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].success}. Please sign.`)
+        const ok = await runOne(
+          account,
+          parts[i].build,
+          parts.length > 1 ? `${i + 1} of ${parts.length}: ${parts[i].success}` : parts[i].success,
+          { refresh: last }
+        )
+        if (!ok) {
+          if (i > 0) {
+            toast.error(`Stopped at transaction ${i + 1} of ${parts.length}. The first ${i} went through.`)
+            void refreshPlayer(account)
+          }
+          return i
+        }
+      }
+      return parts.length
+    } finally {
+      setPending(null)
+    }
   }
 
   return { run, runSequence, busy: pending !== null, pending, account, permission, spectating }
