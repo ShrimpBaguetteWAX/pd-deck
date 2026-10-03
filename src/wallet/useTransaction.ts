@@ -17,8 +17,12 @@ const LATE_NODE_MS = 4000
 const MAX_ACTIONS_PER_TX = 10
 /** Actions per transaction once split. */
 const SPLIT_SIZE = 10
-/** Between split parts: a later part may spend what an earlier one deposited, so let it land first. */
-const BETWEEN_PARTS_MS = 1500
+/**
+ * Between two transactions signed in a row: a later one may spend what an earlier one deposited,
+ * and Anchor drops a request that reaches it while it is still closing the previous one, so the
+ * next request waits this long.
+ */
+const BETWEEN_PARTS_MS = 2000
 
 /** One transaction, or parts of SPLIT_SIZE in order when there are more than MAX_ACTIONS_PER_TX actions. */
 export function splitActions<T>(actions: T[]): T[][] {
@@ -113,10 +117,10 @@ export function useTransaction() {
   /**
    * Signs several transactions one after another, in order, each with its own success message;
    * stops at the first that fails or is cancelled and says how many went through. Resolves to
-   * the number of transactions that went through. The next signature is asked for as soon as the
-   * previous transaction is accepted: the player's data is read again only once, at the end (the
-   * parts are built from the state before the first one, and the wallet broadcasts them all
-   * through one node, so a later part sees what an earlier one did).
+   * the number of transactions that went through. The next signature is asked for BETWEEN_PARTS_MS
+   * after the previous transaction is accepted: the player's data is read again only once, at the
+   * end (the parts are built from the state before the first one, and the wallet broadcasts them
+   * all through one node, so a later part sees what an earlier one did).
    */
   async function runSequence(parts: { build: Build; success: string }[], key = 'tx'): Promise<number> {
     if (!account) return 0
@@ -128,6 +132,7 @@ export function useTransaction() {
     try {
       for (let i = 0; i < parts.length; i++) {
         const last = i === parts.length - 1
+        if (i > 0) await sleep(BETWEEN_PARTS_MS)
         if (parts.length > 1) toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].success}. Please sign.`)
         const ok = await runOne(
           account,
