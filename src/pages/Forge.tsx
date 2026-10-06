@@ -434,31 +434,45 @@ export default function Forge() {
                           <LockIcon width={12} height={12} /> Forge Lv {nextLevel}
                         </span>
                       ) : (
-                        <Button
-                          size="sm"
-                          disabled={!affordable || level === 0}
-                          isLoading={pending === `buy-${c.key}`}
-                          style={{ '--btn-bg': c.accent, '--btn-color': '#04121c', '--btn-glow': 'transparent' } as CSSProperties}
-                          onClick={() =>
-                            run(
-                              async (a, p) => [
-                                // The swap is quoted at signing time; its surplus DEF stays in the wallet.
-                                ...fundEntries(a, p, await freshMarket(market), { tlm: 0, def: price!.amount }, balance).actions,
-                                buyShopItem(a, p, Number(nextItem.id), nextItem.price, nextItem.price_contract || 'defensetoken')
-                              ],
-                              `${c.label.slice(0, -1)} bought`,
-                              `buy-${c.key}`
-                            )
+                        <Tooltip
+                          text={
+                            funding && funding.defBought > 0
+                              ? `${formatToken(funding.defBought)} DEF short: about ${formatToken(funding.tlmTotal)} TLM is swapped for it in the same transaction.`
+                              : 'Paid from the DEF you hold.'
                           }
                         >
-                          {funding && funding.defBought > 0 ? 'Swap & buy' : 'Buy'}
-                        </Button>
+                          <Button
+                            size="sm"
+                            disabled={!affordable || level === 0}
+                            isLoading={pending === `buy-${c.key}`}
+                            style={
+                              { '--btn-bg': c.accent, '--btn-color': '#04121c', '--btn-glow': 'transparent' } as CSSProperties
+                            }
+                            onClick={() =>
+                              run(
+                                async (a, p) => [
+                                  // The swap is quoted at signing time; its surplus DEF stays in the wallet.
+                                  ...fundEntries(a, p, await freshMarket(market), { tlm: 0, def: price!.amount }, balance)
+                                    .actions,
+                                  buyShopItem(
+                                    a,
+                                    p,
+                                    Number(nextItem.id),
+                                    nextItem.price,
+                                    nextItem.price_contract || 'defensetoken'
+                                  )
+                                ],
+                                `${c.label.slice(0, -1)} bought`,
+                                `buy-${c.key}`
+                              )
+                            }
+                          >
+                            {funding && funding.defBought > 0 ? 'Swap & buy' : 'Buy'}
+                          </Button>
+                        </Tooltip>
                       )}
-                      {funding && funding.defBought > 0 && !locked && (
-                        <small className={affordable ? 'faint' : 'c-red'}>
-                          {formatToken(funding.defBought)} DEF short: ≈{formatToken(funding.tlmTotal)} TLM is swapped for it first
-                          {affordable ? '' : `, and you hold ${formatToken(player.data!.tlm)} TLM`}.
-                        </small>
+                      {funding && funding.defBought > 0 && !locked && !affordable && (
+                        <small className="c-red">Not enough TLM for the swap.</small>
                       )}
                     </>
                   )}
