@@ -17,7 +17,6 @@ import {
   LedgerIcon,
   LogoutIcon,
   RocketIcon,
-  ShardIcon,
   SwordIcon,
   UsersIcon
 } from '@/icons'
@@ -90,11 +89,10 @@ export function AppShell({ children }: { children: ReactNode }) {
                   <b className="num">{player.data ? formatCompact(player.data.def) : '–'}</b>
                 </span>
               </Tooltip>
-              <Tooltip text="Shards: Alien Worlds points you can redeem. Shard missions (Valtori, Skarvex) add to these.">
-                <span className="balance balance--shards">
-                  <ShardIcon width={16} height={16} />
-                  <b className="num">{player.data ? formatCompact(player.data.shards) : '–'}</b>
-                  <small>shards</small>
+              <Tooltip text="WAX in your wallet: what the Market and the Blend page spend.">
+                <span className="balance">
+                  <TokenIcon symbol="WAX" />
+                  <b className="num">{player.data ? formatCompact(player.data.wax) : '–'}</b>
                 </span>
               </Tooltip>
             </div>

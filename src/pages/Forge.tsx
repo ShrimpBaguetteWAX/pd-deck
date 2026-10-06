@@ -7,11 +7,20 @@ import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure } from '@/components/Stat'
 import { Tooltip } from '@/components/Tooltip'
-import { useArmy, useAssetStats, useForgeConfig, useMarket, usePlayer, useTemplates, useWalletNfts } from '@/data/game'
+import {
+  freshMarket,
+  useArmy,
+  useAssetStats,
+  useForgeConfig,
+  useMarket,
+  usePlayer,
+  useTemplates,
+  useWalletNfts
+} from '@/data/game'
 import type { ShopItemRow } from '@/data/types'
 import { CheckIcon, FlameIcon, LockIcon } from '@/icons'
 import { asset, formatNumber, formatToken, parseAsset } from '@/lib/format'
-import { tlmForDefOut } from '@/lib/market'
+import { fundEntries, quoteFunding, tlmForDefOut } from '@/lib/market'
 import { publicUrl } from '@/lib/publicUrl'
 import { useTransaction } from '@/wallet/useTransaction'
 
@@ -339,7 +348,10 @@ export default function Forge() {
           const nextLevel = nextItem ? Number(nextItem.min_forge_level) : 0
           const locked = !!nextItem && nextLevel > level
           const price = nextItem ? parseAsset(nextItem.price) : null
-          const affordable = !!price && player.data!.def >= price.amount
+          // DEF you are short of is bought with TLM on Alcor in the same transaction (see fundEntries).
+          const balance = { tlm: player.data!.tlm, def: player.data!.def }
+          const funding = price ? quoteFunding(market, { tlm: 0, def: price.amount }, balance) : null
+          const affordable = !!funding && funding.affordable
           const bands = [...new Set(items.map((i) => Number(i.min_forge_level)))].sort((a, b) => a - b)
           return (
             <article key={c.key} className="fcat" style={{ '--accent': c.accent } as CSSProperties}>
@@ -429,15 +441,24 @@ export default function Forge() {
                           style={{ '--btn-bg': c.accent, '--btn-color': '#04121c', '--btn-glow': 'transparent' } as CSSProperties}
                           onClick={() =>
                             run(
-                              (a, p) =>
-                                buyShopItem(a, p, Number(nextItem.id), nextItem.price, nextItem.price_contract || 'defensetoken'),
+                              async (a, p) => [
+                                // The swap is quoted at signing time; its surplus DEF stays in the wallet.
+                                ...fundEntries(a, p, await freshMarket(market), { tlm: 0, def: price!.amount }, balance).actions,
+                                buyShopItem(a, p, Number(nextItem.id), nextItem.price, nextItem.price_contract || 'defensetoken')
+                              ],
                               `${c.label.slice(0, -1)} bought`,
                               `buy-${c.key}`
                             )
                           }
                         >
-                          Buy
+                          {funding && funding.defBought > 0 ? 'Swap & buy' : 'Buy'}
                         </Button>
+                      )}
+                      {funding && funding.defBought > 0 && !locked && (
+                        <small className={affordable ? 'faint' : 'c-red'}>
+                          {formatToken(funding.defBought)} DEF short: ≈{formatToken(funding.tlmTotal)} TLM is swapped for it first
+                          {affordable ? '' : `, and you hold ${formatToken(player.data!.tlm)} TLM`}.
+                        </small>
                       )}
                     </>
                   )}
