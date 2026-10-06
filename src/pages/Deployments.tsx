@@ -10,7 +10,16 @@ import { Loading } from '@/components/Loading'
 import { Figure, StatTrio } from '@/components/Stat'
 import { Ticking } from '@/components/Ticking'
 import { Tooltip } from '@/components/Tooltip'
-import { useArmy, useDeployments, useMarket, useMissionConfig, usePlayer, useTemplates, type Deployment } from '@/data/game'
+import {
+  freshMarket,
+  useArmy,
+  useDeployments,
+  useMarket,
+  useMissionConfig,
+  usePlayer,
+  useTemplates,
+  type Deployment
+} from '@/data/game'
 import { GiftIcon, RefreshIcon, RocketIcon, TimerIcon } from '@/icons'
 import { clock, formatDuration, formatSigned, formatToken, titleCase } from '@/lib/format'
 import { costParts, cycleNet, missionEconomics, rewardParts, type MissionEconomics } from '@/lib/loop'
@@ -76,7 +85,8 @@ export default function Deployments() {
    * Claims `claims` and sends `redeploy` back out. The claims, the DEF purchase and the cash-out
    * go in the first transaction; the claimed TLM and DEF land before the next action runs, so they
    * pay the new entries. The contract takes one join per transaction, so the first division sent
-   * back out goes with the claims and every further one is a transaction of its own.
+   * back out goes with the claims and every further one is a transaction of its own. The swaps
+   * are built from a pool quote read at signing time, so their minimum output is current.
    */
   function cycle(claims: Deployment[], redeploy: Deployment[]) {
     const sum = (list: Deployment[], f: (e: MissionEconomics) => number) =>
@@ -88,11 +98,14 @@ export default function Deployments() {
     const funding = quoteFunding(market, cost, after)
     const surplusDef = cashOut ? Math.max(0, earnedDef - cost.def) : 0
     const sold = surplusDef > 0 ? tlmForDef(market, surplusDef) : 0
-    const head = (a: string, p: string) => [
-      ...claims.map((d) => claimMission(a, p, d.missionId, d.divisionId)),
-      ...fundEntries(a, p, market, cost, after).actions,
-      ...(surplusDef > 0 ? [sellDefAction(a, p, market, surplusDef).action] : [])
-    ]
+    const head = async (a: string, p: string) => {
+      const m = await freshMarket(market)
+      return [
+        ...claims.map((d) => claimMission(a, p, d.missionId, d.divisionId)),
+        ...fundEntries(a, p, m, cost, after).actions,
+        ...(surplusDef > 0 ? [sellDefAction(a, p, m, surplusDef).action] : [])
+      ]
+    }
     const out = (a: string, p: string, x: Deployment) =>
       deployActions(
         a,
@@ -103,9 +116,9 @@ export default function Deployments() {
         econ.get(x.missionId)!.costs
       )
     const [first, ...rest] = redeploy
-    const parts: { build: (a: string, p: string) => AnyAction[]; success: string }[] = [
+    const parts: { build: (a: string, p: string) => AnyAction[] | Promise<AnyAction[]>; success: string }[] = [
       {
-        build: (a, p) => [...head(a, p), ...(first ? out(a, p, first) : [])],
+        build: async (a, p) => [...(await head(a, p)), ...(first ? out(a, p, first) : [])],
         success: !first
           ? `${claims.length} claimed`
           : rest.length

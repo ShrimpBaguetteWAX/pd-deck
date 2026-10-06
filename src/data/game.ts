@@ -115,6 +115,18 @@ export function useMarket(): Market {
   return q.data ?? fallbackMarket()
 }
 
+/**
+ * The pool as it is right now, for a swap about to be signed: the hook's copy may be minutes old,
+ * and a swap's minimum output is set from it. Falls back to what the caller has if the read fails.
+ */
+export async function freshMarket(fallback: Market): Promise<Market> {
+  try {
+    return await queryClient.fetchQuery({ queryKey: ['market'], queryFn: fetchMarket, staleTime: 0 })
+  } catch {
+    return fallback
+  }
+}
+
 export function useGlobalStats() {
   return useQuery({
     queryKey: ['globalstats'],

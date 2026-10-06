@@ -8,7 +8,16 @@ import { Loading } from '@/components/Loading'
 import { Modal } from '@/components/Modal'
 import { Figure, StatTrio } from '@/components/Stat'
 import { Tooltip } from '@/components/Tooltip'
-import { useArmy, useDeployments, useMarket, useMissionConfig, usePlayer, useTemplates, type Division } from '@/data/game'
+import {
+  freshMarket,
+  useArmy,
+  useDeployments,
+  useMarket,
+  useMissionConfig,
+  usePlayer,
+  useTemplates,
+  type Division
+} from '@/data/game'
 import { ChevronIcon, RocketIcon, ShardIcon, ShieldIcon, SwordIcon, TimerIcon, XIcon } from '@/icons'
 import { formatDuration, formatNumber, formatSigned, formatToken, percent, titleCase } from '@/lib/format'
 import {
@@ -176,8 +185,10 @@ export default function Missions() {
     if (!plan.length) return
     const done = await runSequence(
       plan.map((l, i) => ({
-        build: (a: string, p: string) => [
-          ...(i === 0 ? fundEntries(a, p, market, { tlm: planCostTlm, def: planCostDef }, balance).actions : []),
+        build: async (a: string, p: string) => [
+          ...(i === 0
+            ? fundEntries(a, p, await freshMarket(market), { tlm: planCostTlm, def: planCostDef }, balance).actions
+            : []),
           ...deployActions(a, p, l.mission.id, l.division.id, !l.division.fresh, l.mission.costs)
         ],
         success: `#${l.division.id} sent to ${l.mission.title}`
@@ -396,6 +407,13 @@ export default function Missions() {
                       {isBest && <em className="mrow__best">Best loop</em>}
                       {isBest && !deployable && <em className="mrow__flag">division out</em>}
                       {e.state === 'upcoming' && <em className="mrow__flag">Starts {shortDuration(e.startAt - now)}</em>}
+                      {e.state === 'active' && Number.isFinite(e.endAt) && (
+                        <Tooltip text="How long this mission can still be joined. A division already out keeps its lock and reward.">
+                          <em className={`mrow__flag ${e.endAt - now < 24 * 3_600_000 ? 'is-red' : ''}`}>
+                            Ends in {shortDuration(e.endAt - now)}
+                          </em>
+                        </Tooltip>
+                      )}
                       {e.state === 'full' && <em className="mrow__flag is-red">Full</em>}
                       {e.state === 'capped' && <em className="mrow__flag is-red">Shard budget spent</em>}
                       {e.shardCap ? (
@@ -530,8 +548,8 @@ export default function Missions() {
             // One transaction per division; the first also buys the DEF all the entries need.
             const done = await runSequence(
               chosen.map((d, i) => ({
-                build: (a: string, p: string) => [
-                  ...(i === 0 ? fundEntries(a, p, market, cost, balance).actions : []),
+                build: async (a: string, p: string) => [
+                  ...(i === 0 ? fundEntries(a, p, await freshMarket(market), cost, balance).actions : []),
                   ...deployActions(a, p, deploying.id, d.id, !d.fresh, deploying.costs)
                 ],
                 success: `#${d.id} sent to ${deploying.title}`

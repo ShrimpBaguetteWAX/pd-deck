@@ -32,7 +32,8 @@ export function splitActions<T>(actions: T[]): T[][] {
   )
 }
 
-type Build = (account: string, permission: string) => AnyAction | AnyAction[]
+/** Builds the actions when it is time to sign; may read fresh data first (a pool quote, say). */
+type Build = (account: string, permission: string) => AnyAction | AnyAction[] | Promise<AnyAction | AnyAction[]>
 
 /**
  * Signs one or more actions for the signed-in player, shows the outcome and reads the player's
@@ -76,7 +77,7 @@ export function useTransaction() {
 
   async function runOne(account: string, build: Build, success: string, opts: Options): Promise<boolean> {
     try {
-      const built = build(account, permission)
+      const built = await build(account, permission)
       let actions = Array.isArray(built) ? built : [built]
       const register = !!player.data && !player.data.registered && !registered.current
       if (register) actions = [regPlayer(account, permission), ...actions]

@@ -68,8 +68,13 @@ export function tlmForDef(m: Market, def: number): number {
   return (m.liquidity * (1 / m.sqrt - 1 / next)) / TLM_UNIT
 }
 
-/** Slippage room on real swaps: the quote may move between reading the pool and signing. */
-const SLIPPAGE = 0.02
+/**
+ * Slippage room on real swaps: the quote may move between reading the pool and signing. Wide on
+ * purpose: these swaps are small (entry fees, claimed DEF), a refused fill costs a whole
+ * transaction, and the room is only used if the price really moved (a purchase keeps its surplus
+ * DEF; a sale's floor only binds when the pool moved against it).
+ */
+export const SLIPPAGE = 0.05
 
 const ceil = (n: number, decimals: number) => Math.ceil(n * 10 ** decimals) / 10 ** decimals
 const floor = (n: number, decimals: number) => Math.floor(n * 10 ** decimals) / 10 ** decimals
