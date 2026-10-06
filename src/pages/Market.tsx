@@ -24,7 +24,8 @@ import {
   usePlayer,
   useTemplates,
   useWalletNfts,
-  type PlayerData
+  type PlayerData,
+  type Division
 } from '@/data/game'
 import { useListings, useSwapPools, type Listing, type SwapPools } from '@/data/market'
 import { marketFrom, mintable, planBlend, resultOf, type Market as BlendMarket } from '@/lib/blendEconomy'
@@ -51,12 +52,14 @@ import { useTransaction } from '@/wallet/useTransaction'
 import './Market.css'
 
 /**
- * Where a bundle item comes from: a market listing to buy, your reserve, your wallet (to stake), or
- * a blend (materials bought or owned, burned in a recipe; `asset` only describes the result).
+ * Where a bundle item comes from: a market listing to buy, your reserve, one of your divisions
+ * (to take out first), your wallet (to stake), or a blend (materials bought or owned, burned in a
+ * recipe; `asset` only describes the result).
  */
 type Source =
   | { from: 'market'; listing: Listing }
   | { from: 'reserve'; asset: AssetRef }
+  | { from: 'division'; asset: AssetRef; division: number; locked: boolean }
   | { from: 'wallet'; asset: AssetRef }
   | { from: 'blend'; blend: Blend; asset: AssetRef }
 
@@ -98,6 +101,12 @@ const FRESH_REFINEMENT: Refinement = {
 }
 
 /** A short, stable fingerprint of a long string. */
+/** Everything staked inside a division: its leader, its units and their gear. */
+const divisionPieces = (d: Division): AssetRef[] =>
+  [d.leader, ...d.units.flatMap((u) => [u.asset, u.gear.weapon, u.gear.supply, u.gear.creature, u.gear.lavalux])].filter(
+    (a): a is AssetRef => !!a
+  )
+
 function hashOf(text: string): string {
   let h = 5381
   for (let i = 0; i < text.length; i++) h = (h * 33) ^ text.charCodeAt(i)
@@ -174,9 +183,10 @@ export default function Market() {
   const [scanKey, setScanKey] = useState<string | null>(null)
   // Staked NFTs (the reserve), wallet NFTs and wallet blend materials can each be used or not.
   const [useStaked, setUseStaked] = useState(true)
+  const [useDivisions, setUseDivisions] = useState(false)
   const [useWallet, setUseWallet] = useState(true)
   const [useMaterials, setUseMaterials] = useState(true)
-  const useOwned = useStaked || useWallet || useMaterials
+  const useOwned = useStaked || useDivisions || useWallet || useMaterials
   const [locked, setLocked] = useState<Locked | null>(null)
   /*
    * Blend prices corrected after a solve (see below), keyed by candidate; cleared when the targets
@@ -203,7 +213,7 @@ export default function Market() {
   const forgeLevel = player.data?.forgeLevel ?? 0
 
   // Nothing is searched until the user asks: typing a target should not start a long search.
-  const paramsKey = `${atk}/${def}/${maxMove ?? '-'}/${useStaked}/${useWallet}/${useMaterials}`
+  const paramsKey = `${atk}/${def}/${maxMove ?? '-'}/${useStaked}/${useDivisions}/${useWallet}/${useMaterials}`
   const scanning = !!scanKey && scanKey.startsWith(paramsKey + '#')
   /*
    * A scan works on a snapshot of the market and your NFTs taken when it starts. Pool prices refresh
@@ -223,7 +233,7 @@ export default function Market() {
   const [frozen, setFrozen] = useState<{ key: string; at: number; data: typeof live } | null>(null)
   const scanWith = (a: number, d: number) => {
     if (a <= 0 && d <= 0) return
-    const key = `${a}/${d}/${maxMove ?? '-'}/${useStaked}/${useWallet}/${useMaterials}#${Date.now()}`
+    const key = `${a}/${d}/${maxMove ?? '-'}/${useStaked}/${useDivisions}/${useWallet}/${useMaterials}#${Date.now()}`
     setScanKey(key)
     setFrozen({ key, at: Date.now(), data: live })
   }
@@ -265,6 +275,7 @@ export default function Market() {
                 .flatMap((list) => list.map((a) => a.assetId))
                 .join(',')
             : '',
+          snap.army ? snap.army.divisions.flatMap((d) => divisionPieces(d).map((a) => a.assetId)).join(',') : '',
           [...(snap.ownedInputs?.entries() ?? [])].map(([t, ids]) => `${t}:${ids.length}`).join(',')
         ].join('|')
       ),
@@ -333,6 +344,13 @@ export default function Market() {
     if (useStaked && snap.army)
       for (const kind of Object.keys(snap.army.free) as Kind[])
         for (const a of snap.army.free[kind]) add(`own:${a.assetId}`, { from: 'reserve', asset: a }, 0)
+    // NFTs inside divisions count as free too: the player takes them out (or disbands) to build
+    // this one. Gear that moves over keeps the Forge slot it already has, so a bundle that reuses
+    // it needs one slot fewer than counted; a small overstatement on the safe side.
+    if (useDivisions && snap.army)
+      for (const d of snap.army.divisions)
+        for (const a of divisionPieces(d))
+          add(`own:${a.assetId}`, { from: 'division', asset: a, division: d.id, locked: !!d.lock }, 0)
     if (useWallet) {
       for (const a of snap.wallet ?? []) add(`wal:${a.assetId}`, { from: 'wallet', asset: a }, 0)
     }
@@ -399,6 +417,7 @@ export default function Market() {
     statsMap.data,
     templatesJson.data,
     useStaked,
+    useDivisions,
     useWallet,
     atk,
     def,
@@ -773,6 +792,17 @@ export default function Market() {
                 <span className="cashout__knob" /> Staked NFTs
               </button>
             </Tooltip>
+            <Tooltip text="NFTs inside your divisions count as free as well: you take them out in Army (or disband the division) to build this one. Divisions out on a mission are included; those NFTs are yours again when the division returns.">
+              <button
+                type="button"
+                className={`cashout ${useDivisions ? 'is-on' : ''}`}
+                disabled={!!locked}
+                onClick={() => setUseDivisions((v) => !v)}
+                aria-pressed={useDivisions}
+              >
+                <span className="cashout__knob" /> In divisions
+              </button>
+            </Tooltip>
             <Tooltip text="Warlords, mercenaries and gear in your wallet count as free and are staked in the same transaction as the purchase.">
               <button
                 type="button"
@@ -991,6 +1021,17 @@ export default function Market() {
               {!affordable && (
                 <small className="c-red">You need {formatNumber(plan.waxTotal - player.data.wax, 2)} more WAX.</small>
               )}
+              {plan.fromDivisions.length > 0 && (
+                <small className="c-yellow">
+                  {plan.fromDivisions.length === 1 ? 'One of these NFTs is' : plan.fromDivisions.length + ' of these NFTs are'} in
+                  your divisions ({[...new Set(plan.fromDivisions.map((s) => s.division))].map((id) => `#${id}`).join(', ')}):
+                  take them out in Army before building this one.
+                  {plan.fromDivisions.some((s) => s.locked) &&
+                    (plan.fromDivisions.length === 1
+                      ? ' It is out on a mission until it returns.'
+                      : ' Some are out on a mission until it returns.')}
+                </small>
+              )}
               <small className="faint">
                 Signed in small steps: swaps, Forge and slots first, then the listings {SALES_PER_TX} at a time (each group
                 checked, paid and bought together), then blends and staking. A step that fails costs nothing and can be resumed.
@@ -1077,6 +1118,7 @@ function summarize(
   const src = keys.map((k) => sources.get(k)!).filter(Boolean)
   const toBuy = src.flatMap((s) => (s.from === 'market' ? [s.listing] : []))
   const fromWallet = src.flatMap((s) => (s.from === 'wallet' ? [s.asset] : []))
+  const fromDivisions = src.flatMap((s) => (s.from === 'division' ? [s] : []))
   // The chosen blends, planned together so two recipes never count the same material twice.
   const blendRuns: (BlendRun & { key: string; templateId: string; cost: number })[] = []
   const materialBuys: Listing[] = []
@@ -1113,6 +1155,7 @@ function summarize(
     move: b.move,
     toBuy,
     fromWallet,
+    fromDivisions,
     owned: src.length - toBuy.length - blendRuns.length,
     blendRuns,
     materialBuys,
@@ -1277,6 +1320,8 @@ function BundleCard({ source, role, small = false }: { source: Source; role: str
           'in wallet'
         ) : source.from === 'blend' ? (
           <span className="mk-card__blend">blend</span>
+        ) : source.from === 'division' ? (
+          `in #${source.division}${source.locked ? ' (on mission)' : ''}`
         ) : (
           'reserve'
         )}
