@@ -28,7 +28,16 @@ import {
   type Division
 } from '@/data/game'
 import { useListings, useSwapPools, type Listing, type SwapPools } from '@/data/market'
-import { marketFrom, mintable, planBlend, resultOf, type Market as BlendMarket } from '@/lib/blendEconomy'
+import {
+  marketFrom,
+  mintable,
+  openingsOf,
+  planBlend,
+  resultOf,
+  type Market as BlendMarket,
+  type Opening
+} from '@/lib/blendEconomy'
+import { forecastOpenings, type ChestForecast } from '@/lib/chestOdds'
 import { isTokenLoop, tlmPerHour, cycleSeconds, type MissionEconomics } from '@/lib/loop'
 import type { Market as TlmDefMarket } from '@/lib/market'
 import { CartIcon, CheckIcon, FlameIcon, MinusIcon, PlusIcon, RocketIcon, TimerIcon } from '@/icons'
@@ -42,7 +51,7 @@ import {
   type WarlordOption
 } from '@/lib/bundle'
 import { buildEconomy, waxFor } from '@/lib/forgeEconomy'
-import { formatDuration, formatNumber, formatToken, titleCase } from '@/lib/format'
+import { formatDuration, formatNumber, formatToken, percent, titleCase } from '@/lib/format'
 import { buyExactAction, receiveFor } from '@/lib/pool'
 import { missionEconomics } from '@/lib/loop'
 import { kindOfCategory, KIND_LABEL, type Kind } from '@/lib/stats'
@@ -206,6 +215,8 @@ export default function Market() {
     phase: Refinement['phase']
   } | null>(null)
   const [browse, setBrowse] = useState<Kind | 'all'>('mercenary')
+  /** How many chests the "open chests first?" forecast assumes. */
+  const [chestCounts, setChestCounts] = useState({ chest: 10, key: 10 })
 
   const atk = Math.max(0, Math.round(Number(atkText) || 0))
   const def = Math.max(0, Math.round(Number(defText) || 0))
@@ -240,6 +251,9 @@ export default function Market() {
   const scan = () => scanWith(atk, def)
   const snapshot = scanning && frozen?.key === scanKey ? frozen : null
   const snap = snapshot?.data ?? live
+
+  // The two Quantum Chest recipes, for the "open chests first?" forecast.
+  const openings = useMemo(() => (blends.data ? openingsOf(blends.data) : null), [blends.data])
 
   // Every current mission, for the payback panel.
   const missionList = useMemo(
@@ -1045,6 +1059,15 @@ export default function Market() {
         </div>
       </section>
 
+      {plan && shown && blendMarket && openings && plan.blendRuns.length > 0 && !locked && (
+        <ChestPanel
+          buys={plan.materialBuys}
+          market={blendMarket}
+          openings={openings}
+          counts={chestCounts}
+          onCounts={setChestCounts}
+        />
+      )}
       {plan && shown && (
         <RoiPanel
           atk={shown.atk}
@@ -1577,5 +1600,146 @@ function RefineProgress({
         goes down.
       </small>
     </div>
+  )
+}
+
+/** A number of openings, typed; blank counts as none. */
+function CountField({ label, value, onChange }: { label: string; value: number; onChange: (n: number) => void }) {
+  return (
+    <label className="mk-chest__field">
+      <span>{label}</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min={0}
+        max={500}
+        step={1}
+        value={value || ''}
+        placeholder="0"
+        onChange={(e) => onChange(Math.max(0, Math.min(500, Math.round(Number(e.target.value) || 0))))}
+      />
+    </label>
+  )
+}
+
+/**
+ * Whether opening Quantum Chests first would make the bundle cheaper: for so many chests and
+ * chests with keys, what they cost, how many of the materials the bundle buys they would cover
+ * on average, and what the rest would sell for.
+ */
+function ChestPanel({
+  buys,
+  market,
+  openings,
+  counts,
+  onCounts
+}: {
+  buys: { templateId: string; price: number }[]
+  market: BlendMarket
+  openings: { chest: Opening | null; chestKey: Opening | null }
+  counts: { chest: number; key: number }
+  onCounts: (c: { chest: number; key: number }) => void
+}) {
+  const rows: { label: string; forecast: ChestForecast }[] = []
+  if (openings.chest && counts.chest > 0)
+    rows.push({
+      label: `${counts.chest} Chest${counts.chest === 1 ? '' : 's'}`,
+      forecast: forecastOpenings([{ opening: openings.chest, count: counts.chest }], buys, market)
+    })
+  if (openings.chestKey && counts.key > 0)
+    rows.push({
+      label: `${counts.key} Chest${counts.key === 1 ? '' : 's'} + Key`,
+      forecast: forecastOpenings([{ opening: openings.chestKey, count: counts.key }], buys, market)
+    })
+  if (rows.length === 2 && openings.chest && openings.chestKey)
+    rows.push({
+      label: 'Both together',
+      forecast: forecastOpenings(
+        [
+          { opening: openings.chest, count: counts.chest },
+          { opening: openings.chestKey, count: counts.key }
+        ],
+        buys,
+        market
+      )
+    })
+  const net = (f: ChestForecast) => (f.cost === null ? null : f.saving + f.surplus - f.cost)
+  const best = rows.reduce<{ label: string; forecast: ChestForecast } | null>((b, r) => {
+    const n = net(r.forecast)
+    return n !== null && n > 0 && (b === null || n > net(b.forecast)!) ? r : b
+  }, null)
+  const bought = buys.reduce((n, b) => n + b.price, 0)
+
+  return (
+    <section className="mk-chest panel panel--tight">
+      <div className="mk-chest__head">
+        <div>
+          <p className="eyebrow">Open chests first?</p>
+          <p className="muted">
+            This bundle buys {buys.length} material{buys.length === 1 ? '' : 's'} for {formatNumber(bought, 0)} WAX. Every chest
+            pulls one material at random; here is what opening some first would do to the price, on average.
+          </p>
+        </div>
+        <div className="mk-chest__fields">
+          <CountField label="Chests" value={counts.chest} onChange={(n) => onCounts({ ...counts, chest: n })} />
+          <CountField label="Chests + Keys" value={counts.key} onChange={(n) => onCounts({ ...counts, key: n })} />
+        </div>
+      </div>
+      {buys.length === 0 ? (
+        <p className="muted">Every material this bundle blends is already yours, so chests could not lower the price.</p>
+      ) : rows.length === 0 ? (
+        <p className="muted">Enter how many chests you would open.</p>
+      ) : (
+        <>
+          <div className="mk-chest__table">
+            <div className="mk-chest__row mk-chest__row--head">
+              <span>Openings</span>
+              <Tooltip text="Chests and keys at today's floors.">
+                <span>Cost</span>
+              </Tooltip>
+              <Tooltip text="Of the materials the bundle buys, how many the openings would cover on average.">
+                <span>Covered</span>
+              </Tooltip>
+              <Tooltip text="How much lower the bundle's price would be on average: each covered material at the listing it replaces, dearest first.">
+                <span>Price decrease</span>
+              </Tooltip>
+              <Tooltip text="The materials pulled that this bundle does not need, at market value after the 7% sale fees.">
+                <span>Surplus</span>
+              </Tooltip>
+              <Tooltip text="Price decrease plus surplus, minus the openings' cost. Above zero, opening first pays on average.">
+                <span>Net</span>
+              </Tooltip>
+            </div>
+            {rows.map(({ label, forecast: f }) => {
+              const n = net(f)
+              return (
+                <div key={label} className={`mk-chest__row ${best?.label === label ? 'is-best' : ''}`}>
+                  <b>{label}</b>
+                  <span className="num">{f.cost === null ? 'not listed' : formatNumber(f.cost, 0)}</span>
+                  <span className="num">
+                    {formatNumber(f.covered, 1)} <small className="faint">of {f.needed}</small>
+                  </span>
+                  <span className="num c-green">−{formatNumber(f.saving, 0)}</span>
+                  <span className="num">
+                    +{formatNumber(f.surplus, 0)}
+                    {f.unpriced > 0.05 && <small className="faint"> · {percent(f.unpriced, 0)} unpriced</small>}
+                  </span>
+                  <b className={`num ${n === null ? '' : n > 0 ? 'c-green' : 'c-red'}`}>
+                    {n === null ? '–' : `${n > 0 ? '+' : ''}${formatNumber(n, 0)}`}
+                  </b>
+                </div>
+              )
+            })}
+          </div>
+          <p className="muted mk-chest__verdict">
+            {best
+              ? `Opening first should pay: ${best.label.toLowerCase()} comes out about ${formatNumber(net(best.forecast)!, 0)} WAX ahead on average, counting the surplus sold. The price itself drops by about ${formatNumber(best.forecast.saving, 0)} WAX.`
+              : 'Buying the materials directly is cheaper on average than opening chests for them, even counting the surplus sold.'}{' '}
+            Averages only: a single run can land far from them. After opening, scan again with My materials on; the new materials
+            are used first.
+          </p>
+        </>
+      )}
+    </section>
   )
 }
