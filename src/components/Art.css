@@ -43,3 +43,78 @@
   flex: none;
   vertical-align: -4px;
 }
+
+/* ---- Enlarging card art ---- */
+
+.zoomable {
+  cursor: zoom-in;
+  transition:
+    outline-color 0.15s ease,
+    filter 0.15s ease;
+  outline: 2px solid transparent;
+  outline-offset: 1px;
+}
+
+.zoomable:hover,
+.zoomable:focus-visible {
+  filter: brightness(1.15);
+  outline-color: var(--rarity, var(--text-dim));
+}
+
+/* fit-content (not auto): a fixed, inset-0 dialog with auto width stretches instead of centring. */
+.lightbox {
+  margin: auto;
+  width: fit-content;
+  height: fit-content;
+  max-width: 94vw;
+  max-height: 94vh;
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  overflow: visible;
+}
+
+.lightbox::backdrop {
+  background: rgba(0, 0, 0, 0.82);
+  backdrop-filter: blur(6px);
+}
+
+.lightbox__fig {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  cursor: zoom-out;
+}
+
+.lightbox__fig img {
+  display: block;
+  width: auto;
+  height: auto;
+  max-width: 92vw;
+  max-height: 80vh;
+  /* The card carries its own frame; the overlay adds none. */
+  border-radius: 12px;
+}
+
+.lightbox__fig figcaption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  color: var(--text);
+  font-size: 15px;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.8);
+}
+
+.lightbox__fig figcaption small {
+  font-size: 12px;
+  text-transform: capitalize;
+}
+
+/* The browser focuses the dialog itself when it opens; the art needs no ring around it. */
+.lightbox:focus,
+.lightbox:focus-visible {
+  outline: none;
+}

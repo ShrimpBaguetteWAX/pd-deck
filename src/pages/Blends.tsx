@@ -3,7 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { blendActions, type BlendRun } from '@/chain/actions/blend'
 import { atomic, type AtomicAsset } from '@/chain/atomic'
 import { buySalesActions } from '@/chain/actions/market'
-import { IpfsImg, rarityColor } from '@/components/Art'
+import { rarityColor, ZoomImg } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure, StatTrio } from '@/components/Stat'
@@ -170,6 +170,7 @@ function Recipes({
   spectating: boolean
 }) {
   const [category, setCategory] = useState<string>('all')
+  const [order, setOrder] = useState<'profit' | 'ready'>('profit')
   const [counts, setCounts] = useState<Record<number, number>>({})
 
   const rows = useMemo(() => {
@@ -187,6 +188,7 @@ function Recipes({
           return n + ing.amount * (byTemplate.get(ing.templateId)?.fair ?? NaN)
         }, 0)
         const floor = valueOf(market, result)
+        const left = mintable(market, b)
         return {
           blend: b,
           result,
@@ -198,13 +200,18 @@ function Recipes({
           floor,
           // Selling the result keeps 93% of its value (collection and marketplace fees).
           margin: floor !== null && Number.isFinite(value) ? floor * SALE_KEEP - value : null,
-          left: mintable(market, b)
+          left,
+          // Every ingredient is in the wallet: nothing to buy.
+          ready: left > 0 && plan.buy.length === 0 && Number.isFinite(plan.cost)
         }
       })
       .sort((a, b) => (b.margin ?? -Infinity) - (a.margin ?? -Infinity))
   }, [blends, market, byTemplate])
 
-  const shown = rows.filter((r) => category === 'all' || r.schema === category)
+  const inCategory = rows.filter((r) => category === 'all' || r.schema === category)
+  // Rows are by profit already; "ready" lifts the ones blendable from the wallet, order kept within.
+  const shown = order === 'ready' ? [...inCategory].sort((a, b) => Number(b.ready) - Number(a.ready)) : inCategory
+  const readyCount = inCategory.filter((r) => r.ready).length
   const categories = CATEGORY_ORDER.filter((c) => rows.some((r) => r.schema === c))
 
   async function blendNow(r: (typeof rows)[number], times: number) {
@@ -245,9 +252,20 @@ function Recipes({
             </button>
           ))}
         </div>
+        <div className="segmented">
+          <button type="button" className={order === 'profit' ? 'is-active' : ''} onClick={() => setOrder('profit')}>
+            Most profitable
+          </button>
+          <button type="button" className={order === 'ready' ? 'is-active' : ''} onClick={() => setOrder('ready')}>
+            Ready now{readyCount ? ` (${readyCount})` : ''}
+          </button>
+        </div>
         <span className="faint">
-          Most profitable first: the result at its market value after the 7% sale fees, minus the ingredients at theirs (yours
-          count too: you could sell them instead). Market value is the floor or the recent sale median, whichever is lower.
+          {order === 'ready'
+            ? readyCount
+              ? `${readyCount} recipe${readyCount === 1 ? '' : 's'} you can blend from your wallet right now, nothing to buy, come first (most profitable on top); the rest follow.`
+              : 'Nothing is blendable from your wallet alone right now; the list stays by profit.'
+            : 'Most profitable first: the result at its market value after the 7% sale fees, minus the ingredients at theirs (yours count too: you could sell them instead). Market value is the floor or the recent sale median, whichever is lower.'}
         </span>
       </div>
       <div className="bl-rows">
@@ -257,9 +275,15 @@ function Recipes({
           const missing = r.plan.buy.length
           const canBlend = r.left > 0 && Number.isFinite(r.plan.cost)
           return (
-            <article key={r.blend.id} className={`bl-row ${r.left <= 0 ? 'is-capped' : ''}`}>
+            <article key={r.blend.id} className={`bl-row ${r.left <= 0 ? 'is-capped' : ''} ${r.ready ? 'is-ready' : ''}`}>
               <div className="bl-result">
-                <IpfsImg hash={r.template?.img} alt="" className="bl-result__art" />
+                <ZoomImg
+                  hash={r.template?.img}
+                  alt=""
+                  className="bl-result__art"
+                  name={r.template?.name}
+                  rarity={r.template?.rarity}
+                />
                 <div className="bl-result__text">
                   <b>{r.template?.name ?? `#${r.result}`}</b>
                   <small style={{ color: rarityColor(r.template?.rarity) }}>
@@ -358,7 +382,7 @@ function IngredientChip({ ing, market, line }: { ing: Ingredient; market: Market
         className={`bl-ing ${complete ? 'is-owned' : Number.isFinite(line?.cost ?? NaN) ? '' : 'is-missing'}`}
         style={{ '--rarity': rarityColor(t?.rarity) } as React.CSSProperties}
       >
-        {t?.img && <IpfsImg hash={t.img} alt="" className="bl-ing__art" />}
+        {t?.img && <ZoomImg hash={t.img} alt="" className="bl-ing__art" name={t.name} rarity={t.rarity} />}
         <span className="bl-ing__name">{label}</span>
         <b className="num">
           {have}/{ing.amount}
@@ -399,7 +423,7 @@ function Materials({ materials }: { materials: MaterialValue[] }) {
           return (
             <div key={m.templateId} className="bl-table__row">
               <span className="bl-mat">
-                <IpfsImg hash={m.img} alt="" className="bl-mat__art" />
+                <ZoomImg hash={m.img} alt="" className="bl-mat__art" name={m.name} rarity={m.rarity} />
                 <span>
                   <b>{m.name}</b>
                   <small style={{ color: rarityColor(m.rarity) }}>
@@ -553,7 +577,7 @@ function Chests({
                   const m = byTemplate.get(out.templateId)
                   return (
                     <span key={out.templateId} className="bl-outcome">
-                      <IpfsImg hash={m?.img} alt="" className="bl-mat__art" />
+                      <ZoomImg hash={m?.img} alt="" className="bl-mat__art" name={m?.name} rarity={m?.rarity} />
                       <span>
                         <b>{m?.name ?? out.templateId}</b>
                         <small className="faint num">
@@ -628,7 +652,7 @@ function LootCard({
   return (
     <article className="bl-loot panel">
       <div className="bl-loot__head">
-        {t?.img && <IpfsImg hash={t.img} alt="" className="bl-loot__art" />}
+        {t?.img && <ZoomImg hash={t.img} alt="" className="bl-loot__art" name={t.name} rarity={t.rarity} />}
         <div>
           <h3>{title}</h3>
           <p className="muted">{explain}</p>
@@ -846,7 +870,7 @@ function RevealPanel({
       <div className="bl-reveal__grid">
         {items.map((i) => (
           <div key={i.t} className="bl-reveal__item" style={{ '--rarity': rarityColor(i.tpl?.rarity) } as CSSProperties}>
-            <IpfsImg hash={i.tpl?.img} alt="" className="bl-reveal__art" />
+            <ZoomImg hash={i.tpl?.img} alt="" className="bl-reveal__art" name={i.tpl?.name} rarity={i.tpl?.rarity} />
             <b className="bl-reveal__count num">×{i.n}</b>
             <span className="bl-reveal__name">{i.tpl?.name ?? `#${i.t}`}</span>
             <small style={{ color: rarityColor(i.tpl?.rarity) }}>

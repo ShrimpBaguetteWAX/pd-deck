@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { ascendAction, sacrificeAction } from '@/chain/actions/ascend'
 import { FRAGMENT_TEMPLATE } from '@/chain/config'
-import { CardArt, IpfsImg, rarityColor } from '@/components/Art'
+import { CardArt, rarityColor, ZoomImg } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure } from '@/components/Stat'
@@ -173,7 +173,7 @@ function AscendList({
             return (
               <article key={r.templateId} className="bl-row asc__row">
                 <div className="bl-result">
-                  <CardArt asset={r.sample} shape="square" className="asc__art" />
+                  <CardArt asset={r.sample} shape="square" className="asc__art" zoom />
                   <div className="bl-result__text">
                     <b>{r.sample.name}</b>
                     <small style={{ color: rarityColor(r.sample.rarity) }}>
@@ -327,7 +327,7 @@ function SacrificeList({
             return (
               <div key={r.templateId} className={`bl-table__row asc__table-row ${n > 0 ? 'is-picked' : ''}`}>
                 <span className="bl-mat">
-                  <IpfsImg hash={r.sample.img} alt="" className="bl-mat__art" />
+                  <ZoomImg hash={r.sample.img} alt="" className="bl-mat__art" name={r.sample.name} rarity={r.sample.rarity} />
                   <span>
                     <b>{r.sample.name}</b>
                     <small style={{ color: rarityColor(r.sample.rarity) }}>
