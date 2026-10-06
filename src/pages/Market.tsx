@@ -532,8 +532,12 @@ export default function Market() {
     )
     return () => clearTimeout(timer)
   }, [refining, solver.solving, blendPrices, targetKey])
-  const shownInput = bestNow?.input ?? solver.solvedFor
-  const shown = locked?.bundle ?? bestNow?.bundle ?? solver.bundle
+  // The solver keeps its last answer while a new input is solved; before this scan's first answer
+  // that would be the previous scan's bundle, shown as "best so far" and then replaced by a number
+  // that may well be higher. Only an answer to the current input is shown.
+  const answered = solver.solvedFor && solver.solvedFor === solver.current ? solver : null
+  const shownInput = bestNow?.input ?? answered?.solvedFor ?? null
+  const shown = locked?.bundle ?? bestNow?.bundle ?? answered?.bundle ?? null
   const shownSources = locked?.sources ?? (shownInput ? SOURCES_OF.get(shownInput) : undefined) ?? sources
 
   if (!listings.data || !player.data || !army.data || !forge.data || !pools.data)
