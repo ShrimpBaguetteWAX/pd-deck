@@ -540,3 +540,84 @@
     min-width: 92px;
   }
 }
+
+/* ---- Account menu: one small button, the node LED on it; name, nodes and Disconnect inside ---- */
+
+.acct {
+  position: relative;
+  flex: none;
+}
+
+.acct__button {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 1px solid rgba(0, 212, 255, 0.35);
+  border-radius: 50%;
+  background: rgba(0, 212, 255, 0.08);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.acct__button:hover {
+  background: rgba(0, 212, 255, 0.16);
+}
+
+.acct.is-spectating .acct__button {
+  border-color: rgba(255, 215, 94, 0.5);
+  background: rgba(255, 215, 94, 0.1);
+  color: var(--tlm);
+}
+
+/* The LED sits on the button's rim. */
+.acct__button .netdot--bare {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  min-height: 0;
+  padding: 2px;
+  border: 2px solid var(--bg);
+  border-radius: 50%;
+  background: var(--bg);
+}
+
+.acctpop {
+  width: min(300px, calc(100vw - 24px));
+}
+
+.acctpop__who {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.acctpop__out {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 32px;
+  margin-top: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.acctpop__out:hover {
+  background: var(--surface-2);
+}

@@ -133,9 +133,14 @@ export function OptimizeArmyModal({
       forgeLevel,
       slotsFree,
       maxDivisions: Math.max(0, allowance - kept.length),
-      alignMove
+      alignMove,
+      // The divisions that stay out: the new ones of the same mission length are matched to them.
+      anchors: kept.flatMap((d) => {
+        const loop = bestLoop(d, missions, market)
+        return loop ? [{ cooldownBase: loop.mission.cooldownBase, move: d.move }] : []
+      })
     }
-  }, [free, rearrange, kept, chosenMissions, market, forgeLevel, powerups, allowance, alignMove])
+  }, [free, rearrange, kept, chosenMissions, missions, market, forgeLevel, powerups, allowance, alignMove])
   const optimizer = useArmyOptimizer(input)
   const plan = optimizer.plan
 
@@ -156,18 +161,23 @@ export function OptimizeArmyModal({
   // sees what the trading achieved and, when the range stays wide, that the reserve has no better.
   const moveGroups = useMemo(() => {
     if (!alignMove || !plan) return []
-    const groups = new Map<number, { base: number; moves: number[]; title: string }>()
+    const groups = new Map<number, { base: number; moves: number[]; title: string; out: number }>()
     for (const d of plan.divisions) {
-      if (d.existingId != null) continue
-      const g = groups.get(d.mission.cooldownBase) ?? { base: d.mission.cooldownBase, moves: [], title: d.mission.title }
+      const g = groups.get(d.mission.cooldownBase) ?? { base: d.mission.cooldownBase, moves: [], title: d.mission.title, out: 0 }
       g.moves.push(d.plan.bundle.move)
       if (g.title !== d.mission.title) g.title = `${formatDuration(d.mission.cooldownBase)} missions`
       groups.set(d.mission.cooldownBase, g)
     }
+    for (const a of input.anchors ?? []) {
+      const g = groups.get(a.cooldownBase)
+      if (!g) continue
+      g.moves.push(a.move)
+      g.out++
+    }
     return [...groups.values()]
       .filter((g) => g.moves.length > 1)
       .map((g) => ({ ...g, min: Math.min(...g.moves), max: Math.max(...g.moves) }))
-  }, [alignMove, plan])
+  }, [alignMove, plan, input.anchors])
 
   const toDisband = rearrange.filter((d) => !keptIds.has(d.id))
   const fresh = (plan?.divisions ?? []).filter((d) => d.existingId == null)
@@ -368,7 +378,7 @@ export function OptimizeArmyModal({
             <p className="opt__ranges faint">
               {moveGroups.map((g) => (
                 <span key={g.base}>
-                  <b>{g.title}</b>: {g.moves.length} divisions at{' '}
+                  <b>{g.title}</b>: {g.moves.length} divisions{g.out ? ` (${g.out} out now)` : ''} at{' '}
                   {g.max - g.min <= 3 ? `${g.max} move` : `${g.min}–${g.max} move`}, claimed together at the pace of {g.max}
                   {g.max - g.min > 3 &&
                     ', the closest the reserve allows: the supplies are all in use and no unused mercenary that meets the mission is nearer'}

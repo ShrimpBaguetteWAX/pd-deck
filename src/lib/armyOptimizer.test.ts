@@ -239,3 +239,28 @@ describe('balanceMoves with the pool', () => {
     expect(moves[1] - moves[0]).toBeLessThanOrEqual(3)
   })
 })
+
+describe('anchors', () => {
+  it('draws a new division towards a division that stays out on a mission of the same length', () => {
+    const pool = empty()
+    pool.warlord.push(nft(CATEGORY.WARLORD, { slots: 1 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 20 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 120, move: 58 }))
+    const missions = [mission(1, 100, 10)]
+    // Alone, the planner takes the quick mercenary (move 20). A division out at move 60 pulls it to 58.
+    const plan = optimizeArmy({
+      pool,
+      missions,
+      market,
+      forgeLevel: 0,
+      slotsFree: noSlots,
+      maxDivisions: 1,
+      alignMove: true,
+      anchors: [{ cooldownBase: 3600, move: 60 }]
+    })
+    expect(plan.divisions).toHaveLength(1)
+    expect(plan.divisions[0].plan.bundle.move).toBe(58)
+    // And it is valued at the pace of the slowest of the two.
+    expect(plan.divisions[0].perHour).toBeCloseTo(tlmPerHour(missions[0], 60, market), 9)
+  })
+})

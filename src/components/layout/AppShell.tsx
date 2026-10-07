@@ -4,7 +4,7 @@ import { useShallow } from 'zustand/react/shallow'
 
 import { GUIDE_URL } from '@/chain/config'
 import { TokenIcon } from '@/components/Art'
-import { NetworkStatus } from '@/components/NetworkStatus'
+import { AccountMenu } from '@/components/layout/AccountMenu'
 import { LoopWidget } from '@/components/layout/LoopWidget'
 import { Tooltip } from '@/components/Tooltip'
 import { useDeployments, usePlayer } from '@/data/game'
@@ -16,7 +16,6 @@ import {
   FlameIcon,
   GiftIcon,
   LedgerIcon,
-  LogoutIcon,
   RocketIcon,
   SwordIcon,
   UsersIcon
@@ -99,14 +98,7 @@ export function AppShell({ children }: { children: ReactNode }) {
                 </span>
               </Tooltip>
             </div>
-            <NetworkStatus />
-            <div className={`account ${spectating ? 'is-spectating' : ''}`}>
-              <span className="account__name">{account}</span>
-              {spectating && <span className="account__tag">view only</span>}
-              <button type="button" className="icon-btn" title="Sign out" onClick={() => void logout()}>
-                <LogoutIcon />
-              </button>
-            </div>
+            {account && <AccountMenu account={account} spectating={spectating} onLogout={() => void logout()} />}
           </div>
         </div>
       </header>

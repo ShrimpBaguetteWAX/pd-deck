@@ -134,6 +134,12 @@ export interface OptimizeInput {
    * new divisions of each length then trade units until their move costs are close (balanceMoves).
    */
   alignMove?: boolean
+  /**
+   * Divisions that stay as they are (out on a mission), by the length of the mission they run and
+   * their move cost: with alignMove, the new divisions of that length are drawn towards them and
+   * valued at the pace of the slowest of all.
+   */
+  anchors?: { cooldownBase: number; move: number }[]
 }
 
 export type Progress = { strategy: Strategy; strategyIndex: number; division: number }
@@ -401,38 +407,42 @@ function search(
  * What each division earns when the ones on missions of the same length wait for the slowest of
  * them (alignMove): its mission's rate at that group's highest move cost.
  */
-export function alignedDivisions(divisions: OptimizedDivision[], market: Market): OptimizedDivision[] {
+export function alignedDivisions(
+  divisions: OptimizedDivision[],
+  market: Market,
+  anchors: { cooldownBase: number; move: number }[] = []
+): OptimizedDivision[] {
   const slowest = new Map<number, number>()
+  for (const a of anchors) slowest.set(a.cooldownBase, Math.max(slowest.get(a.cooldownBase) ?? 0, a.move))
   for (const d of divisions)
     slowest.set(d.mission.cooldownBase, Math.max(slowest.get(d.mission.cooldownBase) ?? 0, d.plan.bundle.move))
   return divisions.map((d) => ({ ...d, perHour: tlmPerHour(d.mission, slowest.get(d.mission.cooldownBase)!, market) }))
 }
 
 const valued = (divisions: OptimizedDivision[], input: OptimizeInput) =>
-  input.alignMove ? alignedDivisions(divisions, input.market) : divisions
+  input.alignMove ? alignedDivisions(divisions, input.market, input.anchors) : divisions
 
 /** Move costs this close count as the same. */
 const BALANCE_TOLERANCE = 3
 const BALANCE_ROUNDS = 60
-/** Unused mercenaries tried as replacements per round: the ones nearest the group's typical move. */
-const BALANCE_SPARES = 40
+/** Unused mercenaries tried as replacements per round and side. */
+const BALANCE_SPARES = 24
 
 /**
- * Evens out the move costs of the new divisions on missions of the same length by trading units
- * between them: the slowest and the quickest swap a mercenary (or a supply), one hands a unit over
- * when the other has room, or either swaps a mercenary for one left unused in the pool, whenever
- * that narrows the gap and both still meet their missions. Repeated until the gap is small or
- * nothing helps. Divisions kept as they are stay out of it. Gear is re-dealt within each division
- * as the solver does (evaluate).
+ * Evens out the move costs of the divisions on missions of the same length by trading units of
+ * the new ones: the slowest and the quickest swap a mercenary or a supply, one hands a unit over
+ * when the other has room, the slowest swaps a mercenary for a quicker unused one or takes an
+ * unused supply while a Forge slot is free, and the quickest swaps a mercenary for a slower unused
+ * one or gives a supply up, whenever that narrows the gap and both still meet their missions.
+ * Divisions kept as they are and the anchors (divisions out on a mission) cannot change, but they
+ * count: the new ones are drawn towards them. Repeated until the gap is small or nothing helps.
+ * Gear is re-dealt within each division as the solver does (evaluate).
  */
 export function balanceMoves(divisions: OptimizedDivision[], input: OptimizeInput): OptimizedDivision[] {
   const market = input.market
   const out = [...divisions]
-  const groups = new Map<number, number[]>()
-  out.forEach((d, i) => {
-    if (d.existingId != null) return
-    groups.set(d.mission.cooldownBase, [...(groups.get(d.mission.cooldownBase) ?? []), i])
-  })
+  const byLength = new Map<number, number[]>()
+  out.forEach((d, i) => byLength.set(d.mission.cooldownBase, [...(byLength.get(d.mission.cooldownBase) ?? []), i]))
   const rebuilt = (d: OptimizedDivision, mercs: Candidate[], gear: Bundle['gear']): OptimizedDivision => {
     const ev = evaluate({ warlord: d.plan.bundle.warlord, mercs, gear })
     const bundle: Bundle = { ...d.plan.bundle, mercs, gear, ...ev }
@@ -443,121 +453,125 @@ export function balanceMoves(divisions: OptimizedDivision[], input: OptimizeInpu
     d.plan.bundle.mercs.length <= d.plan.bundle.warlord.slots &&
     d.plan.bundle.atk >= d.mission.minAtk &&
     d.plan.bundle.def >= d.mission.minDef
-  for (const members of groups.values()) {
-    if (members.length < 2) continue
+  const levelOk = (a: AssetRef) => Number(a.stats?.min_forge_level || 0) <= input.forgeLevel
+  const asCandidates = (list: AssetRef[], used: Set<string>) =>
+    list
+      .filter((a) => !used.has(a.assetId) && levelOk(a))
+      .map((a) => candidateOf(a))
+      .filter((c): c is Candidate => !!c)
+
+  for (const [base, all] of byLength) {
+    const members = all.filter((i) => out[i].existingId == null)
+    const anchors = (input.anchors ?? []).filter((a) => a.cooldownBase === base).map((a) => a.move)
+    if (members.length === 0 || all.length + anchors.length < 2) continue
     // Any key may come from any plan of the group once units travel between them.
     const assets = new Map<string, AssetRef>()
     for (const i of members) for (const [k, a] of out[i].plan.assets) assets.set(k, a)
     for (const i of members) out[i] = { ...out[i], plan: { ...out[i].plan, assets } }
-    const spread = () => {
-      const moves = members.map((i) => out[i].plan.bundle.move)
+    const withAsset = (c: Candidate, list: AssetRef[]) => {
+      if (assets.has(c.key)) return
+      const a = list.find((x) => x.assetId === c.key)
+      if (a) assets.set(c.key, a)
+    }
+    const gapOf = (changes: Map<number, OptimizedDivision>) => {
+      const moves = [...anchors, ...all.map((i) => (changes.get(i) ?? out[i]).plan.bundle.move)]
       return Math.max(...moves) - Math.min(...moves)
     }
-    // Supplies no division uses (they cut move), strongest cut first, while Forge supply slots are free.
-    const spareSupplies = (): Candidate[] => {
-      const used = new Set(out.flatMap((d) => [...usedKeys(d.plan)]))
-      const attached = out.filter((d) => d.existingId == null).reduce((n, d) => n + d.plan.bundle.gear.supply.length, 0)
-      if (attached >= input.slotsFree.supply) return []
-      return input.pool.supply
-        .filter((a) => !used.has(a.assetId) && Number(a.stats?.min_forge_level || 0) <= input.forgeLevel)
-        .map((a) => candidateOf(a))
-        .filter((c): c is Candidate => !!c)
-        .sort((a, b) => b.moveReduction - a.moveReduction)
-        .slice(0, 10)
-    }
-    // Mercenaries no division uses, as candidates; the ones nearest the group's typical move first.
-    const spares = (): Candidate[] => {
-      const used = new Set(out.flatMap((d) => [...usedKeys(d.plan)]))
-      const moves = members.map((i) => out[i].plan.bundle.move).sort((a, b) => a - b)
-      const typical = moves[Math.floor(moves.length / 2)]
-      return input.pool.mercenary
-        .filter((a) => !used.has(a.assetId) && Number(a.stats?.min_forge_level || 0) <= input.forgeLevel)
-        .map((a) => candidateOf(a))
-        .filter((c): c is Candidate => !!c)
-        .sort((a, b) => Math.abs(a.move - typical) - Math.abs(b.move - typical))
-        .slice(0, BALANCE_SPARES)
-    }
     for (let round = 0; round < BALANCE_ROUNDS; round++) {
-      const gap = spread()
+      const gap = gapOf(new Map())
       if (gap <= BALANCE_TOLERANCE) break
+      const used = new Set(out.flatMap((d) => [...usedKeys(d.plan)]))
+      const spareMercs = asCandidates(input.pool.mercenary, used)
+      const quicker = [...spareMercs].sort((a, b) => a.move - b.move).slice(0, BALANCE_SPARES)
+      const slower = [...spareMercs].sort((a, b) => b.move - a.move).slice(0, BALANCE_SPARES)
+      const attached = members.reduce((n, i) => n + out[i].plan.bundle.gear.supply.length, 0)
+      const spareSupplies =
+        attached < input.slotsFree.supply
+          ? asCandidates(input.pool.supply, used)
+              .sort((a, b) => b.moveReduction - a.moveReduction)
+              .slice(0, 10)
+          : []
       const slow = members.reduce((a, b) => (out[a].plan.bundle.move >= out[b].plan.bundle.move ? a : b))
       const fast = members.reduce((a, b) => (out[a].plan.bundle.move <= out[b].plan.bundle.move ? a : b))
+      let best: { gap: number; changes: Map<number, OptimizedDivision> } | null = null
+      const consider = (changes: Map<number, OptimizedDivision>) => {
+        for (const d of changes.values()) if (!fits(d)) return
+        const g = gapOf(changes)
+        if (g < gap - 1e-9 && (!best || g < best.gap)) best = { gap: g, changes }
+      }
       const S = out[slow]
       const F = out[fast]
-      let best: { gap: number; s: OptimizedDivision; f: OptimizedDivision } | null = null
-      const consider = (s: OptimizedDivision, f: OptimizedDivision) => {
-        if (!fits(s) || !fits(f)) return
-        const others = members.filter((i) => i !== slow && i !== fast).map((i) => out[i].plan.bundle.move)
-        const moves = [...others, s.plan.bundle.move, f.plan.bundle.move]
-        const g = Math.max(...moves) - Math.min(...moves)
-        if (g < gap - 1e-9 && (!best || g < best.gap)) best = { gap: g, s, f }
-      }
       const sb = S.plan.bundle
       const fb = F.plan.bundle
-      // Swap a mercenary of each, or hand one over to a free slot.
-      for (let i = 0; i < sb.mercs.length; i++) {
-        for (let j = 0; j < fb.mercs.length; j++) {
-          const sm = [...sb.mercs]
-          const fm = [...fb.mercs]
-          ;[sm[i], fm[j]] = [fm[j], sm[i]]
-          consider(rebuilt(S, sm, sb.gear), rebuilt(F, fm, fb.gear))
+      const pair = (sd: OptimizedDivision, fd: OptimizedDivision) =>
+        consider(
+          new Map([
+            [slow, sd],
+            [fast, fd]
+          ])
+        )
+      if (slow !== fast) {
+        // Swap a mercenary of each, or the slowest hands one to a free slot of the quickest.
+        for (let i = 0; i < sb.mercs.length; i++) {
+          for (let j = 0; j < fb.mercs.length; j++) {
+            const sm = [...sb.mercs]
+            const fm = [...fb.mercs]
+            ;[sm[i], fm[j]] = [fm[j], sm[i]]
+            pair(rebuilt(S, sm, sb.gear), rebuilt(F, fm, fb.gear))
+          }
+          if (fb.mercs.length < fb.warlord.slots && sb.mercs.length > 1)
+            pair(
+              rebuilt(
+                S,
+                sb.mercs.filter((_, k) => k !== i),
+                sb.gear
+              ),
+              rebuilt(F, [...fb.mercs, sb.mercs[i]], fb.gear)
+            )
         }
-        if (fb.mercs.length < fb.warlord.slots && sb.mercs.length > 1) {
-          const sm = sb.mercs.filter((_, k) => k !== i)
-          consider(rebuilt(S, sm, sb.gear), rebuilt(F, [...fb.mercs, sb.mercs[i]], fb.gear))
-        }
+        // Swap a supply (they cut move), or the quickest hands one to the slowest.
+        for (let i = 0; i < sb.gear.supply.length; i++)
+          for (let j = 0; j < fb.gear.supply.length; j++) {
+            const sg = { ...sb.gear, supply: [...sb.gear.supply] }
+            const fg = { ...fb.gear, supply: [...fb.gear.supply] }
+            ;[sg.supply[i], fg.supply[j]] = [fg.supply[j], sg.supply[i]]
+            pair(rebuilt(S, sb.mercs, sg), rebuilt(F, fb.mercs, fg))
+          }
+        if (sb.gear.supply.length < sb.mercs.length)
+          for (let j = 0; j < fb.gear.supply.length; j++)
+            pair(
+              rebuilt(S, sb.mercs, { ...sb.gear, supply: [...sb.gear.supply, fb.gear.supply[j]] }),
+              rebuilt(F, fb.mercs, { ...fb.gear, supply: fb.gear.supply.filter((_, k) => k !== j) })
+            )
       }
-      // Swap a supply (they cut move), or hand one over.
-      for (let i = 0; i < sb.gear.supply.length; i++) {
-        for (let j = 0; j < fb.gear.supply.length; j++) {
-          const sg = { ...sb.gear, supply: [...sb.gear.supply] }
-          const fg = { ...fb.gear, supply: [...fb.gear.supply] }
-          ;[sg.supply[i], fg.supply[j]] = [fg.supply[j], sg.supply[i]]
-          consider(rebuilt(S, sb.mercs, sg), rebuilt(F, fb.mercs, fg))
-        }
-        if (fb.gear.supply.length < fb.mercs.length) {
-          const sg = { ...sb.gear, supply: sb.gear.supply.filter((_, k) => k !== i) }
-          const fg = { ...fb.gear, supply: [...fb.gear.supply, sb.gear.supply[i]] }
-          consider(rebuilt(S, sb.mercs, sg), rebuilt(F, fb.mercs, fg))
-        }
-      }
-      // Either swaps a mercenary for one nobody uses.
-      for (const spare of spares()) {
-        if (!assets.has(spare.key)) {
-          const a = input.pool.mercenary.find((x) => x.assetId === spare.key)
-          if (a) assets.set(spare.key, a)
-        }
+      // The slowest alone: a quicker unused mercenary in place of any of its own; an unused supply.
+      for (const spare of quicker) {
+        withAsset(spare, input.pool.mercenary)
         for (let i = 0; i < sb.mercs.length; i++) {
           const sm = [...sb.mercs]
           sm[i] = spare
-          consider(rebuilt(S, sm, sb.gear), F)
+          consider(new Map([[slow, rebuilt(S, sm, sb.gear)]]))
         }
+      }
+      if (sb.gear.supply.length < sb.mercs.length)
+        for (const spare of spareSupplies) {
+          withAsset(spare, input.pool.supply)
+          consider(new Map([[slow, rebuilt(S, sb.mercs, { ...sb.gear, supply: [...sb.gear.supply, spare] })]]))
+        }
+      // The quickest alone: a slower unused mercenary in place of any of its own; a supply given up.
+      for (const spare of slower) {
+        withAsset(spare, input.pool.mercenary)
         for (let j = 0; j < fb.mercs.length; j++) {
           const fm = [...fb.mercs]
           fm[j] = spare
-          consider(S, rebuilt(F, fm, fb.gear))
+          consider(new Map([[fast, rebuilt(F, fm, fb.gear)]]))
         }
       }
-      // Or the slowest takes a supply nobody uses, when a Forge slot is free for it.
-      if (sb.gear.supply.length < sb.mercs.length)
-        for (const spare of spareSupplies()) {
-          if (!assets.has(spare.key)) {
-            const a = input.pool.supply.find((x) => x.assetId === spare.key)
-            if (a) assets.set(spare.key, a)
-          }
-          consider(rebuilt(S, sb.mercs, { ...sb.gear, supply: [...sb.gear.supply, spare] }), F)
-        }
-      // Or the quickest hands a supply to the slowest, which has a mercenary without one.
-      if (sb.gear.supply.length < sb.mercs.length)
-        for (let j = 0; j < fb.gear.supply.length; j++) {
-          const sg = { ...sb.gear, supply: [...sb.gear.supply, fb.gear.supply[j]] }
-          const fg = { ...fb.gear, supply: fb.gear.supply.filter((_, k) => k !== j) }
-          consider(rebuilt(S, sb.mercs, sg), rebuilt(F, fb.mercs, fg))
-        }
+      for (let j = 0; j < fb.gear.supply.length; j++)
+        consider(new Map([[fast, rebuilt(F, fb.mercs, { ...fb.gear, supply: fb.gear.supply.filter((_, k) => k !== j) })]]))
       if (!best) break
-      const b: { gap: number; s: OptimizedDivision; f: OptimizedDivision } = best
-      out[slow] = b.s
-      out[fast] = b.f
+      const b: { gap: number; changes: Map<number, OptimizedDivision> } = best
+      for (const [i, d] of b.changes) out[i] = d
     }
   }
   return out
@@ -588,7 +602,7 @@ export function optimizeArmy(input: OptimizeInput, onProgress?: (p: Progress) =>
   }
   if (input.alignMove) {
     // Then trade units between the new divisions of each length until their move costs are close.
-    const divisions = alignedDivisions(balanceMoves(best.divisions, input), input.market)
+    const divisions = alignedDivisions(balanceMoves(best.divisions, input), input.market, input.anchors)
     best = { ...best, divisions, perHour: divisions.reduce((n, d) => n + d.perHour, 0) }
   }
   return best
