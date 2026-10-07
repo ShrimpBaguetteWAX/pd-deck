@@ -23,7 +23,6 @@ import { formatDuration, formatNumber, formatSigned, formatToken, percent, title
 import {
   canDeploy,
   costParts,
-  cycleRoi,
   cycleRoute,
   cycleSeconds,
   isTokenLoop,
@@ -362,7 +361,6 @@ export default function Missions() {
             TLM / hour{' '}
             <Tooltip text="Net Trilium per hour of division time after the swaps: TLM (and DEF bought with TLM) in, TLM (and DEF sold for TLM) out." />
           </span>
-          <span>ROI</span>
           <span />
         </div>
         {rows.length === 0 && (
@@ -374,9 +372,6 @@ export default function Missions() {
         {rows.map((r) => {
           const { e, division, idleDivision, move, perHour, route, eligible, deployable } = r
           const open = expanded === e.id
-          const roi = cycleRoi(e, market)
-          // With the NFT reward counted at market value.
-          const lootRoi = r.loot > 0 ? (route.tlmIn > 0 ? (route.tlmOut + r.loot) / route.tlmIn - 1 : Infinity) : roi
           const isBest = r === bestRow
           const atkOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.atk >= e.minAtk
           const defOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.def >= e.minDef
@@ -461,19 +456,7 @@ export default function Missions() {
                   <>
                     <div className={`mrow__rate num ${perHour > 0 ? 'is-pos' : perHour < 0 ? 'is-neg' : ''}`}>
                       {formatSigned(perHour)}
-                      <small>
-                        {formatSigned(route.net + r.loot)} / cycle
-                        {(route.buyDef > 0 || route.sellDef > 0) && <span className="mrow__swap"> · {routeTag(route)}</span>}
-                        {r.loot > 0 && e.rewardNft && (
-                          <span className="mrow__swap">
-                            {' '}
-                            · {e.rewardNft.count}× {nftName(e.rewardNft.templateId) ?? 'NFT'} ≈ {formatNumber(r.loot, 1)} TLM at
-                            market
-                          </span>
-                        )}
-                      </small>
                     </div>
-                    <div className="mrow__roi num">{lootRoi === Infinity ? '∞' : route.tlmIn > 0 ? percent(lootRoi) : '–'}</div>
                   </>
                 ) : (
                   <>
@@ -491,7 +474,6 @@ export default function Missions() {
                         {route.tlmIn > 0 ? ` · costs ${formatToken(route.tlmIn)} TLM` : ''}
                       </small>
                     </div>
-                    <div className="mrow__roi num faint">–</div>
                   </>
                 )}
                 <div className="mrow__act" onClick={(ev) => ev.stopPropagation()}>
@@ -522,6 +504,13 @@ export default function Missions() {
                   <div className="mrow__facts">
                     <Figure label="Window ends" value={Number.isFinite(e.endAt) ? shortDuration(e.endAt - now) : '–'} />
                     <Figure label="Divisions engaged" value={formatNumber(e.joined, 0)} />
+                    <Figure label="Net per cycle" value={`${formatSigned(route.net + r.loot)} TLM`} />
+                    {r.loot > 0 && e.rewardNft && (
+                      <Figure
+                        label="NFT reward at market"
+                        value={`${e.rewardNft.count}× ${nftName(e.rewardNft.templateId) ?? 'NFT'} ≈ ${formatNumber(r.loot, 1)} TLM`}
+                      />
+                    )}
                     {e.shardCap && (
                       <Figure label="Shard budget" value={`${e.shardCap.max - e.shardCap.used} / ${e.shardCap.max} joins left`} />
                     )}
@@ -615,9 +604,6 @@ export default function Missions() {
     </div>
   )
 }
-
-/** "TLM→DEF", "DEF→TLM" or both: which swaps a loop needs. */
-const routeTag = (r: CycleRoute) => [r.buyDef > 0 && 'TLM→DEF', r.sellDef > 0 && 'DEF→TLM'].filter(Boolean).join(' · ')
 
 /** The whole loop in one line: TLM in → (DEF) → mission → (DEF) → TLM out. */
 function RouteLine({ route, className = '' }: { route: CycleRoute; className?: string }) {

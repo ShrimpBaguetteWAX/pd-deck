@@ -145,7 +145,7 @@
 .mtable__head,
 .mrow__main {
   display: grid;
-  grid-template-columns: minmax(240px, 2fr) 110px 120px minmax(120px, 1.2fr) 110px 120px 64px 130px;
+  grid-template-columns: minmax(240px, 2fr) 110px 120px minmax(120px, 1.2fr) 110px 130px 130px;
   gap: 12px;
   align-items: center;
 }
