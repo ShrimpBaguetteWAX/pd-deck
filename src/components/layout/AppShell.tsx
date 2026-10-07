@@ -18,7 +18,6 @@ import {
   SwordIcon,
   UsersIcon
 } from '@/icons'
-import { publicUrl } from '@/lib/publicUrl'
 import { useClockFor } from '@/lib/time'
 import { useSession } from '@/state/session'
 
@@ -54,10 +53,24 @@ export function AppShell({ children }: { children: ReactNode }) {
       <header className="topbar">
         <div className="topbar__inner">
           <div className="topbar__row">
-            <NavLink to="/missions" className="brand">
-              <img src={publicUrl('/img/logo_planetary.webp')} alt="" />
+            <NavLink to="/missions" className="brand" aria-label="Planetary Defense command deck">
+              {/* The mark: a shield of two chevrons drawn in one line, a planet at its foot. */}
+              <svg
+                className="brand__glyph"
+                viewBox="0 0 34 34"
+                fill="none"
+                strokeWidth="1.6"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M17 3 30 9v9c0 7-6 11-13 13C10 29 4 25 4 18V9z" stroke="var(--cyan)" />
+                <path d="M11 14l6-4 6 4M11 20l6-4 6 4" stroke="#ffd166" />
+                <circle cx="17" cy="25" r="1.6" fill="var(--cyan)" />
+              </svg>
               <span>
-                <strong>Planetary Defense</strong>
+                <strong>
+                  Planetary <b>Defense</b>
+                </strong>
                 <small>Command deck</small>
               </span>
             </NavLink>

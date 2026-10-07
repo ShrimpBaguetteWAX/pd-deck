@@ -48,10 +48,11 @@
   flex: none;
 }
 
-.brand img {
-  width: 36px;
-  height: 36px;
-  filter: drop-shadow(0 0 10px rgba(0, 212, 255, 0.45));
+.brand__glyph {
+  width: 34px;
+  height: 34px;
+  flex: none;
+  filter: drop-shadow(0 0 6px rgba(0, 212, 255, 0.35));
 }
 
 .brand span {
@@ -60,18 +61,25 @@
   line-height: 1.1;
 }
 
+/* A light wordmark with only "Defense" in bold, so the two words read as one mark. */
 .brand strong {
   font-family: var(--font-display);
-  font-size: 14px;
-  font-weight: 800;
-  letter-spacing: 0.02em;
+  font-size: 16px;
+  font-weight: 300;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.brand strong b {
+  font-weight: 700;
 }
 
 .brand small {
-  font-size: 10px;
-  letter-spacing: 0.24em;
+  font-size: 9px;
+  letter-spacing: 0.34em;
   text-transform: uppercase;
-  color: var(--cyan);
+  color: var(--text-faint);
 }
 
 /* Room under the key's raised base before the navigation. */
