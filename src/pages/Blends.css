@@ -641,3 +641,37 @@
     grid-column: 1 / -1;
   }
 }
+
+/* ---- Rarity chips: click one to leave that rarity out of the recipes ---- */
+
+.bl-rarities {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.bl-rarity {
+  --rarity: #9aa6b8;
+  padding: 3px 9px;
+  border-radius: 999px;
+  border: 1px solid var(--rarity);
+  background: color-mix(in srgb, var(--rarity) 16%, transparent);
+  color: var(--rarity);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    background 0.15s ease,
+    color 0.15s ease,
+    border-color 0.15s ease;
+}
+
+.bl-rarity.is-off {
+  border-color: var(--border);
+  background: transparent;
+  color: var(--text-faint);
+  text-decoration: line-through;
+}

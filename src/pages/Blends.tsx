@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState, type CSSProperties } from 'react'
 import { blendActions, type BlendRun } from '@/chain/actions/blend'
 import { atomic, type AtomicAsset } from '@/chain/atomic'
 import { buySalesActions } from '@/chain/actions/market'
+import { RARITY_COLORS } from '@/chain/config'
 import { rarityColor, ZoomImg } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
@@ -152,6 +153,9 @@ type Run = ReturnType<typeof useTransaction>['run']
 
 // ---- Recipes ----------------------------------------------------------------------------------------
 
+/** Result rarities, cheapest first, as the filter chips list them. */
+const RARITY_LIST = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']
+
 function Recipes({
   blends,
   market,
@@ -171,6 +175,8 @@ function Recipes({
 }) {
   const [category, setCategory] = useState<string>('all')
   const [order, setOrder] = useState<'profit' | 'ready'>('profit')
+  /** Result rarities left out of the list. */
+  const [hidden, setHidden] = useState<Set<string>>(() => new Set())
   const [counts, setCounts] = useState<Record<number, number>>({})
 
   const rows = useMemo(() => {
@@ -208,7 +214,9 @@ function Recipes({
       .sort((a, b) => (b.margin ?? -Infinity) - (a.margin ?? -Infinity))
   }, [blends, market, byTemplate])
 
-  const inCategory = rows.filter((r) => category === 'all' || r.schema === category)
+  const rarityOf = (r: (typeof rows)[number]) => (r.template?.rarity ?? '').toLowerCase()
+  const rarities = RARITY_LIST.filter((x) => rows.some((r) => rarityOf(r) === x))
+  const inCategory = rows.filter((r) => (category === 'all' || r.schema === category) && !hidden.has(rarityOf(r)))
   // Rows are by profit already; "ready" lifts the ones blendable from the wallet, order kept within.
   const shown = order === 'ready' ? [...inCategory].sort((a, b) => Number(b.ready) - Number(a.ready)) : inCategory
   const readyCount = inCategory.filter((r) => r.ready).length
@@ -260,6 +268,31 @@ function Recipes({
             Ready now{readyCount ? ` (${readyCount})` : ''}
           </button>
         </div>
+        <span className="bl-rarities" role="group" aria-label="Rarities">
+          {rarities.map((x) => {
+            const off = hidden.has(x)
+            return (
+              <button
+                key={x}
+                type="button"
+                className={`bl-rarity ${off ? 'is-off' : ''}`}
+                style={{ '--rarity': RARITY_COLORS[x] } as CSSProperties}
+                aria-pressed={!off}
+                title={off ? `Show ${titleCase(x)} recipes again` : `Hide ${titleCase(x)} recipes`}
+                onClick={() =>
+                  setHidden((prev) => {
+                    const next = new Set(prev)
+                    if (next.has(x)) next.delete(x)
+                    else next.add(x)
+                    return next
+                  })
+                }
+              >
+                {titleCase(x)}
+              </button>
+            )
+          })}
+        </span>
         <span className="faint">
           {order === 'ready'
             ? readyCount
