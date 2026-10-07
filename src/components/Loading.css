@@ -13,32 +13,35 @@
   min-height: 320px;
 }
 
-.loading__ring {
-  position: relative;
-  width: 120px;
-  height: 120px;
+.loading__glyph {
+  width: 72px;
+  height: 72px;
+  filter: drop-shadow(0 0 8px rgba(0, 212, 255, 0.3));
 }
 
-.loading__ring::before {
-  content: '';
-  position: absolute;
-  inset: 30px;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(0, 212, 255, 0.35), transparent);
-  animation: loading-breathe 2.4s ease-in-out infinite;
+/* The shield draws itself first, the chevrons follow, the dot lights last; then all of it fades. */
+.loading__shield {
+  stroke-dasharray: 120;
+  stroke-dashoffset: 120;
+  animation: loading-trace 2.4s ease-in-out infinite;
 }
 
-.loading__ring img {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  width: 26px;
-  height: 26px;
-  margin: -13px;
-  transform: rotate(calc(var(--i) * 60deg)) translateY(-48px);
-  animation: loading-spin 4s linear infinite;
-  animation-delay: calc(var(--i) * -0.66s);
-  filter: drop-shadow(0 0 6px rgba(0, 212, 255, 0.4));
+.loading__chev {
+  stroke-dasharray: 40;
+  stroke-dashoffset: 40;
+  animation: loading-trace 2.4s ease-in-out infinite;
+}
+
+.loading__chev--1 {
+  animation-delay: 0.5s;
+}
+
+.loading__chev--2 {
+  animation-delay: 0.8s;
+}
+
+.loading__dot {
+  animation: loading-dot 2.4s ease-in-out infinite;
 }
 
 .loading__label {
@@ -51,17 +54,52 @@
   animation: loading-breathe 2.4s ease-in-out infinite;
 }
 
-@keyframes loading-spin {
-  from {
-    transform: rotate(calc(var(--i) * 60deg)) translateY(-48px);
+@keyframes loading-trace {
+  0% {
+    stroke-dashoffset: 120;
+    opacity: 1;
   }
-  to {
-    transform: rotate(calc(var(--i) * 60deg + 360deg)) translateY(-48px);
+  55% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  85% {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+  100% {
+    stroke-dashoffset: 0;
+    opacity: 0;
+  }
+}
+
+@keyframes loading-dot {
+  0%,
+  50% {
+    opacity: 0;
+  }
+  65%,
+  85% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
   }
 }
 
 @keyframes loading-breathe {
   50% {
     opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loading__shield,
+  .loading__chev,
+  .loading__dot,
+  .loading__label {
+    animation: none;
+    stroke-dashoffset: 0;
+    opacity: 1;
   }
 }
