@@ -411,11 +411,8 @@ export default function Missions() {
                         <Tooltip
                           text={`This mission can be joined ${formatNumber(e.shardCap.max, 0)} times in all, by every player together. ${formatNumber(e.shardCap.used, 0)} joins are used, ${formatNumber(e.shardCap.max - e.shardCap.used, 0)} are left.`}
                         >
-                          <em className={`mrow__cap ${e.shardCap.used >= e.shardCap.max ? 'is-red' : ''}`}>
-                            <span className="mrow__cap-bar">
-                              <span style={{ width: `${Math.min(100, (e.shardCap.used / e.shardCap.max) * 100)}%` }} />
-                            </span>
-                            {formatNumber(e.shardCap.max - e.shardCap.used, 0)} of {formatNumber(e.shardCap.max, 0)} joins left
+                          <em className={`mrow__cap ${e.shardCap.max - e.shardCap.used < e.shardCap.max / 10 ? 'is-low' : ''}`}>
+                            <span className="num">{formatNumber(e.shardCap.max - e.shardCap.used, 0)}</span> <small>joins</small>
                           </em>
                         </Tooltip>
                       ) : (

@@ -662,38 +662,39 @@
 }
 
 /* Join budget on the row. */
+/* The joins left: a gold dot and the number, red when fewer than a tenth remain; the full budget is in the tooltip. */
 .mrow__cap {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
   margin-left: 8px;
-  color: var(--text-faint);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
   font-size: 11px;
   font-style: normal;
 }
 
-.mrow__cap.is-red {
-  color: #ff8a97;
-}
-
-.mrow__cap-bar {
-  display: inline-block;
-  width: 54px;
-  height: 5px;
-  overflow: hidden;
-  border-radius: 999px;
-  background: rgba(255, 255, 255, 0.08);
-}
-
-.mrow__cap-bar span {
-  display: block;
-  height: 100%;
-  border-radius: inherit;
+.mrow__cap::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
   background: var(--gold);
+  box-shadow: 0 0 5px rgba(255, 209, 102, 0.6);
 }
 
-.mrow__cap.is-red .mrow__cap-bar span {
+.mrow__cap small {
+  color: var(--text-faint);
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mrow__cap.is-low::before {
   background: #ff5d6e;
+  box-shadow: 0 0 5px rgba(255, 93, 110, 0.6);
 }
 
 /* The loot a mission pays, beside its name. */
