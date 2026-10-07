@@ -179,3 +179,63 @@ describe('alignMove', () => {
     for (const d of aligned.divisions) expect(d.perHour).toBeCloseTo(tlmPerHour(d.mission, slowest, market), 9)
   })
 })
+
+describe('balanceMoves', () => {
+  it('trades units between divisions of the same length until their move costs are close', () => {
+    const pool = empty()
+    for (let i = 0; i < 2; i++) pool.warlord.push(nft(CATEGORY.WARLORD, { slots: 2 }))
+    // Two slow and two quick mercenaries of equal strength: a 150 ATK mission needs two each.
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 80, move: 40 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 80, move: 40 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 80, move: 5 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 80, move: 5 }))
+    const missions = [mission(1, 150, 10)]
+    const aligned = optimizeArmy({ pool, missions, market, forgeLevel: 0, slotsFree: noSlots, maxDivisions: 2, alignMove: true })
+    expect(aligned.divisions).toHaveLength(2)
+    const moves = aligned.divisions.map((d) => d.plan.bundle.move)
+    // (40 + 5) each, not (5 + 5) and (40 + 40).
+    expect(Math.abs(moves[0] - moves[1])).toBeLessThanOrEqual(3)
+    for (const d of aligned.divisions) {
+      expect(d.plan.bundle.atk).toBeGreaterThanOrEqual(150)
+      expect(d.plan.bundle.mercs).toHaveLength(2)
+    }
+  })
+})
+
+describe('balanceMoves with the pool', () => {
+  it('swaps a slow mercenary for an unused one nearer the others', () => {
+    const pool = empty()
+    for (let i = 0; i < 2; i++) pool.warlord.push(nft(CATEGORY.WARLORD, { slots: 1 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 31 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 44 }))
+    // Unused: stronger, so the planner leaves it, but its move matches the quick one.
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 130, move: 32 }))
+    const missions = [mission(1, 100, 10)]
+    const aligned = optimizeArmy({ pool, missions, market, forgeLevel: 0, slotsFree: noSlots, maxDivisions: 2, alignMove: true })
+    expect(aligned.divisions).toHaveLength(2)
+    const moves = aligned.divisions.map((d) => d.plan.bundle.move).sort((a, b) => a - b)
+    expect(moves[1] - moves[0]).toBeLessThanOrEqual(3)
+  })
+
+  it('gives the slowest division an unused supply when a Forge slot is free', () => {
+    const pool = empty()
+    for (let i = 0; i < 2; i++) pool.warlord.push(nft(CATEGORY.WARLORD, { slots: 1 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 30 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 42 }))
+    const supply = nft(CATEGORY.SUPPLY, { atk: 0, def: 0, move: 0 })
+    supply.stats!.movecost_reduction = 12
+    pool.supply.push(supply)
+    const missions = [mission(1, 100, 10)]
+    const aligned = optimizeArmy({
+      pool,
+      missions,
+      market,
+      forgeLevel: 0,
+      slotsFree: { weapon: 0, supply: 1, lavalux: 0 },
+      maxDivisions: 2,
+      alignMove: true
+    })
+    const moves = aligned.divisions.map((d) => d.plan.bundle.move).sort((a, b) => a - b)
+    expect(moves[1] - moves[0]).toBeLessThanOrEqual(3)
+  })
+})

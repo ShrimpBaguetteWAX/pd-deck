@@ -126,7 +126,7 @@ export function planMissionDivision(
 }
 
 /** A staked NFT as a solver candidate (cost 0: nothing is bought), or null when it has no stats. */
-function candidateOf(a: AssetRef): Candidate | null {
+export function candidateOf(a: AssetRef): Candidate | null {
   const st = a.stats
   const kind = kindOf(st)
   if (!st || !kind || kind === 'warlord') return null

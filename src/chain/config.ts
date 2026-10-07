@@ -51,13 +51,7 @@ export const CONTRACTS = {
   USER_POINTS: 'uspts.worlds',
   ALCOR_SWAP: 'swap.alcor',
   /** Ascension: sacrifices (memo "burn") and star-ups (memo "ascend") by NFT transfer. */
-  ASCEND: 'ascend.pdef',
-  /** Alien Worlds mining, and the tables the mine button reads. */
-  M_FEDERATION: 'm.federation',
-  HQ_MU: 'hq.mu',
-  AWLNDRATINGS: 'awlndratings',
-  /** Mission Control's members: the favourite lands the mine button picks from. */
-  MEMBERS_MC: 'members.mc'
+  ASCEND: 'ascend.pdef'
 } as const
 
 /** The Fragment material, ascension's currency. */
@@ -93,9 +87,6 @@ export const SHARD_POINTS_PER_UNIT = 10
 
 export const PLANETS = ['naron', 'neri', 'veles', 'kavian', 'eyeke', 'magor'] as const
 export type Planet = (typeof PLANETS)[number]
-
-/** Each planet's account, the scope of its mining tables. */
-export const PLANET_SCOPES = Object.fromEntries(PLANETS.map((p) => [p, `${p}.world`])) as Record<Planet, string>
 
 export const DISCORD_URL = 'https://discord.gg/planetarydefense'
 export const GUIDE_URL = 'https://planetary-defense-guide.gitbook.io/guide/web-game/divisions-overview'
