@@ -599,41 +599,76 @@
   flex: none;
 }
 
+/* A key of the same make as the loop and refresh keys, the node LED tucked in its top corner. */
 .acct__button {
   position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 34px;
-  height: 34px;
+  width: 40px;
+  height: 47px;
   padding: 0;
-  border: 1px solid rgba(0, 212, 255, 0.35);
-  border-radius: 50%;
-  background: rgba(0, 212, 255, 0.08);
-  color: var(--text);
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #16294a, #0b1a2c);
+  color: var(--text-dim);
   cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(143, 166, 191, 0.3),
+    0 4px 0 #050b16,
+    0 6px 10px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease,
+    color 0.15s ease;
 }
 
-.acct__button:hover {
-  background: rgba(0, 212, 255, 0.16);
+.acct__button:hover,
+.acct__button[aria-expanded='true'] {
+  color: var(--text);
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(143, 166, 191, 0.3),
+    0 2px 0 #050b16,
+    0 3px 6px rgba(0, 0, 0, 0.5);
 }
 
 .acct.is-spectating .acct__button {
-  border-color: rgba(255, 215, 94, 0.5);
-  background: rgba(255, 215, 94, 0.1);
   color: var(--tlm);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(255, 215, 94, 0.45),
+    0 4px 0 #050b16,
+    0 6px 10px rgba(0, 0, 0, 0.5);
 }
 
-/* The LED sits on the button's rim. */
+/* The LED in the key's top corner. */
 .acct__button .netdot--bare {
   position: absolute;
-  right: -2px;
-  bottom: -2px;
+  right: 5px;
+  top: 5px;
   min-height: 0;
-  padding: 2px;
-  border: 2px solid var(--bg);
-  border-radius: 50%;
-  background: var(--bg);
+  padding: 0;
+  border: none;
+  background: transparent;
+}
+
+.acct__button .netdot--bare .netdot__led {
+  width: 6px;
+  height: 6px;
+}
+
+/* The key sits a little above the row's centre, as the loop key does over its base. */
+.acct {
+  padding-bottom: 4px;
+}
+
+@media (max-width: 760px) {
+  .acct__button {
+    height: 45px;
+  }
 }
 
 .acctpop {
