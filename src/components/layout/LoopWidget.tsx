@@ -1,5 +1,4 @@
 import { TokenIcon } from '@/components/Art'
-import { Button } from '@/components/Button'
 import { Tooltip } from '@/components/Tooltip'
 import { RefreshIcon } from '@/icons'
 import { refreshPlayer } from '@/data/game'
@@ -9,11 +8,15 @@ import { cooldownLabel, shortDuration, useNow } from '@/lib/time'
 import { readCashOut, useLoopPlan } from '@/lib/useLoop'
 import { useTransaction } from '@/wallet/useTransaction'
 
+/** The timeline never spans less than this, so a few returns minutes apart still spread out. */
+const MIN_WINDOW_MS = 60 * 60_000
+
 /**
- * The top bar's loop button: how many divisions are back from their missions, what is waiting
- * to be claimed, and a countdown to the next return. Pressing it claims every reward and sends
- * the divisions whose mission is still open straight back out, as the Deployments page does. Its
- * own component because it ticks every second: only this part of the bar re-renders.
+ * The top bar's loop button, a raised key: the label on top (the count of divisions back and
+ * the word, or the time to the next return) and, as its underline, a timeline with one dot per
+ * division at the moment it returns, gold once it is back, with a hairline at now. Pressing it
+ * claims every reward and sends the divisions whose mission is still open straight back out, as
+ * the Deployments page does. Its own component because it ticks every second.
  */
 export function LoopWidget() {
   const { account, runSequence, pending, spectating } = useTransaction()
@@ -26,27 +29,15 @@ export function LoopWidget() {
   const waiting = plan ? plan.earnedTlm + tlmForDef(loop.market, plan.earnedDef) : 0
   const busy = pending === 'loop-all'
   const affordable = !plan || plan.funding.affordable
+  const canPress = !!plan && affordable && !busy && !spectating && loop.loaded
 
-  const buttonText = !loop.loaded
-    ? '…'
-    : ready
-      ? loop.loopable.length
-        ? `Loop ${loop.loopable.length}`
-        : `Claim ${ready}`
-      : loop.nextReturnAt
-        ? cooldownLabel(loop.nextReturnAt, now, 'Loop')
-        : 'No divisions out'
-  const textBelow = !loop.loaded
-    ? ''
-    : ready && loop.nextReturnAt
-      ? `next back in ${shortDuration(loop.nextReturnAt - now)}`
-      : ready
-        ? total === ready
-          ? 'all back'
-          : ''
-        : loop.running.length
-          ? `${loop.running.length} out`
-          : 'send divisions out on Missions'
+  // The timeline: from the earliest return (or now) to the latest (or an hour from now).
+  const ats = loop.deployments.map((d) => d.unlockAt)
+  const start = Math.min(now, ...ats)
+  const end = Math.max(now + MIN_WINDOW_MS, ...ats)
+  const pos = (t: number) => `${Math.round(((t - start) / (end - start)) * 1000) / 10}%`
+  const dots = [...loop.deployments].sort((a, b) => a.unlockAt - b.unlockAt)
+  const nextId = dots.find((d) => d.unlockAt > now)?.divisionId
 
   async function onClick() {
     if (!plan) return
@@ -55,15 +46,27 @@ export function LoopWidget() {
     void refreshPlayer(account)
   }
 
+  const time = loop.nextReturnAt ? cooldownLabel(loop.nextReturnAt, now, '00:00') : null
+  const caption = !loop.loaded
+    ? ''
+    : waiting > 0
+      ? null
+      : total === 0
+        ? 'no divisions out'
+        : ready === total
+          ? 'all back'
+          : `${loop.running.length} out`
+
   return (
     <div className="loop" aria-live="polite">
       <div className="loop__body">
         <span className="loop__above">
-          <span className="loop__mode">{loop.loaded ? `${ready} of ${total} ready` : 'Deployments'}</span>
-          {waiting > 0 && (
+          {caption !== null ? (
+            <span className="loop__mode">{caption}</span>
+          ) : (
             <Tooltip text="Rewards waiting to be claimed, DEF counted at today's TLM price.">
               <span className="loop__estimate num">
-                ≈ {formatNumber(waiting, 1)} <TokenIcon symbol="TLM" size={11} />
+                ≈ {formatNumber(waiting, 1)} <TokenIcon symbol="TLM" size={11} /> waiting
               </span>
             </Tooltip>
           )}
@@ -71,26 +74,55 @@ export function LoopWidget() {
         <span className="loop__row">
           <Tooltip
             text={
-              !ready
-                ? 'Counts down to the next division back from its mission.'
-                : !affordable
-                  ? 'The entry fees of the redeploys are more than your TLM covers. Claim and redeploy from the Deployments page, or add TLM.'
-                  : loop.loopable.length
-                    ? `Claims ${ready} reward${ready === 1 ? '' : 's'} and sends ${loop.loopable.length} division${loop.loopable.length === 1 ? '' : 's'} straight back out, one transaction per division.`
-                    : `Claims ${ready} reward${ready === 1 ? '' : 's'}; the missions have closed, so nothing goes back out.`
+              !loop.loaded
+                ? 'Reading your deployments.'
+                : total === 0
+                  ? 'Nothing is out. Send divisions out from the Missions page.'
+                  : !ready
+                    ? `Counts down to the next division back. Each dot is a division at the moment it returns.`
+                    : !affordable
+                      ? 'The entry fees of the redeploys are more than your TLM covers. Claim and redeploy from the Deployments page, or add TLM.'
+                      : loop.loopable.length
+                        ? `Claims ${ready} reward${ready === 1 ? '' : 's'} and sends ${loop.loopable.length} division${loop.loopable.length === 1 ? '' : 's'} straight back out, one transaction per division.`
+                        : `Claims ${ready} reward${ready === 1 ? '' : 's'}; the missions have closed, so nothing goes back out.`
             }
           >
-            <Button
-              className={`loop__button ${ready && affordable && !busy ? 'is-ready' : ''}`}
-              color="gradientYellow"
-              size="sm"
-              pill
-              onClick={onClick}
-              disabled={spectating || busy || !ready || !affordable || !loop.loaded}
-              isLoading={busy || (!!account && !loop.loaded && loop.loading)}
+            <button
+              type="button"
+              className={`loop__key ${ready && affordable ? 'is-ready' : ''} ${busy ? 'is-busy' : ''}`}
+              disabled={!canPress}
+              onClick={() => void onClick()}
             >
-              <span className="num">{buttonText}</span>
-            </Button>
+              <span className="loop__lab">
+                {busy ? (
+                  <span className="loop__word">
+                    <span className="spinner" /> Signing
+                  </span>
+                ) : ready ? (
+                  <span className="loop__word">
+                    <span className="loop__cell num">{ready}</span> {loop.loopable.length ? 'Loop' : 'Claim'}
+                  </span>
+                ) : (
+                  <small>{loop.loaded ? (total ? 'Next back' : 'Deployments') : '…'}</small>
+                )}
+                <span className="loop__time num">{time ?? (ready ? 'all back' : '')}</span>
+              </span>
+              <span className="loop__tl" aria-hidden="true">
+                {dots.map((d) => (
+                  <i
+                    key={d.divisionId}
+                    className={`loop__dot ${d.unlockAt <= now ? 'is-back' : ''} ${d.divisionId === nextId ? 'is-next' : ''}`}
+                    style={{ left: pos(d.unlockAt) }}
+                    title={
+                      d.unlockAt <= now
+                        ? `#${d.divisionId} is back`
+                        : `#${d.divisionId} back in ${shortDuration(d.unlockAt - now)}`
+                    }
+                  />
+                ))}
+                {total > 0 && <i className="loop__now" style={{ left: pos(now) }} />}
+              </span>
+            </button>
           </Tooltip>
           <button
             type="button"
@@ -101,9 +133,6 @@ export function LoopWidget() {
           >
             <RefreshIcon width={14} height={14} />
           </button>
-        </span>
-        <span className="loop__below" title={textBelow}>
-          {textBelow}
         </span>
       </div>
     </div>

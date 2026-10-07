@@ -326,9 +326,8 @@
   filter: invert(0.8) sepia(1) saturate(4) hue-rotate(-12deg) brightness(1.05);
 }
 
-/* ---- Loop button: claim the divisions that are back and send them out again ---- */
+/* ---- Loop button: a raised key, the label on top and the timeline of returns as its underline ---- */
 
-/* Never shrinks: the balances must not slide over it. The text lines truncate to its width. */
 .loop {
   flex: none;
   display: flex;
@@ -341,19 +340,16 @@
   flex-direction: column;
   align-items: center;
   gap: 3px;
-  width: 156px;
 }
 
-/* Blocks, not flex rows: a block clips its end with an ellipsis instead of both ends. */
-.loop__above,
-.loop__below {
+.loop__above {
   display: block;
-  max-width: 100%;
-  text-align: center;
+  max-width: 240px;
   min-height: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  text-align: center;
   color: var(--text-dim);
   font-size: 9px;
   font-weight: 800;
@@ -362,122 +358,200 @@
 }
 
 .loop__mode {
-  color: #8fb3c9;
-}
-
-.loop__mode::before {
-  content: '◢ ';
-  color: #ffd166;
+  color: var(--text-faint);
 }
 
 .loop__estimate {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  margin-left: 6px;
-  vertical-align: top;
   color: #ffd166;
-  letter-spacing: 0.04em;
-  text-shadow: 0 0 8px rgba(255, 209, 102, 0.55);
-}
-
-.loop__upgrade {
-  margin-left: 6px;
-  color: var(--green);
-  letter-spacing: 0.04em;
-  text-shadow: 0 0 8px rgba(46, 229, 157, 0.5);
+  letter-spacing: 0.06em;
+  text-shadow: 0 0 8px rgba(255, 209, 102, 0.45);
 }
 
 .loop__row {
   display: flex;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
 }
 
-/*
- * The button: an angular plate with cut corners, a gold holographic gradient and a light sweep,
- * framed by a thin gradient edge (the frame is a wrapper-less trick: a pseudo-element under a
- * same-shaped inset).
- */
-.loop__button.btn {
-  --cut: 9px;
-  position: relative;
-  min-width: 132px;
-  min-height: 30px;
-  padding: 0 16px;
+/* The key: raised on a deeper base, sinking when hovered and pressed. */
+.loop__key {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: 232px;
+  padding: 6px 12px 7px;
   border: none;
-  border-radius: 0;
-  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 45%),
-    linear-gradient(100deg, #ffd166 0%, #f4a62a 55%, #ffc24d 100%);
-  color: #1a1200;
-  font-size: 12.5px;
-  font-weight: 900;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  overflow: hidden;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #16294a, #0b1a2c);
+  color: var(--text);
+  font: inherit;
+  cursor: default;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(143, 166, 191, 0.3),
+    0 4px 0 #050b16,
+    0 6px 10px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease;
 }
 
-/* A light sweep crossing the plate now and then. */
-.loop__button.btn::after {
+.loop__key:not(:disabled) {
+  cursor: pointer;
+}
+
+.loop__key:not(:disabled):hover,
+.loop__key:not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(143, 166, 191, 0.3),
+    0 2px 0 #050b16,
+    0 3px 6px rgba(0, 0, 0, 0.5);
+}
+
+.loop__key.is-ready {
+  background: linear-gradient(180deg, #ffe08a, #f4a62a);
+  color: #1a1200;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 4px 0 #8a5600,
+    0 6px 10px rgba(0, 0, 0, 0.5);
+}
+
+.loop__key.is-ready:not(:disabled):hover,
+.loop__key.is-ready:not(:disabled):active {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.5),
+    0 2px 0 #8a5600,
+    0 3px 6px rgba(0, 0, 0, 0.5);
+}
+
+.loop__lab {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: #ffd166;
+}
+
+.loop__key.is-ready .loop__lab {
+  color: #1a1200;
+}
+
+.loop__lab small {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  color: var(--text-dim);
+}
+
+.loop__word {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.loop__cell {
+  display: inline-grid;
+  place-items: center;
+  min-width: 22px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: #1a1200;
+  color: #ffd166;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+.loop__time {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  color: var(--text);
+}
+
+.loop__key.is-ready .loop__time {
+  color: #1a1200;
+}
+
+/* The timeline: a hairline, one dot per division at its return, a cyan hairline at now. */
+.loop__tl {
+  position: relative;
+  height: 10px;
+}
+
+.loop__tl::before {
   content: '';
   position: absolute;
-  top: -40%;
-  bottom: -40%;
-  left: -60%;
-  width: 40%;
-  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 50%, rgba(255, 255, 255, 0) 100%);
-  transform: skewX(-20deg);
-  animation: loop-sweep 4.5s ease-in-out infinite;
-  pointer-events: none;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 1px;
+  background: rgba(143, 166, 191, 0.45);
 }
 
-@keyframes loop-sweep {
-  0%,
-  70% {
-    left: -60%;
-  }
-  100% {
-    left: 130%;
-  }
+.loop__dot {
+  position: absolute;
+  top: 1px;
+  width: 7px;
+  height: 7px;
+  margin-left: -3px;
+  border-radius: 50%;
+  border: 1px solid var(--text-dim);
+  background: #0b1a2c;
 }
 
-/* On cooldown: a dimmed plate with a thin gold edge, the countdown in gold. */
-.loop__button.btn:disabled {
-  opacity: 1;
-  background:
-    linear-gradient(135deg, rgba(255, 209, 102, 0.14), rgba(255, 209, 102, 0.04)),
-    linear-gradient(100deg, #10243a 0%, #0b1a2c 100%);
-  color: #ffd166;
-  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.45);
-  cursor: default;
+.loop__dot.is-back {
+  border-color: #ffd166;
+  background: #ffd166;
+  box-shadow: 0 0 6px rgba(255, 209, 102, 0.6);
 }
 
-.loop__button.btn:disabled::after {
-  display: none;
+.loop__dot.is-next {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 2px rgba(0, 212, 255, 0.25);
 }
 
-/* Cooldown over: a slow golden pulse says it is time. */
-.loop__button.is-ready {
-  animation: loop-pulse 1.8s ease-in-out infinite;
+.loop__now {
+  position: absolute;
+  top: -2px;
+  width: 1px;
+  height: 13px;
+  background: var(--cyan);
+  box-shadow: 0 0 4px rgba(0, 212, 255, 0.8);
 }
 
-@keyframes loop-pulse {
-  0%,
-  100% {
-    filter: drop-shadow(0 0 0 rgba(255, 209, 102, 0)) brightness(1);
-  }
-  50% {
-    filter: drop-shadow(0 0 10px rgba(255, 209, 102, 0.8)) brightness(1.12);
-  }
+.loop__key.is-ready .loop__tl::before {
+  background: rgba(26, 18, 0, 0.3);
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .loop__button.is-ready,
-  .loop__button.btn::after {
-    animation: none;
-  }
+.loop__key.is-ready .loop__dot {
+  border-color: rgba(26, 18, 0, 0.5);
+  background: transparent;
+}
+
+.loop__key.is-ready .loop__dot.is-back {
+  border-color: #1a1200;
+  background: #1a1200;
+  box-shadow: none;
+}
+
+.loop__key.is-ready .loop__dot.is-next {
+  border-color: #1a1200;
+  box-shadow: 0 0 0 2px rgba(26, 18, 0, 0.25);
+}
+
+.loop__key.is-ready .loop__now {
+  background: #1a1200;
+  box-shadow: none;
 }
 
 .loop__refresh {
@@ -488,8 +562,7 @@
   height: 24px;
   padding: 0;
   border: 1px solid rgba(255, 209, 102, 0.35);
-  border-radius: 0;
-  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  border-radius: 6px;
   background: rgba(255, 209, 102, 0.08);
   color: #ffd166;
   cursor: pointer;
@@ -499,37 +572,25 @@
   background: rgba(255, 209, 102, 0.18);
 }
 
-.loop__refresh.is-spinning svg {
-  animation: loop-spin 0.9s linear infinite;
-}
-
-@keyframes loop-spin {
-  to {
-    transform: rotate(360deg);
-  }
-}
-
 .loop .token-icon[alt='TLM'] {
   filter: invert(0.8) sepia(1) saturate(4) hue-rotate(-12deg) brightness(1.05);
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .loop__key {
+    transition: none;
+  }
+}
+
 @media (max-width: 760px) {
-  .loop {
-    margin-left: 4px;
-  }
-
-  .loop__body {
-    width: auto;
-  }
-
   .loop__above,
-  .loop__below,
   .loop__refresh {
     display: none;
   }
 
-  .loop__button.btn {
-    min-width: 92px;
+  .loop__key {
+    width: 180px;
+    padding: 5px 10px 6px;
   }
 }
 
