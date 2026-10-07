@@ -35,11 +35,15 @@ import {
   type CycleRoute,
   type MissionEconomics
 } from '@/lib/loop'
+import { SALE_KEEP } from '@/lib/blendEconomy'
 import { fundEntries, quoteFunding, type Market } from '@/lib/market'
+import { receiveFor } from '@/lib/pool'
+import { useSwapPools } from '@/data/market'
 import { normalizeHash } from '@/lib/ipfs'
 import { publicUrl } from '@/lib/publicUrl'
 import { MISSION_THUMBS } from '@/data/missionThumbs'
 import { chainDate, shortDuration, useNow } from '@/lib/time'
+import { useCollectionTemplates, useTemplatePrices } from '@/data/blends'
 import { useTransaction } from '@/wallet/useTransaction'
 
 import './Missions.css'
@@ -61,7 +65,10 @@ interface Row {
   /** The same among idle divisions: who would go if you deployed now. */
   idleDivision: Division | null
   move: number
+  /** TLM per hour of a division's time, the NFT reward sold at market value and swapped to TLM included. */
   perHour: number
+  /** TLM a cycle's NFT reward would fetch: market value after the 7% sale fees, swapped to TLM. 0 when unpriced. */
+  loot: number
   route: CycleRoute
   eligible: boolean
   deployable: boolean
@@ -74,6 +81,11 @@ export default function Missions() {
   const player = usePlayer(account)
   const deployments = useDeployments(account)
   const templates = useTemplates()
+  const collection = useCollectionTemplates()
+  // What the NFTs a mission pays would fetch: AtomicMarket's median of recent sales, in WAX, and the WAX→TLM pool.
+  const prices = useTemplatePrices()
+  const pools = useSwapPools()
+  const priceByTemplate = useMemo(() => new Map((prices.data ?? []).map((x) => [x.templateId, x.median])), [prices.data])
   const market = useMarket()
   const now = useNow(30_000)
   const [filter, setFilter] = useState<Filter>('all')
@@ -100,6 +112,11 @@ export default function Missions() {
   const planPerDay = plan.reduce((n, l) => n + l.perHour * 24, 0)
 
   const rows = useMemo<Row[]>(() => {
+    const lootOf = (e: MissionEconomics) => {
+      if (!e.rewardNft || !pools.data) return 0
+      const wax = priceByTemplate.get(String(e.rewardNft.templateId))
+      return wax ? receiveFor(pools.data.tlm, 'WAX', wax * e.rewardNft.count * SALE_KEEP) : 0
+    }
     const fastest = (list: Division[], e: MissionEconomics) =>
       list.filter((d) => meetsRequirements(e, d.atk, d.def)).sort((a, b) => a.move - b.move)[0] ?? null
     const list = missions.map((e): Row => {
@@ -107,13 +124,16 @@ export default function Missions() {
       const idleDivision = fastest(idle, e)
       // Without a qualifying division, rate the mission as if the army's fastest division reached it.
       const move = division?.move ?? Math.min(...divisions.map((d) => d.move), Infinity)
-      const perHour = tlmPerHour(e, Number.isFinite(move) ? move : 0, market)
+      const m = Number.isFinite(move) ? move : 0
+      const loot = lootOf(e)
+      const perHour = tlmPerHour(e, m, market) + (loot > 0 ? (loot / cycleSeconds(e, m)) * 3600 : 0)
       return {
         e,
         division,
         idleDivision,
         move: Number.isFinite(move) ? move : 0,
         perHour,
+        loot,
         route: cycleRoute(e, market),
         eligible: !!division,
         deployable: e.state === 'active' && !!idleDivision
@@ -141,14 +161,16 @@ export default function Missions() {
     const tier = (r: Row) => {
       if (r.e.state !== 'active') return 0
       if (!r.eligible) return 1
-      if (!isTokenLoop(r.e)) return 3
+      if (!isTokenLoop(r.e) && r.loot <= 0) return 3
       return r.perHour > 0 ? 4 : 2
     }
     return filtered.sort((a, b) => tier(b) - tier(a) || b.perHour - a.perHour)
-  }, [missions, filter, planet, idle, divisions, market])
+  }, [missions, filter, planet, idle, divisions, market, priceByTemplate, pools.data])
 
   const planets = useMemo(() => [...new Set(missions.map((e) => e.planet).filter(Boolean))], [missions])
-  const nftName = (id?: number) => (id ? templates.data?.[String(id)]?.name : undefined)
+  // Reward NFTs are loot (Quantum Chests), which the stats templates do not cover: the collection's templates name them.
+  const nftInfo = (id?: number) => (id ? (templates.data?.[String(id)] ?? collection.data?.get(String(id))) : undefined)
+  const nftName = (id?: number) => nftInfo(id)?.name
 
   // The best loop the army can run at all, and the best one just out of reach.
   const allRows = useMemo(() => {
@@ -164,7 +186,7 @@ export default function Missions() {
       .sort((a, b) => b.perHour - a.perHour)
   }, [missions, divisions, market])
   const best = allRows.find((r) => r.d && r.perHour > 0)
-  const target = allRows.find((r) => !r.d && r.perHour > (best?.perHour ?? 0))
+
   const strongest = divisions.reduce<{ atk: number; def: number }>(
     (m, d) => ({ atk: Math.max(m.atk, d.atk), def: Math.max(m.def, d.def) }),
     { atk: 0, def: 0 }
@@ -249,35 +271,7 @@ export default function Missions() {
                     {plan.length > 6 && <li className="faint">…and {plan.length - 6} more</li>}
                   </ul>
                 </>
-              ) : (
-                <p className="plan__sub muted">
-                  {idle.length === 0 ? (
-                    <>
-                      Every division is out. Claim and loop them on the <Link to="/deployments">Deployments</Link> page.
-                    </>
-                  ) : (
-                    'No idle division reaches a profitable TLM loop right now.'
-                  )}
-                </p>
-              )}
-              {target && (
-                <p className="plan__target">
-                  Next target: <b>{target.e.title}</b> pays <b className="c-tlm num">{formatSigned(target.perHour)}/h</b> and
-                  needs{' '}
-                  {target.e.minAtk > strongest.atk && (
-                    <b className="c-atk num">
-                      {formatNumber(target.e.minAtk, 0)} ATK (+{formatNumber(target.e.minAtk - strongest.atk, 0)})
-                    </b>
-                  )}
-                  {target.e.minAtk > strongest.atk && target.e.minDef > strongest.def && ' and '}
-                  {target.e.minDef > strongest.def && (
-                    <b className="c-def num">
-                      {formatNumber(target.e.minDef, 0)} DEF (+{formatNumber(target.e.minDef - strongest.def, 0)})
-                    </b>
-                  )}{' '}
-                  on one division. <Link to="/army">Merge or equip in the Army</Link>.
-                </p>
-              )}
+              ) : null}
             </>
           )}
         </div>
@@ -381,6 +375,8 @@ export default function Missions() {
           const { e, division, idleDivision, move, perHour, route, eligible, deployable } = r
           const open = expanded === e.id
           const roi = cycleRoi(e, market)
+          // With the NFT reward counted at market value.
+          const lootRoi = r.loot > 0 ? (route.tlmIn > 0 ? (route.tlmOut + r.loot) / route.tlmIn - 1 : Infinity) : roi
           const isBest = r === bestRow
           const atkOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.atk >= e.minAtk
           const defOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.def >= e.minDef
@@ -461,16 +457,23 @@ export default function Missions() {
                   <TimerIcon width={13} height={13} /> {formatDuration(cycleSeconds(e, move))}
                   <small className="faint">{formatDuration(e.cooldownBase)} base</small>
                 </div>
-                {isTokenLoop(e) ? (
+                {isTokenLoop(e) || r.loot > 0 ? (
                   <>
                     <div className={`mrow__rate num ${perHour > 0 ? 'is-pos' : perHour < 0 ? 'is-neg' : ''}`}>
                       {formatSigned(perHour)}
                       <small>
-                        {formatSigned(route.net)} / cycle
+                        {formatSigned(route.net + r.loot)} / cycle
                         {(route.buyDef > 0 || route.sellDef > 0) && <span className="mrow__swap"> · {routeTag(route)}</span>}
+                        {r.loot > 0 && e.rewardNft && (
+                          <span className="mrow__swap">
+                            {' '}
+                            · {e.rewardNft.count}× {nftName(e.rewardNft.templateId) ?? 'NFT'} ≈ {formatNumber(r.loot, 1)} TLM at
+                            market
+                          </span>
+                        )}
                       </small>
                     </div>
-                    <div className="mrow__roi num">{roi === Infinity ? '∞' : route.tlmIn > 0 ? percent(roi) : '–'}</div>
+                    <div className="mrow__roi num">{lootRoi === Infinity ? '∞' : route.tlmIn > 0 ? percent(lootRoi) : '–'}</div>
                   </>
                 ) : (
                   <>
@@ -478,8 +481,11 @@ export default function Missions() {
                       {e.rewardShards
                         ? `${formatNumber((e.rewardShards / cycleSeconds(e, move)) * 3600, 1)}`
                         : e.rewardNft
-                          ? `${e.rewardNft.count}× NFT`
+                          ? `${e.rewardNft.count}× ${nftName(e.rewardNft.templateId) ?? 'NFT'}`
                           : '–'}
+                      {e.rewardNft && nftInfo(e.rewardNft.templateId)?.img && (
+                        <IpfsImg hash={nftInfo(e.rewardNft.templateId)!.img} alt="" className="mrow__loot" />
+                      )}
                       <small>
                         {e.rewardShards ? 'shards / hour' : 'per cycle'}
                         {route.tlmIn > 0 ? ` · costs ${formatToken(route.tlmIn)} TLM` : ''}

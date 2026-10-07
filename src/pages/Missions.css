@@ -695,3 +695,13 @@
 .mrow__cap.is-red .mrow__cap-bar span {
   background: #ff5d6e;
 }
+
+/* The loot a mission pays, beside its name. */
+.mrow__loot {
+  width: 20px;
+  height: 20px;
+  margin-left: 6px;
+  border-radius: 5px;
+  object-fit: cover;
+  vertical-align: middle;
+}
