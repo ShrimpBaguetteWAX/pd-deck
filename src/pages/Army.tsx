@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type CSSProperties } from 'react'
+import { useEffect, useMemo, useState, type CSSProperties, useRef } from 'react'
 import { Link } from 'react-router-dom'
 
 import { addUnit, assignGear, createDivision, removeUnit, stakeAssets, unassignGear, unstakeAsset } from '@/chain/actions/pd'
@@ -61,7 +61,7 @@ export default function Army() {
   const deployments = useDeployments(account)
   const [selectedId, setSelectedId] = useState<number | null>(null)
   const [picker, setPicker] = useState<{ kind: Kind; unit?: Unit } | null>(null)
-  const [stakeOpen, setStakeOpen] = useState(false)
+  const [stakeOpen, setStakeOpen] = useState<false | 'stake' | 'unstake'>(false)
   const [createOpen, setCreateOpen] = useState(false)
   const [preview, setPreview] = useState<AutoPlan | null>(null)
   const [disbandAllOpen, setDisbandAllOpen] = useState(false)
@@ -228,8 +228,11 @@ export default function Army() {
           />
         </div>
         <div className="army__top-actions">
-          <Button color="ghost" size="sm" onClick={() => setStakeOpen(true)}>
+          <Button color="ghost" size="sm" onClick={() => setStakeOpen('stake')}>
             Stake NFTs
+          </Button>
+          <Button color="ghost" size="sm" onClick={() => setStakeOpen('unstake')}>
+            Unstake NFTs
           </Button>
           {divisions.length > 0 && (
             <Button color="ghost" size="sm" onClick={() => setDisbandAllOpen(true)}>
@@ -265,7 +268,7 @@ export default function Army() {
           <strong>No divisions yet</strong>
           <span>Stake a warlord, then create your first division. Mercenaries join it and gear goes on them.</span>
           <div className="army__empty-actions">
-            <Button color="ghost" onClick={() => setStakeOpen(true)}>
+            <Button color="ghost" onClick={() => setStakeOpen('stake')}>
               Stake NFTs
             </Button>
             <Button onClick={() => setCreateOpen(true)}>Create a division</Button>
@@ -568,7 +571,7 @@ export default function Army() {
         />
       )}
 
-      {stakeOpen && <StakeModal account={account} onClose={() => setStakeOpen(false)} />}
+      {stakeOpen && <StakeModal account={account} mode={stakeOpen} onClose={() => setStakeOpen(false)} />}
 
       {createOpen && (
         <CreateDivisionModal
@@ -995,11 +998,16 @@ function PickerModal({ kind, unit, division, pool, budget, forgeLevel, pending, 
   )
 }
 
-// ---- Stake NFTs from the wallet ------------------------------------------------------------------------
+// ---- Stake NFTs from the wallet, or unstake them from the reserve ---------------------------------------
 
-function StakeModal({ account, onClose }: { account: string | null; onClose: () => void }) {
-  const wallet = useWalletNfts(account)
-  const { run, pending } = useTransaction()
+function StakeModal({ account, mode, onClose }: { account: string | null; mode: 'stake' | 'unstake'; onClose: () => void }) {
+  const staking = mode === 'stake'
+  const wallet = useWalletNfts(staking ? account : null)
+  const army = useArmy(account)
+  // Staking offers the wallet; unstaking the reserve (staked NFTs in no division: a unit in a division comes out of it first).
+  const source = staking ? wallet.data : army.data ? Object.values(army.data.free).flat() : undefined
+  const loading = staking ? wallet.isLoading : army.isLoading
+  const { run, runSequence, pending } = useTransaction()
   const [kinds, setKinds] = useState<Set<Kind>>(new Set(['warlord', 'mercenary', 'weapon', 'supply', 'creature', 'lavalux']))
 
   const groups = useMemo(() => {
@@ -1011,15 +1019,23 @@ function StakeModal({ account, onClose }: { account: string | null; onClose: () 
       creature: [],
       lavalux: []
     }
-    for (const a of wallet.data ?? []) {
+    for (const a of source ?? []) {
       const k = a.stats ? kindOfStats(a.stats.category) : null
       if (k) g[k].push(a)
     }
     return g
-  }, [wallet.data])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wallet.data, army.data, staking])
 
-  // Everything shown starts selected; single NFTs can be taken out (and put back) with a click.
+  // Staking starts with everything shown selected; unstaking with nothing, so a stray click cannot
+  // send the whole reserve back. Single NFTs are taken out (and put back) with a click.
   const [excluded, setExcluded] = useState<Set<string>>(new Set())
+  const seeded = useRef(false)
+  useEffect(() => {
+    if (staking || seeded.current || !source) return
+    seeded.current = true
+    setExcluded(new Set(source.map((x) => x.assetId)))
+  }, [staking, source])
   const shown = (Object.keys(groups) as Kind[]).filter((k) => kinds.has(k)).flatMap((k) => groups[k])
   const chosen = shown.filter((a) => !excluded.has(a.assetId))
   const toggle = (id: string) =>
@@ -1042,25 +1058,39 @@ function StakeModal({ account, onClose }: { account: string | null; onClose: () 
   async function stake() {
     if (!chosen.length) return
     const ids = chosen.map((a) => a.assetId)
-    // One transfer action carries up to 50 NFTs; large stakes are split into several transactions.
     const batches: string[][] = []
     for (let i = 0; i < ids.length; i += 50) batches.push(ids.slice(i, i + 50))
-    const ok = await run(
-      (a, p) => batches.map((b) => stakeAssets(a, p, b)),
-      `${ids.length} NFT${ids.length === 1 ? '' : 's'} staked`,
+    if (staking) {
+      // One transfer action carries up to 50 NFTs; a large stake is several transfer actions in one transaction.
+      const ok = await run(
+        (a, p) => batches.map((b) => stakeAssets(a, p, b)),
+        `${ids.length} NFT${ids.length === 1 ? '' : 's'} staked`,
+        'stake'
+      )
+      if (ok) onClose()
+      return
+    }
+    // Unstaking is one action per NFT: 50 to a transaction, signed one after another when there are more.
+    const done = await runSequence(
+      batches.map((b) => ({
+        build: (a: string, p: string) => b.map((id) => unstakeAsset(a, p, id)),
+        success: `${b.length} NFT${b.length === 1 ? '' : 's'} returned to your wallet`
+      })),
       'stake'
     )
-    if (ok) onClose()
+    if (done === batches.length) onClose()
   }
 
   return (
-    <Modal className="picker" onClose={onClose} label="Stake NFTs">
+    <Modal className="picker" onClose={onClose} label={staking ? 'Stake NFTs' : 'Unstake NFTs'}>
       <header className="picker__head">
         <div>
-          <p className="eyebrow">Wallet → game</p>
-          <h3>Stake NFTs</h3>
+          <p className="eyebrow">{staking ? 'Wallet → game' : 'Game → wallet'}</p>
+          <h3>{staking ? 'Stake NFTs' : 'Unstake NFTs'}</h3>
           <p className="muted">
-            Staked NFTs stay yours; staking moves them into the game contract so divisions can use them. Unstake any time.
+            {staking
+              ? 'Staked NFTs stay yours; staking moves them into the game contract so divisions can use them. Unstake any time.'
+              : 'Only NFTs in your reserve can come back: a unit or gear inside a division has to leave it first (or disband the division).'}
           </p>
         </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
@@ -1068,14 +1098,15 @@ function StakeModal({ account, onClose }: { account: string | null; onClose: () 
         </button>
       </header>
 
-      {wallet.isLoading ? (
-        <Loading inline label="Reading your wallet" />
-      ) : !wallet.data?.length ? (
+      {loading ? (
+        <Loading inline label={staking ? 'Reading your wallet' : 'Reading your reserve'} />
+      ) : !source?.length ? (
         <div className="empty">
-          <strong>No stakeable NFTs in your wallet</strong>
+          <strong>{staking ? 'No stakeable NFTs in your wallet' : 'Nothing in your reserve'}</strong>
           <span>
-            Warlords, mercenaries, equipment, supplies, creatures and Lava Lux passes from the Planetary Defense collection can be
-            staked.
+            {staking
+              ? 'Warlords, mercenaries, equipment, supplies, creatures and Lava Lux passes from the Planetary Defense collection can be staked.'
+              : 'Every staked NFT is inside a division. Take a unit out of its division, or disband one, and it shows up here.'}
           </span>
         </div>
       ) : (
@@ -1115,7 +1146,11 @@ function StakeModal({ account, onClose }: { account: string | null; onClose: () 
                 type="button"
                 className={`pick stake__pick ${excluded.has(a.assetId) ? 'is-off' : 'is-on'}`}
                 aria-pressed={!excluded.has(a.assetId)}
-                title={excluded.has(a.assetId) ? 'Click to stake this one' : 'Click to leave this one in the wallet'}
+                title={
+                  excluded.has(a.assetId)
+                    ? `Click to ${staking ? 'stake' : 'unstake'} this one`
+                    : `Click to leave this one ${staking ? 'in the wallet' : 'staked'}`
+                }
                 onClick={() => toggle(a.assetId)}
               >
                 <span className="pick__main">
@@ -1143,7 +1178,7 @@ function StakeModal({ account, onClose }: { account: string | null; onClose: () 
           {chosen.length} of {shown.length} selected
         </span>
         <Button disabled={!chosen.length} isLoading={pending === 'stake'} onClick={stake}>
-          Stake {chosen.length || ''}
+          {staking ? 'Stake' : 'Unstake'} {chosen.length || ''}
         </Button>
       </footer>
     </Modal>
