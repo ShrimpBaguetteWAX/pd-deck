@@ -59,6 +59,9 @@ import { kindOfCategory, KIND_LABEL, type Kind } from '@/lib/stats'
 import { useBundleSolver } from '@/lib/useBundleSolver'
 import { useTransaction } from '@/wallet/useTransaction'
 
+import { Inventory } from './MarketInventory'
+import { LootMarket } from './MarketLoot'
+
 import './Market.css'
 
 /**
@@ -222,6 +225,8 @@ export default function Market() {
     phase: Refinement['phase']
   } | null>(null)
   const [browse, setBrowse] = useState<Kind | 'all'>('mercenary')
+  /** The page's three parts: the division builder, the wallet's inventory, and the loot shelf. */
+  const [tab, setTab] = useState<'builder' | 'inventory' | 'loot'>('builder')
   /** How many chests the "open chests first?" forecast assumes. */
   const [chestCounts, setChestCounts] = useState({ chest: 10, key: 10 })
 
@@ -759,8 +764,37 @@ export default function Market() {
     </span>
   )
 
+  const tabs = (
+    <div className="mk-tabs">
+      <div className="segmented">
+        <button type="button" className={tab === 'builder' ? 'is-active' : ''} onClick={() => setTab('builder')}>
+          Division builder
+        </button>
+        <button type="button" className={tab === 'inventory' ? 'is-active' : ''} onClick={() => setTab('inventory')}>
+          Inventory
+        </button>
+        <button type="button" className={tab === 'loot' ? 'is-active' : ''} onClick={() => setTab('loot')}>
+          Chests &amp; keys
+        </button>
+      </div>
+    </div>
+  )
+
+  if (tab !== 'builder')
+    return (
+      <div className="page market">
+        {tabs}
+        {tab === 'inventory' ? (
+          <Inventory account={account} listings={listings.data} />
+        ) : (
+          <LootMarket account={account} listings={listings.data} wax={player.data?.wax ?? 0} />
+        )}
+      </div>
+    )
+
   return (
     <div className="page market">
+      {tabs}
       <section className="mk-top panel">
         <div className="mk-targets">
           <p className="eyebrow">Division builder</p>

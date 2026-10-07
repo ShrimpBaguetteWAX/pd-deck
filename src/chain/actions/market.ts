@@ -62,3 +62,49 @@ export const stakeBoughtAction = (account: string, permission: string, assetIds:
   authorization: [{ actor: account, permission }],
   data: { from: account, to: CONTRACTS.CORE, asset_ids: assetIds, memo: 'stake' }
 })
+
+export interface SaleToList {
+  assetId: string
+  /** Asking price in WAX. */
+  priceWax: number
+}
+
+/** "123.45678901 WAX" from a WAX amount, rounded to the chain's 8 decimals. */
+export const waxAmount = (wax: number) => waxAsset(BigInt(Math.round(wax * 1e8)))
+
+/**
+ * Lists NFTs on AtomicMarket the way AtomicHub does: for each one, the sale is announced at its
+ * price and the NFT is offered to the market contract (memo "sale"). The NFT stays in the wallet
+ * until someone buys it; AtomicMarket's `cancelsale` takes it off again.
+ */
+export function listSalesActions(account: string, permission: string, sales: SaleToList[]): AnyAction[] {
+  const auth = [{ actor: account, permission }]
+  return sales.flatMap((s): AnyAction[] => [
+    {
+      account: ATOMICMARKET,
+      name: 'announcesale',
+      authorization: auth,
+      data: {
+        seller: account,
+        asset_ids: [s.assetId],
+        listing_price: waxAmount(s.priceWax),
+        settlement_symbol: '8,WAX',
+        maker_marketplace: ''
+      }
+    },
+    {
+      account: CONTRACTS.ATOMICASSETS,
+      name: 'createoffer',
+      authorization: auth,
+      data: { sender: account, recipient: ATOMICMARKET, sender_asset_ids: [s.assetId], recipient_asset_ids: [], memo: 'sale' }
+    }
+  ])
+}
+
+/** Takes a listing of the player's off the market. */
+export const cancelSaleAction = (account: string, permission: string, saleId: string): AnyAction => ({
+  account: ATOMICMARKET,
+  name: 'cancelsale',
+  authorization: [{ actor: account, permission }],
+  data: { sale_id: saleId }
+})

@@ -880,3 +880,224 @@
   cursor: default;
   opacity: 0.6;
 }
+
+/* ---- The page's three parts ---- */
+
+.mk-tabs {
+  display: flex;
+  justify-content: center;
+}
+
+/* ---- Inventory ---- */
+
+.inv,
+.lootmarket {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inv__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.inv__head h2 {
+  margin: 2px 0 4px;
+}
+
+.inv__head .muted {
+  margin: 0;
+  max-width: 70ch;
+}
+
+.inv__rows {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.inv__row {
+  display: grid;
+  grid-template-columns: minmax(220px, 1.6fr) 110px 120px 150px 170px minmax(120px, 1fr);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.inv__row--head {
+  padding-top: 0;
+  padding-bottom: 2px;
+  border: none;
+  background: transparent;
+  color: var(--text-dim);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.inv__row.is-picked {
+  border-color: rgba(255, 209, 102, 0.45);
+  background: rgba(255, 209, 102, 0.05);
+}
+
+.inv__nft {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inv__nft > span {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.inv__nft b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv__nft small {
+  font-size: 11px;
+}
+
+.inv__art {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+.inv__price {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.inv__price .input {
+  width: 110px;
+}
+
+.inv__price .input.is-warn {
+  border-color: rgba(255, 209, 102, 0.6);
+}
+
+.inv__listed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  font-size: 12px;
+}
+
+.inv__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.inv__foot .muted {
+  max-width: 70ch;
+}
+
+@media (max-width: 1100px) {
+  .inv__row {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .inv__row--head {
+    display: none;
+  }
+
+  .inv__nft {
+    grid-column: 1 / -1;
+  }
+}
+
+/* ---- Chests & keys ---- */
+
+.lootmarket__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(340px, 1fr));
+  gap: 14px;
+}
+
+.loot {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.loot__head {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+}
+
+.loot__head h3 {
+  margin: 0 0 2px;
+}
+
+.loot__head .muted {
+  margin: 0;
+  font-size: 13px;
+}
+
+.loot__art {
+  flex: none;
+  width: 64px;
+  height: 64px;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.loot__figures {
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+
+.loot__buy {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.loot__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.loot__list li {
+  display: grid;
+  grid-template-columns: 110px 1fr auto;
+  gap: 10px;
+  padding: 3px 8px;
+  border-radius: 6px;
+}
+
+.loot__list li.is-chosen {
+  background: rgba(255, 209, 102, 0.08);
+}
+
+.loot__list a {
+  color: var(--cyan);
+}
