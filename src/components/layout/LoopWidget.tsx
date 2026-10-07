@@ -7,8 +7,8 @@ import { cooldownLabel, shortDuration, useNow } from '@/lib/time'
 import { readCashOut, useLoopPlan } from '@/lib/useLoop'
 import { useTransaction } from '@/wallet/useTransaction'
 
-/** The timeline never spans less than this, so a few returns minutes apart still spread out. */
-const MIN_WINDOW_MS = 60 * 60_000
+/** The timeline never spans less than this, so it is never a single point. */
+const MIN_WINDOW_MS = 60_000
 
 /**
  * The top bar's loop button, a raised key: the label on top (the count of divisions back and
@@ -30,11 +30,14 @@ export function LoopWidget() {
   const affordable = !plan || plan.funding.affordable
   const canPress = !!plan && affordable && !busy && !spectating && loop.loaded
 
-  // The timeline: from the earliest return (or now) to the latest (or an hour from now).
+  // The timeline runs from the moment the earliest division still out left to the latest return,
+  // so the hairline at now travels along it as the missions run. With every division back it runs
+  // from the earliest departure to now.
   const ats = loop.deployments.map((d) => d.unlockAt)
-  const start = Math.min(now, ...ats)
-  const end = Math.max(now + MIN_WINDOW_MS, ...ats)
-  const pos = (t: number) => `${Math.round(((t - start) / (end - start)) * 1000) / 10}%`
+  const anchors = loop.running.length ? loop.running : loop.deployments
+  const start = anchors.length ? Math.min(...anchors.map((d) => d.joinedAt)) : now
+  const end = Math.max(start + MIN_WINDOW_MS, now, ...ats)
+  const pos = (t: number) => `${Math.round(Math.min(1, Math.max(0, (t - start) / (end - start))) * 1000) / 10}%`
   const dots = [...loop.deployments].sort((a, b) => a.unlockAt - b.unlockAt)
   const nextId = dots.find((d) => d.unlockAt > now)?.divisionId
 
@@ -57,7 +60,7 @@ export function LoopWidget() {
                 : total === 0
                   ? 'Nothing is out. Send divisions out from the Missions page.'
                   : !ready
-                    ? `Counts down to the next division back. Each dot is a division at the moment it returns.`
+                    ? `Counts down to the next division back. The line runs from when the earliest division still out left to the last return; each dot is a division at the moment it returns.`
                     : !affordable
                       ? 'The entry fees of the redeploys are more than your TLM covers. Claim and redeploy from the Deployments page, or add TLM.'
                       : loop.loopable.length
