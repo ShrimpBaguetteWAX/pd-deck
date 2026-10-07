@@ -264,3 +264,21 @@ describe('anchors', () => {
     expect(plan.divisions[0].perHour).toBeCloseTo(tlmPerHour(missions[0], 60, market), 9)
   })
 })
+
+describe('replanning a group', () => {
+  it('meets in the middle instead of raising the quick division to the slow one', () => {
+    const pool = empty()
+    for (let i = 0; i < 2; i++) pool.warlord.push(nft(CATEGORY.WARLORD, { slots: 2 }))
+    // Equal strength, so the planner would first field the two quick ones together (20) and leave the slow pair (100).
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 50 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 50 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 10 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 10 }))
+    const missions = [mission(1, 200, 10)]
+    const plan = optimizeArmy({ pool, missions, market, forgeLevel: 0, slotsFree: noSlots, maxDivisions: 2, alignMove: true })
+    expect(plan.divisions).toHaveLength(2)
+    const moves = plan.divisions.map((d) => d.plan.bundle.move)
+    expect(moves).toEqual([60, 60])
+    for (const d of plan.divisions) expect(d.plan.bundle.atk).toBeGreaterThanOrEqual(200)
+  })
+})

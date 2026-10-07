@@ -15,15 +15,29 @@
   backdrop-filter: blur(14px);
 }
 
+/* Two rows: the brand, the loop button dead centre and the account menu; the navigation beneath. */
 .topbar__inner {
   display: flex;
+  flex-direction: column;
+  max-width: var(--content-w);
+  margin: 0 auto;
+  padding: 0 var(--gutter);
+}
+
+.topbar__row {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
   gap: 14px;
   height: var(--header-h);
-  /* A little wider than the content: with the mine button, the full nav labels need the room. */
-  max-width: calc(var(--content-w) + 240px);
-  margin: 0 auto;
-  padding: 0 var(--gutter);
+}
+
+.topbar__row > :first-child {
+  justify-self: start;
+}
+
+.topbar__row > :last-child {
+  justify-self: end;
 }
 
 .brand {
@@ -62,8 +76,9 @@
 .nav {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  margin-left: 8px;
+  padding-bottom: 8px;
 }
 
 .nav__link {
@@ -220,14 +235,8 @@
 }
 
 /* With the mine button in the bar, the brand's words and the nav labels go before the balances do. */
-@media (max-width: 1320px) {
-  .brand span {
-    display: none;
-  }
-}
-
 @media (max-width: 1100px) {
-  .balances {
+  .brand span {
     display: none;
   }
 }
@@ -241,18 +250,12 @@
     gap: 8px;
   }
 
+  /* A second row of the sticky header (a fixed bar inside the blurred header would be positioned
+     against the header, not the screen). */
   .nav {
-    position: fixed;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    z-index: 100;
     justify-content: space-around;
     margin: 0;
-    padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-    border-top: 1px solid var(--border);
-    background: rgba(6, 10, 20, 0.92);
-    backdrop-filter: blur(14px);
+    padding: 0 0 6px;
   }
 
   .nav__link {
@@ -277,7 +280,7 @@
   }
 
   .shell__main {
-    padding-bottom: 72px;
+    padding-bottom: 24px;
   }
 
   .shell__foot {
@@ -286,7 +289,7 @@
 }
 
 /* Eight destinations: on wide screens the labels stay, on mid-size ones only the active label. */
-@media (max-width: 1700px) and (min-width: 761px) {
+@media (max-width: 960px) and (min-width: 761px) {
   .nav__link:not(.is-active) span {
     display: none;
   }
@@ -330,7 +333,7 @@
   flex: none;
   display: flex;
   align-items: center;
-  margin-left: 8px;
+  justify-self: center;
 }
 
 .loop__body {
@@ -510,17 +513,6 @@
   filter: invert(0.8) sepia(1) saturate(4) hue-rotate(-12deg) brightness(1.05);
 }
 
-@media (max-width: 1320px) {
-  .loop__body {
-    width: 136px;
-  }
-
-  .loop__button.btn {
-    min-width: 108px;
-    padding: 0 12px;
-  }
-}
-
 @media (max-width: 760px) {
   .loop {
     margin-left: 4px;
@@ -620,4 +612,22 @@
 
 .acctpop__out:hover {
   background: var(--surface-2);
+}
+
+/* The balances inside the account menu. */
+.acctpop__balances {
+  justify-content: space-between;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--border);
+}
+
+.acctpop__balances .balance {
+  padding: 0 6px;
+}
+
+@media (max-width: 760px) {
+  .nav {
+    padding-bottom: 0;
+  }
 }

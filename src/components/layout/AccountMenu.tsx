@@ -1,15 +1,29 @@
 import { useRef, useState } from 'react'
 
+import { TokenIcon } from '@/components/Art'
 import { NetworkLed, NetworkPanel } from '@/components/NetworkStatus'
+import { Tooltip } from '@/components/Tooltip'
+import { formatCompact } from '@/lib/format'
 import { useDismiss } from '@/components/useDismiss'
 import { LogoutIcon } from '@/icons'
 import { useNetwork } from '@/state/useNetwork'
 
 /**
  * The top bar's account control: one small round button carrying the node LED, which opens a
- * menu with the account, the WAX nodes and Disconnect. The wallet name stays out of the bar.
+ * menu with the account, its balances, the WAX nodes and Disconnect. Neither the wallet name nor
+ * the balances take room in the bar.
  */
-export function AccountMenu({ account, spectating, onLogout }: { account: string; spectating: boolean; onLogout: () => void }) {
+export function AccountMenu({
+  account,
+  spectating,
+  balances,
+  onLogout
+}: {
+  account: string
+  spectating: boolean
+  balances: { tlm: number; def: number; wax: number } | null
+  onLogout: () => void
+}) {
   const net = useNetwork()
   const [open, setOpen] = useState(false)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -37,6 +51,26 @@ export function AccountMenu({ account, spectating, onLogout }: { account: string
           <div className="acctpop__who">
             <b>{account}</b>
             {spectating && <span className="account__tag">view only</span>}
+          </div>
+          <div className="balances acctpop__balances">
+            <Tooltip text="Trilium, the Alien Worlds token. Missions pay it and some charge it to enter.">
+              <span className="balance">
+                <TokenIcon symbol="TLM" />
+                <b className="num">{balances ? formatCompact(balances.tlm) : '–'}</b>
+              </span>
+            </Tooltip>
+            <Tooltip text="DEF, the Planetary Defense token. Buys forge slots and enters the richer missions.">
+              <span className="balance">
+                <TokenIcon symbol="DEF" />
+                <b className="num">{balances ? formatCompact(balances.def) : '–'}</b>
+              </span>
+            </Tooltip>
+            <Tooltip text="WAX in your wallet: what the Market and the Blend page spend.">
+              <span className="balance">
+                <TokenIcon symbol="WAX" />
+                <b className="num">{balances ? formatCompact(balances.wax) : '–'}</b>
+              </span>
+            </Tooltip>
           </div>
           <NetworkPanel />
           <button type="button" className="acctpop__out" role="menuitem" onClick={onLogout}>

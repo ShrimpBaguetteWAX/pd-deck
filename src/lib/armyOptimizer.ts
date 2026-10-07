@@ -427,6 +427,10 @@ const BALANCE_TOLERANCE = 3
 const BALANCE_ROUNDS = 60
 /** Unused mercenaries tried as replacements per round and side. */
 const BALANCE_SPARES = 24
+/** Under a move cap, move hardly counts: the division fills up to the cap with the weakest units. */
+const CAPPED_MOVE_WEIGHT = 0.2
+/** Caps tried when re-planning a group: the mean of its moves, then halfway up towards the slowest. */
+const REPLAN_TRIES = 4
 
 /**
  * Evens out the move costs of the divisions on missions of the same length by trading units of
@@ -437,6 +441,12 @@ const BALANCE_SPARES = 24
  * Divisions kept as they are and the anchors (divisions out on a mission) cannot change, but they
  * count: the new ones are drawn towards them. Repeated until the gap is small or nothing helps.
  * Gear is re-dealt within each division as the solver does (evaluate).
+ *
+ * Trading alone cannot bring the slowest down: each division is built with hardly any strength to
+ * spare, so handing a strong unit away fails its mission. So first the group is planned again as a
+ * whole: every new division from the group's units and the unused pool, capped at the mean of the
+ * group's moves (or the anchors' when there are any), the cap raised towards the slowest until all
+ * of them fit under it. The trading then closes what is left.
  */
 export function balanceMoves(divisions: OptimizedDivision[], input: OptimizeInput): OptimizedDivision[] {
   const market = input.market
@@ -460,10 +470,54 @@ export function balanceMoves(divisions: OptimizedDivision[], input: OptimizeInpu
       .map((a) => candidateOf(a))
       .filter((c): c is Candidate => !!c)
 
+  /** Plans the group's new divisions again under one move cap, from their own units and the unused pool. */
+  const replan = (members: number[], anchors: number[]) => {
+    const moves = [...anchors, ...members.map((i) => out[i].plan.bundle.move)]
+    const slowest = Math.max(...moves)
+    const mean = anchors.length ? Math.max(...anchors) : moves.reduce((n, m) => n + m, 0) / moves.length
+    if (slowest - Math.min(...moves) <= BALANCE_TOLERANCE) return
+    const outside = new Set(out.flatMap((d, i) => (members.includes(i) ? [] : [...usedKeys(d.plan)])))
+    const slotsOutside = { weapon: 0, supply: 0, lavalux: 0 }
+    out.forEach((d, i) => {
+      if (members.includes(i)) return
+      for (const k of ['weapon', 'supply', 'lavalux'] as SlotKind[]) slotsOutside[k] += d.plan.bundle.gear[k].length
+    })
+    let cap = mean
+    for (let attempt = 0; attempt < REPLAN_TRIES; attempt++) {
+      let pool = without(input.pool, outside)
+      const slots = { ...input.slotsFree }
+      for (const k of ['weapon', 'supply', 'lavalux'] as SlotKind[]) slots[k] = Math.max(0, slots[k] - slotsOutside[k])
+      const planned = new Map<number, MissionPlan>()
+      // Slowest first: it has the first pick of the quick units.
+      const order = [...members].sort((a, b) => out[b].plan.bundle.move - out[a].plan.bundle.move)
+      for (const i of order) {
+        const m = out[i].mission
+        const target = m.minAtk > 0 || m.minDef > 0 ? { atk: m.minAtk, def: m.minDef } : { atk: 1, def: 0 }
+        const plan = planMissionDivision(pool, target, input.forgeLevel, slots, {
+          moveWeight: CAPPED_MOVE_WEIGHT,
+          maxMove: Math.floor(cap + BALANCE_TOLERANCE),
+          gridMax: PLANNER_GRID
+        })
+        if (!plan || plan.bundle.move > cap + BALANCE_TOLERANCE + 1e-9) break
+        planned.set(i, plan)
+        pool = without(pool, usedKeys(plan))
+        for (const k of ['weapon', 'supply', 'lavalux'] as SlotKind[]) slots[k] -= plan.bundle.gear[k].length
+      }
+      if (planned.size === members.length) {
+        for (const [i, plan] of planned)
+          out[i] = { ...out[i], plan, perHour: tlmPerHour(out[i].mission, plan.bundle.move, market) }
+        return
+      }
+      // Not all fit under this cap: raise it halfway towards the slowest and try again.
+      cap = (cap + slowest) / 2
+    }
+  }
+
   for (const [base, all] of byLength) {
     const members = all.filter((i) => out[i].existingId == null)
     const anchors = (input.anchors ?? []).filter((a) => a.cooldownBase === base).map((a) => a.move)
     if (members.length === 0 || all.length + anchors.length < 2) continue
+    replan(members, anchors)
     // Any key may come from any plan of the group once units travel between them.
     const assets = new Map<string, AssetRef>()
     for (const i of members) for (const [k, a] of out[i].plan.assets) assets.set(k, a)

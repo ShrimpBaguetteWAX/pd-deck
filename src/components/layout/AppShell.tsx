@@ -3,10 +3,8 @@ import { NavLink } from 'react-router-dom'
 import { useShallow } from 'zustand/react/shallow'
 
 import { GUIDE_URL } from '@/chain/config'
-import { TokenIcon } from '@/components/Art'
 import { AccountMenu } from '@/components/layout/AccountMenu'
 import { LoopWidget } from '@/components/layout/LoopWidget'
-import { Tooltip } from '@/components/Tooltip'
 import { useDeployments, usePlayer } from '@/data/game'
 import {
   CartIcon,
@@ -20,7 +18,6 @@ import {
   SwordIcon,
   UsersIcon
 } from '@/icons'
-import { formatCompact } from '@/lib/format'
 import { publicUrl } from '@/lib/publicUrl'
 import { useClockFor } from '@/lib/time'
 import { useSession } from '@/state/session'
@@ -56,13 +53,28 @@ export function AppShell({ children }: { children: ReactNode }) {
     <div className="shell">
       <header className="topbar">
         <div className="topbar__inner">
-          <NavLink to="/missions" className="brand">
-            <img src={publicUrl('/img/logo_planetary.webp')} alt="" />
-            <span>
-              <strong>Planetary Defense</strong>
-              <small>Command deck</small>
-            </span>
-          </NavLink>
+          <div className="topbar__row">
+            <NavLink to="/missions" className="brand">
+              <img src={publicUrl('/img/logo_planetary.webp')} alt="" />
+              <span>
+                <strong>Planetary Defense</strong>
+                <small>Command deck</small>
+              </span>
+            </NavLink>
+
+            {account ? <LoopWidget /> : <span />}
+
+            <div className="topbar__right">
+              {account && (
+                <AccountMenu
+                  account={account}
+                  spectating={spectating}
+                  balances={player.data ? { tlm: player.data.tlm, def: player.data.def, wax: player.data.wax } : null}
+                  onLogout={() => void logout()}
+                />
+              )}
+            </div>
+          </div>
 
           <nav className="nav" aria-label="Main">
             {NAV.map(({ to, label, icon: Icon }) => (
@@ -74,32 +86,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               </NavLink>
             ))}
           </nav>
-
-          {account && <LoopWidget />}
-
-          <div className="topbar__right">
-            <div className="balances">
-              <Tooltip text="Trilium, the Alien Worlds token. Missions pay it and some charge it to enter.">
-                <span className="balance">
-                  <TokenIcon symbol="TLM" />
-                  <b className="num">{player.data ? formatCompact(player.data.tlm) : '–'}</b>
-                </span>
-              </Tooltip>
-              <Tooltip text="DEF, the Planetary Defense token. Buys forge slots and enters the richer missions.">
-                <span className="balance">
-                  <TokenIcon symbol="DEF" />
-                  <b className="num">{player.data ? formatCompact(player.data.def) : '–'}</b>
-                </span>
-              </Tooltip>
-              <Tooltip text="WAX in your wallet: what the Market and the Blend page spend.">
-                <span className="balance">
-                  <TokenIcon symbol="WAX" />
-                  <b className="num">{player.data ? formatCompact(player.data.wax) : '–'}</b>
-                </span>
-              </Tooltip>
-            </div>
-            {account && <AccountMenu account={account} spectating={spectating} onLogout={() => void logout()} />}
-          </div>
         </div>
       </header>
 
