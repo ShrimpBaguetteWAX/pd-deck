@@ -1,4 +1,3 @@
-import { TokenIcon } from '@/components/Art'
 import { Tooltip } from '@/components/Tooltip'
 import { RefreshIcon } from '@/icons'
 import { refreshPlayer } from '@/data/game'
@@ -47,30 +46,9 @@ export function LoopWidget() {
   }
 
   const time = loop.nextReturnAt ? cooldownLabel(loop.nextReturnAt, now, '00:00') : null
-  const caption = !loop.loaded
-    ? ''
-    : waiting > 0
-      ? null
-      : total === 0
-        ? 'no divisions out'
-        : ready === total
-          ? 'all back'
-          : `${loop.running.length} out`
-
   return (
     <div className="loop" aria-live="polite">
       <div className="loop__body">
-        <span className="loop__above">
-          {caption !== null ? (
-            <span className="loop__mode">{caption}</span>
-          ) : (
-            <Tooltip text="Rewards waiting to be claimed, DEF counted at today's TLM price.">
-              <span className="loop__estimate num">
-                ≈ {formatNumber(waiting, 1)} <TokenIcon symbol="TLM" size={11} /> waiting
-              </span>
-            </Tooltip>
-          )}
-        </span>
         <span className="loop__row">
           <Tooltip
             text={
@@ -83,8 +61,8 @@ export function LoopWidget() {
                     : !affordable
                       ? 'The entry fees of the redeploys are more than your TLM covers. Claim and redeploy from the Deployments page, or add TLM.'
                       : loop.loopable.length
-                        ? `Claims ${ready} reward${ready === 1 ? '' : 's'} and sends ${loop.loopable.length} division${loop.loopable.length === 1 ? '' : 's'} straight back out, one transaction per division.`
-                        : `Claims ${ready} reward${ready === 1 ? '' : 's'}; the missions have closed, so nothing goes back out.`
+                        ? `Claims ${ready} reward${ready === 1 ? '' : 's'} (≈ ${formatNumber(waiting, 1)} TLM, DEF at today's price) and sends ${loop.loopable.length} division${loop.loopable.length === 1 ? '' : 's'} straight back out, one transaction per division.`
+                        : `Claims ${ready} reward${ready === 1 ? '' : 's'} (≈ ${formatNumber(waiting, 1)} TLM); the missions have closed, so nothing goes back out.`
             }
           >
             <button
