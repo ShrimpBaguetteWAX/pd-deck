@@ -346,7 +346,7 @@
 
 .loop__row {
   display: flex;
-  align-items: center;
+  align-items: stretch;
   gap: 6px;
 }
 
@@ -528,22 +528,39 @@
   box-shadow: none;
 }
 
+/* A small key of the same make beside the big one, kept quiet: grey until hovered. */
 .loop__refresh {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
+  align-self: stretch;
+  width: 28px;
   padding: 0;
-  border: 1px solid rgba(255, 209, 102, 0.35);
-  border-radius: 6px;
-  background: rgba(255, 209, 102, 0.08);
-  color: #ffd166;
+  border: none;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #16294a, #0b1a2c);
+  color: var(--text-faint);
   cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(143, 166, 191, 0.3),
+    0 4px 0 #050b16,
+    0 6px 10px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease,
+    color 0.15s ease;
 }
 
-.loop__refresh:hover {
-  background: rgba(255, 209, 102, 0.18);
+.loop__refresh:hover,
+.loop__refresh:active {
+  color: var(--text);
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(143, 166, 191, 0.3),
+    0 2px 0 #050b16,
+    0 3px 6px rgba(0, 0, 0, 0.5);
 }
 
 .loop .token-icon[alt='TLM'] {
