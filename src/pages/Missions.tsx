@@ -171,21 +171,6 @@ export default function Missions() {
   const nftInfo = (id?: number) => (id ? (templates.data?.[String(id)] ?? collection.data?.get(String(id))) : undefined)
   const nftName = (id?: number) => nftInfo(id)?.name
 
-  // The best loop the army can run at all, and the best one just out of reach.
-  const allRows = useMemo(() => {
-    const fastest = (e: MissionEconomics) =>
-      divisions.filter((d) => meetsRequirements(e, d.atk, d.def)).sort((a, b) => a.move - b.move)[0]
-    return missions
-      .filter((e) => e.state === 'active' && isTokenLoop(e))
-      .map((e) => {
-        const d = fastest(e)
-        const move = d?.move ?? Math.min(...divisions.map((x) => x.move))
-        return { e, d, perHour: tlmPerHour(e, Number.isFinite(move) ? move : 0, market) }
-      })
-      .sort((a, b) => b.perHour - a.perHour)
-  }, [missions, divisions, market])
-  const best = allRows.find((r) => r.d && r.perHour > 0)
-
   const strongest = divisions.reduce<{ atk: number; def: number }>(
     (m, d) => ({ atk: Math.max(m.atk, d.atk), def: Math.max(m.def, d.def) }),
     { atk: 0, def: 0 }
@@ -219,14 +204,12 @@ export default function Missions() {
     if (done === plan.length) setPlanOpen(false)
   }
 
-  const bestRow = best ? rows.find((r) => r.e.id === best.e.id) : undefined
-
   return (
     <div className="page missions">
       {/* Loop planner */}
       <section className={`plan panel ${plan.length ? 'is-live' : ''}`}>
         <div className="plan__text">
-          <p className="eyebrow">Best TLM loop for your army</p>
+          <p className="eyebrow">Loop plan for your idle divisions</p>
           {army.isLoading ? (
             <h2>Reading your divisions…</h2>
           ) : divisions.length === 0 ? (
@@ -238,15 +221,7 @@ export default function Missions() {
             </>
           ) : (
             <>
-              {best ? (
-                <h2>
-                  <PlanetIcon planet={best.e.planet} size={20} /> {best.e.title}{' '}
-                  <span className="c-tlm num">{formatSigned(best.perHour)}</span>{' '}
-                  <small className="muted">TLM/h per division</small>
-                </h2>
-              ) : (
-                <h2>No profitable TLM loop for your divisions yet</h2>
-              )}
+              {plan.length === 0 && <h2>No idle division reaches a profitable TLM loop right now</h2>}
               {plan.length > 0 ? (
                 <>
                   <p className="plan__sub">
@@ -371,7 +346,6 @@ export default function Missions() {
         {rows.map((r) => {
           const { e, division, idleDivision, move, perHour, route, eligible, deployable } = r
           const open = expanded === e.id
-          const isBest = r === bestRow
           const atkOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.atk >= e.minAtk
           const defOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.def >= e.minDef
           const reason = !divisions.length
@@ -384,7 +358,7 @@ export default function Missions() {
           return (
             <article
               key={e.id}
-              className={`mrow ${isBest ? 'is-best' : ''} ${!eligible && divisions.length ? 'is-out' : ''} ${open ? 'is-open' : ''} state-${e.state}`}
+              className={`mrow ${!eligible && divisions.length ? 'is-out' : ''} ${open ? 'is-open' : ''} state-${e.state}`}
             >
               <div className="mrow__main" role="row" onClick={() => setExpanded(open ? null : e.id)}>
                 <div className="mrow__mission">
@@ -392,10 +366,6 @@ export default function Missions() {
                   <div className="mrow__title">
                     <b>{e.title}</b>
                     <span className="mrow__sub">
-                      <PlanetIcon planet={e.planet} size={14} /> {titleCase(e.planet || 'unknown')} · OP-
-                      {String(e.id).padStart(3, '0')}
-                      {isBest && <em className="mrow__best">Best loop</em>}
-                      {isBest && !deployable && <em className="mrow__flag">division out</em>}
                       {e.state === 'upcoming' && <em className="mrow__flag">Starts {shortDuration(e.startAt - now)}</em>}
                       {e.state === 'active' && Number.isFinite(e.endAt) && (
                         <Tooltip text="How long this mission can still be joined. A division already out keeps its lock and reward.">
@@ -414,13 +384,7 @@ export default function Missions() {
                             <span className="num">{formatNumber(e.shardCap.max - e.shardCap.used, 0)}</span> <small>joins</small>
                           </em>
                         </Tooltip>
-                      ) : (
-                        <Tooltip
-                          text={`${formatNumber(e.joined, 0)} division${e.joined === 1 ? ' is' : 's are'} out on this mission right now. ${e.maxDivisions > 0 ? `At most ${formatNumber(e.maxDivisions, 0)} may be out at once` : 'There is no limit'}; there is no limit on how often it can be run.`}
-                        >
-                          <em className="mrow__cap">{formatNumber(e.joined, 0)} out now</em>
-                        </Tooltip>
-                      )}
+                      ) : null}
                     </span>
                   </div>
                 </div>
@@ -473,14 +437,7 @@ export default function Missions() {
                   </>
                 )}
                 <div className="mrow__act" onClick={(ev) => ev.stopPropagation()}>
-                  <Button
-                    size="sm"
-                    color="ghost"
-                    className={isBest ? 'is-best' : ''}
-                    disabled={!deployable}
-                    onClick={() => setDeploying(e)}
-                    title={reason}
-                  >
+                  <Button size="sm" color="ghost" disabled={!deployable} onClick={() => setDeploying(e)} title={reason}>
                     <RocketIcon /> Deploy
                   </Button>
                   <ChevronIcon className="mrow__chev" />
