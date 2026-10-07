@@ -18,9 +18,10 @@
 .topbar__inner {
   display: flex;
   align-items: center;
-  gap: 18px;
+  gap: 14px;
   height: var(--header-h);
-  max-width: var(--content-w);
+  /* A little wider than the content: with the mine button, the full nav labels need the room. */
+  max-width: calc(var(--content-w) + 240px);
   margin: 0 auto;
   padding: 0 var(--gutter);
 }
@@ -218,11 +219,14 @@
   gap: 6px;
 }
 
-@media (max-width: 1100px) {
+/* With the mine button in the bar, the brand's words and the nav labels go before the balances do. */
+@media (max-width: 1320px) {
   .brand span {
     display: none;
   }
+}
 
+@media (max-width: 1100px) {
   .balances {
     display: none;
   }
@@ -282,7 +286,7 @@
 }
 
 /* Eight destinations: on wide screens the labels stay, on mid-size ones only the active label. */
-@media (max-width: 1320px) and (min-width: 761px) {
+@media (max-width: 1700px) and (min-width: 761px) {
   .nav__link:not(.is-active) span {
     display: none;
   }
@@ -321,27 +325,28 @@
 
 /* ---- Mine button (Alien Worlds mining on the favourite lands) ---- */
 
+/* Never shrinks: the balances must not slide over it. The text lines truncate to its width. */
 .mine {
+  flex: none;
   display: flex;
   align-items: center;
-  margin-left: 6px;
-  min-width: 0;
+  margin-left: 8px;
 }
 
 .mine__body {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 2px;
+  gap: 3px;
+  width: 156px;
 }
 
+/* Blocks, not flex rows: a block clips its end with an ellipsis instead of both ends. */
 .mine__above,
 .mine__below {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  max-width: 220px;
+  display: block;
+  max-width: 100%;
+  text-align: center;
   min-height: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -349,40 +354,105 @@
   color: var(--text-dim);
   font-size: 9px;
   font-weight: 800;
-  letter-spacing: 0.1em;
+  letter-spacing: 0.12em;
   text-transform: uppercase;
 }
 
 .mine__mode {
-  color: var(--text-faint);
+  color: #8fb3c9;
+}
+
+.mine__mode::before {
+  content: '◢ ';
+  color: #ffd166;
 }
 
 .mine__estimate {
   display: inline-flex;
   align-items: center;
   gap: 3px;
+  margin-left: 6px;
+  vertical-align: top;
   color: #ffd166;
   letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(255, 209, 102, 0.55);
 }
 
 .mine__upgrade {
+  margin-left: 6px;
   color: var(--green);
   letter-spacing: 0.04em;
+  text-shadow: 0 0 8px rgba(46, 229, 157, 0.5);
 }
 
 .mine__row {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
 }
 
+/*
+ * The button: an angular plate with cut corners, a gold holographic gradient and a light sweep,
+ * framed by a thin gradient edge (the frame is a wrapper-less trick: a pseudo-element under a
+ * same-shaped inset).
+ */
 .mine__button.btn {
-  min-width: 118px;
-  min-height: 28px;
-  padding: 0 14px;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
+  --cut: 9px;
+  position: relative;
+  min-width: 132px;
+  min-height: 30px;
+  padding: 0 16px;
+  border: none;
+  border-radius: 0;
+  clip-path: polygon(var(--cut) 0, 100% 0, 100% calc(100% - var(--cut)), calc(100% - var(--cut)) 100%, 0 100%, 0 var(--cut));
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.35), rgba(255, 255, 255, 0) 45%),
+    linear-gradient(100deg, #ffd166 0%, #f4a62a 55%, #ffc24d 100%);
+  color: #1a1200;
+  font-size: 12.5px;
+  font-weight: 900;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  overflow: hidden;
+}
+
+/* A light sweep crossing the plate now and then. */
+.mine__button.btn::after {
+  content: '';
+  position: absolute;
+  top: -40%;
+  bottom: -40%;
+  left: -60%;
+  width: 40%;
+  background: linear-gradient(100deg, rgba(255, 255, 255, 0) 0%, rgba(255, 255, 255, 0.55) 50%, rgba(255, 255, 255, 0) 100%);
+  transform: skewX(-20deg);
+  animation: mine-sweep 4.5s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes mine-sweep {
+  0%,
+  70% {
+    left: -60%;
+  }
+  100% {
+    left: 130%;
+  }
+}
+
+/* On cooldown: a dimmed plate with a thin gold edge, the countdown in gold. */
+.mine__button.btn:disabled {
+  opacity: 1;
+  background:
+    linear-gradient(135deg, rgba(255, 209, 102, 0.14), rgba(255, 209, 102, 0.04)),
+    linear-gradient(100deg, #10243a 0%, #0b1a2c 100%);
+  color: #ffd166;
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.45);
+  cursor: default;
+}
+
+.mine__button.btn:disabled::after {
+  display: none;
 }
 
 /* Cooldown over: a slow golden pulse says it is time. */
@@ -393,15 +463,16 @@
 @keyframes mine-pulse {
   0%,
   100% {
-    box-shadow: 0 0 0 0 rgba(255, 209, 102, 0.55);
+    filter: drop-shadow(0 0 0 rgba(255, 209, 102, 0)) brightness(1);
   }
   50% {
-    box-shadow: 0 0 0 7px rgba(255, 209, 102, 0);
+    filter: drop-shadow(0 0 10px rgba(255, 209, 102, 0.8)) brightness(1.12);
   }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .mine__button.is-ready {
+  .mine__button.is-ready,
+  .mine__button.btn::after {
     animation: none;
   }
 }
@@ -413,15 +484,16 @@
   width: 24px;
   height: 24px;
   padding: 0;
-  border: 1px solid var(--border);
-  border-radius: 50%;
-  background: var(--surface-2);
-  color: var(--text-dim);
+  border: 1px solid rgba(255, 209, 102, 0.35);
+  border-radius: 0;
+  clip-path: polygon(5px 0, 100% 0, 100% calc(100% - 5px), calc(100% - 5px) 100%, 0 100%, 0 5px);
+  background: rgba(255, 209, 102, 0.08);
+  color: #ffd166;
   cursor: pointer;
 }
 
 .mine__refresh:hover {
-  color: var(--text);
+  background: rgba(255, 209, 102, 0.18);
 }
 
 .mine__refresh.is-spinning svg {
@@ -438,7 +510,26 @@
   filter: invert(0.8) sepia(1) saturate(4) hue-rotate(-12deg) brightness(1.05);
 }
 
+@media (max-width: 1320px) {
+  .mine__body {
+    width: 136px;
+  }
+
+  .mine__button.btn {
+    min-width: 108px;
+    padding: 0 12px;
+  }
+}
+
 @media (max-width: 760px) {
+  .mine {
+    margin-left: 4px;
+  }
+
+  .mine__body {
+    width: auto;
+  }
+
   .mine__above,
   .mine__below,
   .mine__refresh {
