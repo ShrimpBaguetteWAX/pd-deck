@@ -5,6 +5,7 @@ import { useShallow } from 'zustand/react/shallow'
 import { GUIDE_URL } from '@/chain/config'
 import { TokenIcon } from '@/components/Art'
 import { NetworkStatus } from '@/components/NetworkStatus'
+import { MineWidget } from '@/components/layout/MineWidget'
 import { Tooltip } from '@/components/Tooltip'
 import { useDeployments, usePlayer } from '@/data/game'
 import {
@@ -74,6 +75,8 @@ export function AppShell({ children }: { children: ReactNode }) {
               </NavLink>
             ))}
           </nav>
+
+          {account && <MineWidget />}
 
           <div className="topbar__right">
             <div className="balances">
