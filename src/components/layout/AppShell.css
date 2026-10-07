@@ -690,3 +690,49 @@
     padding-bottom: 0;
   }
 }
+
+/*
+ * Wide screens: one row. The mark, then the navigation as icons with only the active label, the
+ * loop key, the account key. The row wrapper dissolves (display: contents) so its children and the
+ * nav share one grid; below this width the header keeps its two rows.
+ */
+@media (min-width: 1180px) {
+  .topbar__inner {
+    display: grid;
+    grid-template-columns: auto 1fr auto auto;
+    align-items: center;
+    gap: 18px;
+    min-height: var(--header-h);
+    padding-block: 4px 2px;
+  }
+
+  .topbar__row {
+    display: contents;
+  }
+
+  .brand {
+    order: 1;
+  }
+
+  .nav {
+    order: 2;
+    justify-content: flex-start;
+    padding: 0;
+  }
+
+  .loop {
+    order: 3;
+  }
+
+  .topbar__right {
+    order: 4;
+  }
+
+  .nav__link:not(.is-active) span {
+    display: none;
+  }
+
+  .nav__link {
+    padding: 0 10px;
+  }
+}
