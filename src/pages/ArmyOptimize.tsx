@@ -152,6 +152,23 @@ export function OptimizeArmyModal({
     () => new Set((plan?.divisions ?? []).flatMap((d) => (d.existingId != null ? [d.existingId] : []))),
     [plan]
   )
+  // With move costs matched: per mission length, the move range of the new divisions, so the player
+  // sees what the trading achieved and, when the range stays wide, that the reserve has no better.
+  const moveGroups = useMemo(() => {
+    if (!alignMove || !plan) return []
+    const groups = new Map<number, { base: number; moves: number[]; title: string }>()
+    for (const d of plan.divisions) {
+      if (d.existingId != null) continue
+      const g = groups.get(d.mission.cooldownBase) ?? { base: d.mission.cooldownBase, moves: [], title: d.mission.title }
+      g.moves.push(d.plan.bundle.move)
+      if (g.title !== d.mission.title) g.title = `${formatDuration(d.mission.cooldownBase)} missions`
+      groups.set(d.mission.cooldownBase, g)
+    }
+    return [...groups.values()]
+      .filter((g) => g.moves.length > 1)
+      .map((g) => ({ ...g, min: Math.min(...g.moves), max: Math.max(...g.moves) }))
+  }, [alignMove, plan])
+
   const toDisband = rearrange.filter((d) => !keptIds.has(d.id))
   const fresh = (plan?.divisions ?? []).filter((d) => d.existingId == null)
   const nothingToDo = !!plan && fresh.length === 0 && toDisband.length === 0
@@ -347,6 +364,19 @@ export function OptimizeArmyModal({
         </div>
       ) : (
         <>
+          {moveGroups.length > 0 && (
+            <p className="opt__ranges faint">
+              {moveGroups.map((g) => (
+                <span key={g.base}>
+                  <b>{g.title}</b>: {g.moves.length} divisions at{' '}
+                  {g.max - g.min <= 3 ? `${g.max} move` : `${g.min}–${g.max} move`}, claimed together at the pace of {g.max}
+                  {g.max - g.min > 3 &&
+                    ', the closest the reserve allows: the supplies are all in use and no unused mercenary that meets the mission is nearer'}
+                  .{' '}
+                </span>
+              ))}
+            </p>
+          )}
           <ul className="opt__list">
             {plan.divisions.map((d, i) => {
               const b = d.plan.bundle
