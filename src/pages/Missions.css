@@ -706,3 +706,65 @@
   object-fit: cover;
   vertical-align: middle;
 }
+
+/*
+ * One accent. Figures sit in the text colour and the token icons are dimmed, so colour is left to
+ * mean something: gold for the TLM an hour, red where a requirement is not met or a loop loses.
+ */
+.mrow .req.is-ok {
+  color: var(--text);
+}
+
+.mrow .req.is-none {
+  color: var(--text-faint);
+  font-weight: 500;
+}
+
+.mrow .req svg {
+  opacity: 0.5;
+}
+
+.mrow .amount.c-tlm,
+.mrow .amount.c-deft,
+.mrow .amount.c-cyan,
+.mrow .amount.c-purple {
+  color: var(--text);
+}
+
+.mrow .amount .token-icon,
+.mrow .amount svg {
+  opacity: 0.5;
+}
+
+.mrow__entry .c-green {
+  color: var(--text-dim);
+  font-weight: 500;
+}
+
+.mrow__rate.is-shards,
+.mrow__rate.is-nft {
+  color: var(--text);
+}
+
+.mrow__best {
+  background: rgba(255, 209, 102, 0.16);
+  color: var(--tlm);
+  box-shadow: none;
+}
+
+.mrow__cap::before {
+  background: var(--text-faint);
+  box-shadow: none;
+}
+
+.mrow__cap.is-low::before {
+  background: #ff5d6e;
+  box-shadow: 0 0 5px rgba(255, 93, 110, 0.6);
+}
+
+/* The best loop's Deploy: a gold outline rather than a filled plate. */
+.mrow__act .btn.is-best {
+  background: transparent;
+  color: var(--tlm);
+  box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.6);
+}

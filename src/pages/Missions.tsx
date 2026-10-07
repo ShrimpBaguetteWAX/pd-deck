@@ -247,7 +247,6 @@ export default function Missions() {
               ) : (
                 <h2>No profitable TLM loop for your divisions yet</h2>
               )}
-              {best && <RouteLine route={cycleRoute(best.e, market)} className="plan__route" />}
               {plan.length > 0 ? (
                 <>
                   <p className="plan__sub">
@@ -476,7 +475,8 @@ export default function Missions() {
                 <div className="mrow__act" onClick={(ev) => ev.stopPropagation()}>
                   <Button
                     size="sm"
-                    color={isBest ? 'gradientYellow' : deployable ? 'solidBlue' : 'ghost'}
+                    color="ghost"
+                    className={isBest ? 'is-best' : ''}
                     disabled={!deployable}
                     onClick={() => setDeploying(e)}
                     title={reason}
