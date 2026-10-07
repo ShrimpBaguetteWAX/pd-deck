@@ -1,6 +1,12 @@
 import { useMemo, useState } from 'react'
 
-import { cancelSaleAction, listSalesActions, type SaleToList } from '@/chain/actions/market'
+import {
+  cancelSaleAction,
+  listSalesActions,
+  repriceSalesActions,
+  type SaleToList,
+  type SaleToReprice
+} from '@/chain/actions/market'
 import { ZoomImg, rarityColor } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
@@ -92,9 +98,9 @@ export function Inventory({ account, listings }: { account: string | null; listi
   const shown = groups.filter((g) => kind === 'all' || g.kind === kind)
   const kinds = INVENTORY_KINDS.filter((k) => groups.some((g) => g.kind === k))
 
-  // The floor, to the cent, is the price a pick starts at.
+  // The floor, rounded up to the cent, is the price a pick starts at.
   const pickOf = (g: Group) =>
-    picks[g.templateId] ?? { count: 0, price: g.floor !== null ? String(Math.round(g.floor * 100) / 100) : '' }
+    picks[g.templateId] ?? { count: 0, price: g.floor !== null ? String(Math.ceil(g.floor * 100) / 100) : '' }
   const setPick = (g: Group, next: Partial<{ count: number; price: string }>) =>
     setPicks((p) => ({ ...p, [g.templateId]: { ...pickOf(g), ...next } }))
 
@@ -120,6 +126,32 @@ export function Inventory({ account, listings }: { account: string | null; listi
       setPicks({})
       void refreshInventory(account)
     }
+  }
+
+  /** How much under the others' cheapest listing a refreshed listing goes. */
+  const UNDERCUT_WAX = 1
+
+  // Every listing of yours that is not the cheapest of its template set to 1 WAX under the cheapest other
+  // one; a listing that already is the lowest keeps its price.
+  const reprice: (SaleToReprice & { name: string; from: number })[] = groups.flatMap((g) => {
+    if (g.floor === null) return []
+    const target = Math.round((g.floor - UNDERCUT_WAX) * 100) / 100
+    if (target < 1) return []
+    return g.listed
+      .filter((l) => l.price > g.floor! && Math.abs(l.price - target) > 0.005)
+      .map((l) => ({ saleId: l.saleId, assetId: l.assetId, priceWax: target, name: g.name, from: l.price }))
+  })
+  const listedCount = groups.reduce((n, g) => n + g.listed.length, 0)
+
+  async function undercut() {
+    if (!reprice.length) return
+    const ok = await run(
+      (a, p) => repriceSalesActions(a, p, reprice),
+      `${reprice.length} listing${reprice.length === 1 ? '' : 's'} set 1 WAX under the floor`,
+      'undercut',
+      { split: true }
+    )
+    if (ok) void refreshInventory(account)
   }
 
   async function cancel(saleId: string, name: string) {
@@ -172,7 +204,7 @@ export function Inventory({ account, listings }: { account: string | null; listi
           {shown.map((g) => {
             const pick = pickOf(g)
             const price = Number(pick.price)
-            const belowFloor = g.floor !== null && price > 0 && price < g.floor
+            const belowFloor = g.floor !== null && price > 0 && price < g.floor - 0.005
             return (
               <div key={g.templateId} className={`inv__row ${pick.count > 0 ? 'is-picked' : ''}`}>
                 <span className="inv__nft">
@@ -258,9 +290,34 @@ export function Inventory({ account, listings }: { account: string | null; listi
               'Pick how many of a template to sell, and a price each.'
             )}
           </span>
-          <Button color="gradientYellow" disabled={!sales.length || spectating} isLoading={pending === 'list'} onClick={list}>
-            List {sales.length || ''} for sale
-          </Button>
+          <span className="inv__actions">
+            <Tooltip
+              text={
+                !listedCount
+                  ? 'You have nothing listed.'
+                  : !reprice.length
+                    ? 'Every listing of yours is already the cheapest of its template, or its template has no other listing to go under.'
+                    : `Sets ${reprice.length} of your ${listedCount} listing${listedCount === 1 ? '' : 's'} to 1 WAX under the cheapest other listing of the same template; a listing that is already the lowest keeps its price. ${reprice
+                        .slice(0, 4)
+                        .map((r) => `${r.name} ${formatNumber(r.from, 2)} → ${formatNumber(r.priceWax, 2)}`)
+                        .join(
+                          ', '
+                        )}${reprice.length > 4 ? ', …' : ''}. Each is cancelled and announced again; three actions a listing.`
+              }
+            >
+              <Button
+                color="ghost"
+                disabled={!reprice.length || spectating}
+                isLoading={pending === 'undercut'}
+                onClick={undercut}
+              >
+                Undercut floors by 1 WAX{reprice.length ? ` (${reprice.length})` : ''}
+              </Button>
+            </Tooltip>
+            <Button color="gradientYellow" disabled={!sales.length || spectating} isLoading={pending === 'list'} onClick={list}>
+              List {sales.length || ''} for sale
+            </Button>
+          </span>
         </footer>
       )}
     </section>

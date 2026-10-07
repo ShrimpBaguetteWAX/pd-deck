@@ -1101,3 +1101,10 @@
 .loot__list a {
   color: var(--cyan);
 }
+
+.inv__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}

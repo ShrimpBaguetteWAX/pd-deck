@@ -108,3 +108,12 @@ export const cancelSaleAction = (account: string, permission: string, saleId: st
   authorization: [{ actor: account, permission }],
   data: { sale_id: saleId }
 })
+
+export interface SaleToReprice extends SaleToList {
+  saleId: string
+}
+
+/** Changes a listing's price the way AtomicHub does: the sale is cancelled and announced again. */
+export function repriceSalesActions(account: string, permission: string, sales: SaleToReprice[]): AnyAction[] {
+  return sales.flatMap((s) => [cancelSaleAction(account, permission, s.saleId), ...listSalesActions(account, permission, [s])])
+}
