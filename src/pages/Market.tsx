@@ -7,6 +7,7 @@ import { atomic } from '@/chain/atomic'
 import { blendActions, type BlendRun } from '@/chain/actions/blend'
 import { buySalesActions, stakeBoughtAction } from '@/chain/actions/market'
 import { addUnit, assignGear as assignGearAction, buyShopItem, createDivision, payForgeLevel } from '@/chain/actions/pd'
+import { RARITY_COLORS } from '@/chain/config'
 import { CardArt, PlanetIcon, rarityColor, TokenIcon } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
@@ -133,6 +134,9 @@ const SLOT_LABEL: Record<SlotKind, string> = { weapon: 'equipment', supply: 'sup
  */
 const SOURCES_OF = new WeakMap<SolveInput, Map<string, Source>>()
 
+/** Rarities a player may leave out of the bundle, cheapest first. */
+const RARITY_LIST = ['common', 'uncommon', 'rare', 'epic', 'legendary', 'mythic']
+
 const assetOf = (s: Source) => (s.from === 'market' ? s.listing.asset : s.asset)
 
 /** A plan being carried out: kept as it was bought, so the division is built from exactly these NFTs. */
@@ -195,6 +199,9 @@ export default function Market() {
   const [useDivisions, setUseDivisions] = useState(false)
   const [useWallet, setUseWallet] = useState(true)
   const [useMaterials, setUseMaterials] = useState(true)
+  /** Rarities left out of the bundle: no listing, blend or owned NFT of these is offered. */
+  const [excluded, setExcluded] = useState<Set<string>>(() => new Set())
+  const excludedKey = [...excluded].sort().join('+') || 'all'
   const useOwned = useStaked || useDivisions || useWallet || useMaterials
   const [locked, setLocked] = useState<Locked | null>(null)
   /*
@@ -224,7 +231,7 @@ export default function Market() {
   const forgeLevel = player.data?.forgeLevel ?? 0
 
   // Nothing is searched until the user asks: typing a target should not start a long search.
-  const paramsKey = `${atk}/${def}/${maxMove ?? '-'}/${useStaked}/${useDivisions}/${useWallet}/${useMaterials}`
+  const paramsKey = `${atk}/${def}/${maxMove ?? '-'}/${useStaked}/${useDivisions}/${useWallet}/${useMaterials}/${excludedKey}`
   const scanning = !!scanKey && scanKey.startsWith(paramsKey + '#')
   /*
    * A scan works on a snapshot of the market and your NFTs taken when it starts. Pool prices refresh
@@ -244,7 +251,7 @@ export default function Market() {
   const [frozen, setFrozen] = useState<{ key: string; at: number; data: typeof live } | null>(null)
   const scanWith = (a: number, d: number) => {
     if (a <= 0 && d <= 0) return
-    const key = `${a}/${d}/${maxMove ?? '-'}/${useStaked}/${useDivisions}/${useWallet}/${useMaterials}#${Date.now()}`
+    const key = `${a}/${d}/${maxMove ?? '-'}/${useStaked}/${useDivisions}/${useWallet}/${useMaterials}/${excludedKey}#${Date.now()}`
     setScanKey(key)
     setFrozen({ key, at: Date.now(), data: live })
   }
@@ -320,6 +327,7 @@ export default function Market() {
     const warlords: WarlordOption[] = []
     const add = (key: string, source: Source, cost: number) => {
       const a = assetOf(source)
+      if (excluded.has(String(a.rarity ?? '').toLowerCase())) return
       const st = a.stats
       const kind = kindOfCategory(st?.category)
       if (!st || !kind) return
@@ -433,6 +441,7 @@ export default function Market() {
     useStaked,
     useDivisions,
     useWallet,
+    excluded,
     atk,
     def,
     maxMove,
@@ -843,6 +852,39 @@ export default function Market() {
                 <span className="cashout__knob" /> My materials
               </button>
             </Tooltip>
+            <span className="mk-rarities" role="group" aria-label="Rarities">
+              {RARITY_LIST.map((r) => {
+                const off = excluded.has(r)
+                return (
+                  <Tooltip
+                    key={r}
+                    text={
+                      off
+                        ? `${titleCase(r)} NFTs are left out of the bundle. Click to allow them again.`
+                        : `Click to leave ${titleCase(r)} NFTs out of the bundle: no listing, blend or NFT of yours of that rarity is used.`
+                    }
+                  >
+                    <button
+                      type="button"
+                      className={`mk-rarity ${off ? 'is-off' : ''}`}
+                      style={{ '--rarity': RARITY_COLORS[r] } as CSSProperties}
+                      disabled={!!locked}
+                      aria-pressed={!off}
+                      onClick={() =>
+                        setExcluded((prev) => {
+                          const next = new Set(prev)
+                          if (next.has(r)) next.delete(r)
+                          else next.add(r)
+                          return next
+                        })
+                      }
+                    >
+                      {titleCase(r)}
+                    </button>
+                  </Tooltip>
+                )
+              })}
+            </span>
             <Button
               color="gradientYellow"
               className="mk-scan"
