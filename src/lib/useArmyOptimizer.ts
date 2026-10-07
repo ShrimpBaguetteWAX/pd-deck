@@ -23,7 +23,8 @@ export function useArmyOptimizer(input: OptimizeInput | null): OptimizerState {
         input.market.rate,
         input.forgeLevel,
         input.slotsFree,
-        input.maxDivisions
+        input.maxDivisions,
+        !!input.alignMove
       ])
     : ''
   const latest = useRef(input)

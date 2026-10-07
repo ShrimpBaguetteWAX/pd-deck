@@ -1065,3 +1065,99 @@
     grid-column: 2;
   }
 }
+
+/* ---- Optimize: the player's options ---- */
+
+.opt__options {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-2);
+}
+
+.opt__missions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.opt__label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.opt__label .mk-link {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.opt__chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.opt__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 9px 3px 6px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: transparent;
+  color: var(--text-faint);
+  font: inherit;
+  font-size: 11px;
+  font-weight: 700;
+  text-decoration: line-through;
+  cursor: pointer;
+}
+
+.opt__chip.is-on {
+  border-color: rgba(255, 209, 102, 0.5);
+  background: rgba(255, 209, 102, 0.1);
+  color: var(--text);
+  text-decoration: none;
+}
+
+.opt__chip:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.opt__chip .planet-icon {
+  border-radius: 50%;
+}
+
+.opt__check {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.opt__check input {
+  margin-top: 3px;
+  accent-color: #ffd166;
+}
+
+.opt__check span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 12px;
+}
+
+.opt__check small {
+  font-size: 11px;
+}

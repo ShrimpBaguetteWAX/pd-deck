@@ -38,8 +38,15 @@ export function planMissionDivision(
   /**
    * mercPenalty: extra cost per mercenary, so that fewer, stronger units (and gear) are preferred.
    * costOf: the caller's own cost for a unit (given the usual one), e.g. what it would earn elsewhere.
+   * maxMove: the division's move cost may not exceed this (null when no division fits under it).
    */
-  options: { moveWeight?: number; gridMax?: number; mercPenalty?: number; costOf?: (a: AssetRef, usual: number) => number } = {}
+  options: {
+    moveWeight?: number
+    gridMax?: number
+    mercPenalty?: number
+    costOf?: (a: AssetRef, usual: number) => number
+    maxMove?: number
+  } = {}
 ): MissionPlan | null {
   const moveWeight = options.moveWeight ?? MOVE_WEIGHT
   const mercPenalty = options.mercPenalty ?? 0
@@ -101,6 +108,7 @@ export function planMissionDivision(
     atk: target.atk,
     def: target.def,
     ...(options.gridMax ? { gridMax: options.gridMax } : {}),
+    ...(options.maxMove ? { maxMove: options.maxMove } : {}),
     warlords,
     items,
     economy: {

@@ -73,6 +73,8 @@ const VARIANTS: Variant[] = [
 ]
 /** One hour of what a unit could earn elsewhere counts as this many strength points. */
 const OPPORTUNITY_WEIGHT = 100
+/** Under a move cap (alignMove), move barely matters: the division fills up to the cap with the weakest units. */
+const ALIGNED_MOVE_WEIGHT = 0.2
 
 /**
  * The fourth way to plan a division: every unit costs what it could earn on its own (a mercenary
@@ -121,6 +123,13 @@ export interface OptimizeInput {
   maxDivisions: number
   /** The divisions whose NFTs are in the pool, as they stand: the search may keep any of them as it is. */
   existing?: Division[]
+  /**
+   * Divisions on missions of the same length are claimed and sent out again together, so they all
+   * run at the pace of the slowest of them: the army is valued that way, a later division may not
+   * be slower than the slowest already fielded for that length, and under that cap move hardly
+   * counts, so it ends up close to it. Their move costs come out similar and they return together.
+   */
+  alignMove?: boolean
 }
 
 export type Progress = { strategy: Strategy; strategyIndex: number; division: number }
@@ -317,11 +326,14 @@ function search(
         bestHere = Math.max(bestHere, s)
         const slots = { ...node.slots }
         for (const k of ['weapon', 'supply', 'lavalux'] as SlotKind[]) slots[k] -= b.gear[k].length
+        const divisions = [...node.divisions, { mission: loop.mission, plan, perHour: loop.perHour, existingId: d.id }]
         const child: Node = {
           pool: without(node.pool, keys),
           slots,
-          divisions: [...node.divisions, { mission: loop.mission, plan, perHour: loop.perHour, existingId: d.id }],
-          total: node.total + s,
+          divisions,
+          total: input.alignMove
+            ? valued(divisions, input).reduce((n, x) => n + score(strategy, x.perHour, x.plan), 0)
+            : node.total + s,
           rank: 0
         }
         child.rank = child.total + (strategy === 'per-hour' ? potential(child, input, ordered) : 0)
@@ -343,8 +355,15 @@ function search(
         if (m.minAtk > maxAtk || m.minDef > maxDef) continue
         // A mission with no requirement takes the smallest division there is.
         const target = m.minAtk > 0 || m.minDef > 0 ? { atk: m.minAtk, def: m.minDef } : { atk: 1, def: 0 }
+        // Aligning: the slowest division already fielded for a mission of this length caps this one.
+        const peers = input.alignMove ? node.divisions.filter((d) => d.mission.cooldownBase === m.cooldownBase) : []
+        const cap = peers.length ? Math.max(...peers.map((d) => d.plan.bundle.move)) : undefined
         for (const variant of variants) {
-          const plan = planMissionDivision(node.pool, target, input.forgeLevel, node.slots, { ...variant, gridMax: PLANNER_GRID })
+          const options =
+            cap !== undefined
+              ? { ...variant, moveWeight: ALIGNED_MOVE_WEIGHT, maxMove: cap, gridMax: PLANNER_GRID }
+              : { ...variant, gridMax: PLANNER_GRID }
+          const plan = planMissionDivision(node.pool, target, input.forgeLevel, node.slots, options)
           if (!plan) break
           const perHour = tlmPerHour(m, plan.bundle.move, input.market)
           if (perHour <= 0) break
@@ -352,11 +371,14 @@ function search(
           bestHere = Math.max(bestHere, s)
           const slots = { ...node.slots }
           for (const k of ['weapon', 'supply', 'lavalux'] as SlotKind[]) slots[k] -= plan.bundle.gear[k].length
+          const divisions = [...node.divisions, { mission: m, plan, perHour }]
           const child: Node = {
             pool: without(node.pool, usedKeys(plan)),
             slots,
-            divisions: [...node.divisions, { mission: m, plan, perHour }],
-            total: node.total + s,
+            divisions,
+            total: input.alignMove
+              ? valued(divisions, input).reduce((n, x) => n + score(strategy, x.perHour, x.plan), 0)
+              : node.total + s,
             rank: 0
           }
           child.rank = child.total + (strategy === 'per-hour' ? potential(child, input, ordered) : 0)
@@ -372,13 +394,27 @@ function search(
     children.sort((x, y) => y.rank - x.rank)
     const keep = Date.now() - started > BEAM_BUDGET_MS ? 1 : width
     frontier = children.slice(0, keep)
-    for (const c of frontier) if (earning(c) > earning(best)) best = c
+    for (const c of frontier) if (earning(c, input) > earning(best, input)) best = c
     if (outOfTime) break
   }
-  return { divisions: best.divisions, perHour: earning(best), strategy }
+  return { divisions: valued(best.divisions, input), perHour: earning(best, input), strategy }
 }
 
-const earning = (n: Node) => n.divisions.reduce((sum, d) => sum + d.perHour, 0)
+/**
+ * What each division earns when the ones on missions of the same length wait for the slowest of
+ * them (alignMove): its mission's rate at that group's highest move cost.
+ */
+export function alignedDivisions(divisions: OptimizedDivision[], market: Market): OptimizedDivision[] {
+  const slowest = new Map<number, number>()
+  for (const d of divisions)
+    slowest.set(d.mission.cooldownBase, Math.max(slowest.get(d.mission.cooldownBase) ?? 0, d.plan.bundle.move))
+  return divisions.map((d) => ({ ...d, perHour: tlmPerHour(d.mission, slowest.get(d.mission.cooldownBase)!, market) }))
+}
+
+const valued = (divisions: OptimizedDivision[], input: OptimizeInput) =>
+  input.alignMove ? alignedDivisions(divisions, input.market) : divisions
+
+const earning = (n: Node, input: OptimizeInput) => valued(n.divisions, input).reduce((sum, d) => sum + d.perHour, 0)
 
 /** The army plan that earns the most, over the strategies. */
 export function optimizeArmy(input: OptimizeInput, onProgress?: (p: Progress) => void): ArmyPlan {
@@ -391,9 +427,10 @@ export function optimizeArmy(input: OptimizeInput, onProgress?: (p: Progress) =>
     const loop = bestLoop(d, input.missions, input.market)
     if (plan && loop) asIs.push({ mission: loop.mission, plan, perHour: loop.perHour, existingId: d.id })
   }
+  const asIsValued = valued(asIs, input)
   let best: ArmyPlan =
     asIs.length && asIs.length <= input.maxDivisions
-      ? { divisions: asIs, perHour: asIs.reduce((n, d) => n + d.perHour, 0), strategy: 'per-hour' }
+      ? { divisions: asIsValued, perHour: asIsValued.reduce((n, d) => n + d.perHour, 0), strategy: 'per-hour' }
       : { divisions: [], perHour: 0, strategy: 'per-hour' }
   for (const strategy of STRATEGIES) {
     if (deadline - Date.now() < EXTRA_PASS_MIN_MS && strategy !== 'per-hour') break

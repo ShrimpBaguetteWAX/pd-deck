@@ -10,7 +10,7 @@ import { Tooltip } from '@/components/Tooltip'
 import type { AssetRef } from '@/data/assets'
 import { useArmy, type Division } from '@/data/game'
 import { CheckIcon, TimerIcon, XIcon } from '@/icons'
-import { bestLoop, poolOf, type OptimizeInput } from '@/lib/armyOptimizer'
+import { bestLoop, candidateMissions, poolOf, type OptimizeInput } from '@/lib/armyOptimizer'
 import type { SlotKind } from '@/lib/bundle'
 import { SLOT_POWERUP } from '@/lib/forgeEconomy'
 import { formatDuration, formatNumber } from '@/lib/format'
@@ -30,6 +30,25 @@ import { disbandActions, MissionStrip } from './ArmyMissions'
  */
 
 type Step = 'disband' | 'create' | 'fill'
+
+/** The player's choices survive reopening the dialog. */
+const STORE_OFF = 'pd:optimize:missions-off'
+const STORE_ALIGN = 'pd:optimize:align-move'
+const readStore = <T,>(key: string, fallback: T): T => {
+  try {
+    const raw = localStorage.getItem(key)
+    return raw ? (JSON.parse(raw) as T) : fallback
+  } catch {
+    return fallback
+  }
+}
+const writeStore = (key: string, value: unknown) => {
+  try {
+    localStorage.setItem(key, JSON.stringify(value))
+  } catch {
+    // Private windows and full storage: the choice just does not persist.
+  }
+}
 interface Run {
   /** Steps still to do, in order. */
   steps: Step[]
@@ -72,6 +91,30 @@ export function OptimizeArmyModal({
   const rearrange = useMemo(() => divisions.filter(disbandable), [divisions, disbandable])
   const kept = useMemo(() => divisions.filter((d) => !disbandable(d)), [divisions, disbandable])
 
+  // Which missions may be fielded (all by default), and whether move costs are matched per mission length.
+  const candidates = useMemo(() => candidateMissions(missions), [missions])
+  const [off, setOff] = useState<Set<number>>(() => new Set(readStore<number[]>(STORE_OFF, [])))
+  const [alignMove, setAlignMove] = useState<boolean>(() => readStore<boolean>(STORE_ALIGN, false))
+  const toggleMission = (id: number) =>
+    setOff((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      writeStore(STORE_OFF, [...next])
+      return next
+    })
+  const setAllMissions = (on: boolean) => {
+    const next = on ? new Set<number>() : new Set(candidates.map((m) => m.id))
+    writeStore(STORE_OFF, [...next])
+    setOff(next)
+  }
+  const toggleAlign = () =>
+    setAlignMove((v) => {
+      writeStore(STORE_ALIGN, !v)
+      return !v
+    })
+  const chosenMissions = useMemo(() => missions.filter((m) => !off.has(m.id)), [missions, off])
+
   const input = useMemo<OptimizeInput>(() => {
     const usedByKept = { weapon: 0, supply: 0, lavalux: 0 }
     for (const d of kept)
@@ -85,13 +128,14 @@ export function OptimizeArmyModal({
     return {
       pool: poolOf(free, rearrange),
       existing: rearrange,
-      missions,
+      missions: chosenMissions,
       market,
       forgeLevel,
       slotsFree,
-      maxDivisions: Math.max(0, allowance - kept.length)
+      maxDivisions: Math.max(0, allowance - kept.length),
+      alignMove
     }
-  }, [free, rearrange, kept, missions, market, forgeLevel, powerups, allowance])
+  }, [free, rearrange, kept, chosenMissions, market, forgeLevel, powerups, allowance, alignMove])
   const optimizer = useArmyOptimizer(input)
   const plan = optimizer.plan
 
@@ -225,6 +269,56 @@ export function OptimizeArmyModal({
         </div>
       </div>
 
+      <div className="opt__options">
+        <div className="opt__missions">
+          <span className="opt__label">
+            Missions
+            <button type="button" className="mk-link" disabled={busy || off.size === 0} onClick={() => setAllMissions(true)}>
+              all
+            </button>
+            <button
+              type="button"
+              className="mk-link"
+              disabled={busy || off.size >= candidates.length}
+              onClick={() => setAllMissions(false)}
+            >
+              none
+            </button>
+          </span>
+          <span className="opt__chips">
+            {candidates.map((m) => {
+              const on = !off.has(m.id)
+              return (
+                <Tooltip
+                  key={m.id}
+                  text={`${m.title}: needs ${formatNumber(m.minAtk, 0)} ATK${m.minDef ? ` / ${formatNumber(m.minDef, 0)} DEF` : ''}, ${formatDuration(m.cooldownBase)} base. ${on ? 'Click to leave it out.' : 'Click to allow it.'}`}
+                >
+                  <button
+                    type="button"
+                    className={`opt__chip ${on ? 'is-on' : ''}`}
+                    aria-pressed={on}
+                    disabled={busy}
+                    onClick={() => toggleMission(m.id)}
+                  >
+                    <PlanetIcon planet={m.planet} size={13} /> {m.title}
+                  </button>
+                </Tooltip>
+              )
+            })}
+          </span>
+        </div>
+        <label className={`opt__check ${alignMove ? 'is-on' : ''}`}>
+          <input type="checkbox" checked={alignMove} disabled={busy} onChange={toggleAlign} />
+          <span>
+            <b>Match move costs</b>
+            <small className="faint">
+              Divisions on missions of the same length get similar move costs, so they return together and can be claimed and sent
+              out again as one.
+            </small>
+          </span>
+        </label>
+      </div>
+
       {kept.length > 0 && (
         <p className="opt__kept faint">
           {kept.length} division{kept.length === 1 ? ' is' : 's are'} out on a mission or waiting for a claim and cannot be
@@ -246,7 +340,9 @@ export function OptimizeArmyModal({
           <span>
             {input.maxDivisions <= 0
               ? 'Every division slot is taken by a division that is out right now.'
-              : 'No staked warlord and mercenaries together reach a mission that pays TLM.'}
+              : off.size >= candidates.length
+                ? 'Every mission is left out. Allow at least one above.'
+                : 'No staked warlord and mercenaries together reach a mission that pays TLM among the ones allowed.'}
           </span>
         </div>
       ) : (

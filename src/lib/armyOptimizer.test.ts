@@ -5,7 +5,7 @@ import type { AssetRef } from '@/data/assets'
 import type { MissionRow } from '@/data/types'
 
 import { bestLoop, candidateMissions, optimizeArmy } from './armyOptimizer'
-import type { MissionEconomics } from './loop'
+import { tlmPerHour, type MissionEconomics } from './loop'
 import { fallbackMarket } from './market'
 import type { Kind } from './stats'
 
@@ -160,5 +160,22 @@ describe('existing divisions', () => {
     expect(plan.divisions).toHaveLength(1)
     expect(plan.divisions[0].existingId).toBe(7)
     expect(plan.perHour).toBeCloseTo(bestLoop(division, missions, market)!.perHour, 6)
+  })
+})
+
+describe('alignMove', () => {
+  it('values divisions on missions of the same length at the pace of the slowest, and keeps them close', () => {
+    const pool = empty()
+    for (let i = 0; i < 2; i++) pool.warlord.push(nft(CATEGORY.WARLORD, { slots: 1 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 10 }))
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 100, move: 50 }))
+    const missions = [mission(1, 100, 10)]
+    const loose = optimizeArmy({ pool, missions, market, forgeLevel: 0, slotsFree: noSlots, maxDivisions: 2 })
+    const aligned = optimizeArmy({ pool, missions, market, forgeLevel: 0, slotsFree: noSlots, maxDivisions: 2, alignMove: true })
+    expect(loose.divisions).toHaveLength(2)
+    // Each division is rated at its group's slowest move, so the aligned army never claims more than the loose one.
+    expect(aligned.perHour).toBeLessThanOrEqual(loose.perHour + 1e-9)
+    const slowest = Math.max(...aligned.divisions.map((d) => d.plan.bundle.move))
+    for (const d of aligned.divisions) expect(d.perHour).toBeCloseTo(tlmPerHour(d.mission, slowest, market), 9)
   })
 })
