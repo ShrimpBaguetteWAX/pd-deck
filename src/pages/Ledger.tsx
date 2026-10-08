@@ -4,6 +4,7 @@ import { TokenIcon } from '@/components/Art'
 import { Loading } from '@/components/Loading'
 import { Figure } from '@/components/Stat'
 import { Tooltip } from '@/components/Tooltip'
+import { RefreshIcon } from '@/icons'
 import { useCollectionTemplates, useOwnedBlendInputs, useTemplatePrices } from '@/data/blends'
 import { useArmy, useWalletNfts } from '@/data/game'
 import {
@@ -146,12 +147,25 @@ export default function Ledger() {
               game's rewards. Each entry is valued on the day it happened.
             </p>
           </div>
-          <div className="segmented" role="group" aria-label="Currency">
-            {(['USD', 'WAX'] as Unit[]).map((u) => (
-              <button key={u} type="button" className={unit === u ? 'is-active' : ''} onClick={() => setUnit(u)}>
-                {u === 'WAX' ? <TokenIcon symbol="WAX" size={14} /> : '$'} {u}
+          <div className="lg-controls">
+            <div className="segmented" role="group" aria-label="Currency">
+              {(['USD', 'WAX'] as Unit[]).map((u) => (
+                <button key={u} type="button" className={unit === u ? 'is-active' : ''} onClick={() => setUnit(u)}>
+                  {u === 'WAX' ? <TokenIcon symbol="WAX" size={14} /> : '$'} {u}
+                </button>
+              ))}
+            </div>
+            <Tooltip text="Reads the history and today's prices again. The ledger otherwise refreshes every ten minutes.">
+              <button
+                type="button"
+                className={`lg-refresh ${ledger.isFetching ? 'is-spinning' : ''}`}
+                disabled={ledger.isFetching}
+                onClick={() => void Promise.all([ledger.refetch(), prices.refetch()])}
+                aria-label="Refresh the ledger"
+              >
+                <RefreshIcon width={14} height={14} />
               </button>
-            ))}
+            </Tooltip>
           </div>
         </div>
         {usdMissing && (
