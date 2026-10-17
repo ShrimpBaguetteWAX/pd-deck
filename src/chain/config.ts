@@ -51,7 +51,9 @@ export const CONTRACTS = {
   USER_POINTS: 'uspts.worlds',
   ALCOR_SWAP: 'swap.alcor',
   /** Ascension: sacrifices (memo "burn") and star-ups (memo "ascend") by NFT transfer. */
-  ASCEND: 'ascend.pdef'
+  ASCEND: 'ascend.pdef',
+  /** Planetary sieges: worlds funded with DEF and held for a season by everyone's divisions. */
+  SIEGE: 'siege.pdef'
 } as const
 
 /** The Fragment material, ascension's currency. */

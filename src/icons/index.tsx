@@ -187,6 +187,14 @@ export const MinusIcon = (p: P) => (
   </svg>
 )
 
+/** A planet with a ring: the planetary sieges. */
+export const OrbitIcon = (p: P) => (
+  <svg {...base(p)}>
+    <circle cx="12" cy="12" r="5" />
+    <path d="M3.5 9.5c-1.6 2.6 5 7.3 11.5 9.8s11-1 7.5-4.2" />
+  </svg>
+)
+
 export const ShardIcon = (p: P) => (
   <svg {...base({ ...p, stroke: 'none' })}>
     <path d="M12 2 5 9.2 12 22l7-12.8L12 2Z" fill="#4ecbff" />
