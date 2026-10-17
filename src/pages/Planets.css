@@ -32,14 +32,18 @@
 .pl-rail {
   display: flex;
   gap: 4px;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  max-width: 100%;
+  overflow-x: auto;
+  scrollbar-width: none;
   padding: 3px;
   border: 1px solid var(--border);
-  border-radius: 18px;
+  border-radius: 999px;
   background: var(--surface);
 }
 
 .pl-rail__world {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -769,6 +773,26 @@
 }
 
 @media (max-width: 720px) {
+  /* One row on phones: only the picked world keeps its name. */
+  .pl-rail {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .pl-rail__world:not(.is-active) {
+    padding-right: 4px;
+  }
+
+  .pl-rail__world:not(.is-active) b,
+  .pl-rail__world:not(.is-active) .pl-rail__dot {
+    display: none;
+  }
+
+  .pl-rail__world img {
+    width: 26px;
+    height: 26px;
+  }
+
   .pl-phases {
     grid-template-columns: 1fr;
   }
