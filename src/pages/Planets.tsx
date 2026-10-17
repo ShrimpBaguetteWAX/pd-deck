@@ -139,6 +139,16 @@ function World({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) {
               <dt>Entry</dt>
               <dd className="num">{formatToken(s.entryTlm)} TLM</dd>
             </div>
+            <div className="pl-facts__target">
+              <dt>
+                Siege target{' '}
+                <Tooltip text="Attack and defense every player's joined divisions must reach together this season. Both totals have to be met." />
+              </dt>
+              <dd className="num">
+                <span className="c-atk">{formatNumber(s.targetAtk, 0)} ATK</span> ·{' '}
+                <span className="c-def">{formatNumber(s.targetDef, 0)} DEF</span>
+              </dd>
+            </div>
             <div>
               <dt>Division needs</dt>
               <dd className="num">
