@@ -1,4 +1,5 @@
 import { useQuery, type UseQueryResult } from '@tanstack/react-query'
+import { useMemo } from 'react'
 
 import { CONTRACTS, PLANETS, type Planet } from '@/chain/config'
 import { getActions } from '@/chain/history'
@@ -340,6 +341,56 @@ export function useContributions(planetId: number | null): UseQueryResult<Contri
         .sort((a, b) => b.at - a.at)
     }
   })
+}
+
+/** The score bonus the three biggest funders of a world's funding phase get when the season closes. */
+export const FUNDER_BONUS = [0.15, 0.1, 0.05]
+
+export interface Funder {
+  rank: number
+  account: string
+  def: number
+}
+
+/**
+ * The funding phase of the world's current season, biggest funder first: DEF sent since the
+ * world's last season was closed and, once the season has opened, before it opened. The top
+ * three are the ones the contract gives the score bonus (seen in its defbonus table after the
+ * first Magor season).
+ */
+export function useSeasonFunders(siege: Siege | null): {
+  funders: Funder[]
+  /** This phase's contributions, newest first. */
+  recent: Contribution[]
+  isLoading: boolean
+} {
+  const planetId = siege?.onChain ? siege.planetId : null
+  const contributions = useContributions(planetId)
+  const closes = useQuery({
+    queryKey: ['siege-closes'],
+    staleTime: 10 * 60_000,
+    queryFn: async () =>
+      (await getActions(CONTRACTS.SIEGE, { filter: `${CONTRACTS.SIEGE}:closeseason` })).map((a) => ({
+        planetId: Number(a.act.data.planet_id),
+        at: +chainDate(a['@timestamp'])
+      }))
+  })
+  const { funders, recent } = useMemo(() => {
+    if (!siege || !contributions.data || !closes.data) return { funders: [], recent: [] }
+    const since = Math.max(0, ...closes.data.filter((c) => c.planetId === siege.planetId).map((c) => c.at))
+    const until = siege.startAt ?? Infinity
+    const sums = new Map<string, number>()
+    const recent = contributions.data.filter((c) => c.at > since && c.at < until)
+    for (const c of recent) {
+      sums.set(c.account, (sums.get(c.account) ?? 0) + c.def)
+    }
+    const funders = [...sums]
+      .map(([account, def]) => ({ account, def }))
+      .sort((a, b) => b.def - a.def)
+      .map((f, i) => ({ ...f, rank: i + 1 }))
+    return { funders, recent }
+  }, [siege, contributions.data, closes.data])
+  return { funders, recent, isLoading: contributions.isLoading || closes.isLoading }
 }
 
 /** After a contribution, a join or a claim: the world, the player's entries, scores and balances. */

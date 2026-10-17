@@ -3,23 +3,27 @@ import { Link } from 'react-router-dom'
 
 import { recalcDivision } from '@/chain/actions/pd'
 import { claimSiegeAction, contributeDefAction, depositTlmAction, joinSiegeAction } from '@/chain/actions/siege'
-import { PlanetIcon, TokenIcon } from '@/components/Art'
+import { TokenIcon } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
-import { Figure, StatTrio } from '@/components/Stat'
+import { StatTrio } from '@/components/Stat'
 import { Tooltip } from '@/components/Tooltip'
 import { useCollectionTemplates } from '@/data/blends'
 import { useArmy, usePlayer, useTemplates, type Division } from '@/data/game'
 import {
+  FUNDER_BONUS,
   joinOpen,
   refreshSieges,
-  useContributions,
   useEntryCredit,
   useLeaderboard,
   useRankPrizes,
+  useSeasonFunders,
   useSiegeEntries,
   useSieges,
   useTlmBalance,
+  type Contribution,
+  type Funder,
+  type RankPrize,
   type Siege
 } from '@/data/siege'
 import { SIEGE_LORE } from '@/data/siegeLore'
@@ -33,20 +37,32 @@ import { useTransaction } from '@/wallet/useTransaction'
 import './Planets.css'
 
 /*
- * Planetary sieges: six worlds, each unlocked by the community's DEF and then held for a season
- * by everyone's divisions. A division joins for a TLM entry fee, counts its attack and defense
- * towards the season's targets and the player's score, and comes back after a cooldown; the
- * season's ranks pay DEF and NFTs.
+ * Planetary sieges. A world goes through three phases: the community funds it with DEF (the three
+ * biggest funders earn a score bonus), then for a season divisions join for a TLM fee and each join
+ * adds the division's attack and defense to the player's score, then the ranks are paid in DEF and
+ * NFTs.
  */
 
 const QUICK_DEF = [10, 50, 100, 500]
+const PLACE = ['1st', '2nd', '3rd']
+const pct = (b: number) => `+${Math.round(b * 100)}%`
 
-const STATUS_LABEL: Record<Siege['status'], string> = {
-  unopened: 'Not opened yet',
-  locked: 'Locked · funding',
-  active: 'Season open',
-  met: 'Targets met',
-  failed: 'Season failed'
+type Run = ReturnType<typeof useTransaction>['run']
+interface Tx {
+  account: string | null
+  run: Run
+  pending: string | null
+  spectating: boolean
+}
+
+/** The phase a world is in: 0 funding, 1 siege, 2 settled; null before the game opens it. */
+const phaseOf = (s: Siege) => (!s.onChain ? null : s.status === 'locked' ? 0 : s.status === 'active' ? 1 : 2)
+
+function railStatus(s: Siege, now: number) {
+  if (!s.onChain) return 'Sealed'
+  if (s.status === 'locked') return `Funding · ${formatNumber((s.fundedDef / (s.thresholdDef || 1)) * 100, 0)}%`
+  if (s.status === 'active') return s.endAt ? `Siege · ${shortDuration(s.endAt - now)} left` : 'Siege open'
+  return s.status === 'met' ? 'Targets met' : 'Season failed'
 }
 
 export default function Planets() {
@@ -55,7 +71,7 @@ export default function Planets() {
   const now = useNow(1000)
   const [picked, setPicked] = useState<string | null>(null)
 
-  // The first world with something going on is open by default: an active season, then one funding.
+  // Open the world with the most going on: an active siege, then one being funded.
   const list = sieges.data ?? []
   const fallback = list.find((s) => s.status === 'active')?.planet ?? list.find((s) => s.onChain)?.planet ?? 'magor'
   const planet = picked ?? fallback
@@ -65,302 +81,393 @@ export default function Planets() {
 
   return (
     <div className="page planets">
-      <header className="pl-head panel panel--tight">
+      <header className="pl-head">
         <div>
           <p className="eyebrow">Planetary sieges</p>
-          <h2>Six worlds, six campaigns</h2>
-          <p className="muted">
-            A world opens once the community has sent it enough DEF. Then, for a season, every division that joins counts its
-            attack and defense towards the world's targets and your score. Ranks pay DEF and NFTs when the season closes.
-          </p>
+          <h2>Campaigns</h2>
         </div>
+        <nav className="pl-rail" aria-label="Worlds">
+          {list.map((s) => (
+            <button
+              key={s.planet}
+              type="button"
+              title={railStatus(s, now)}
+              className={`pl-rail__world is-${s.status} ${s.planet === planet ? 'is-active' : ''}`}
+              onClick={() => setPicked(s.planet)}
+            >
+              <img src={publicUrl(`/img/planets/${s.planet}.png`)} alt="" />
+              <b>{titleCase(s.planet)}</b>
+              <i className="pl-rail__dot" aria-label={railStatus(s, now)} />
+            </button>
+          ))}
+        </nav>
       </header>
 
-      <div className="pl-grid">
-        {list.map((s) => (
-          <WorldCard key={s.planet} siege={s} now={now} active={s.planet === planet} onPick={() => setPicked(s.planet)} />
-        ))}
-      </div>
-
-      {siege && (
-        <WorldDetail
-          key={siege.planet}
-          siege={siege}
-          account={account}
-          now={now}
-          run={run}
-          pending={pending}
-          spectating={spectating}
-        />
-      )}
+      {siege && <World key={siege.planet} siege={siege} now={now} tx={{ account, run, pending, spectating }} />}
     </div>
   )
 }
 
-// ---- The six cards ----------------------------------------------------------------------------------------
+// ---- One world -----------------------------------------------------------------------------------------
 
-function WorldCard({ siege: s, now, active, onPick }: { siege: Siege; now: number; active: boolean; onPick: () => void }) {
+function World({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) {
   const lore = SIEGE_LORE[s.planet]
-  const funded = s.thresholdDef > 0 ? Math.min(1, s.fundedDef / s.thresholdDef) : 0
-  const atk = s.targetAtk > 0 ? Math.min(1, s.cumAtk / s.targetAtk) : 0
-  const def = s.targetDef > 0 ? Math.min(1, s.cumDef / s.targetDef) : 0
+  const phase = phaseOf(s)
+  const { funders, recent, isLoading: fundersLoading } = useSeasonFunders(s)
+  // The amount in the funding form; the funder panel can fill it with what a bonus place takes.
+  const [amount, setAmount] = useState('')
+
   return (
-    <button type="button" className={`pl-card ${active ? 'is-active' : ''} is-${s.status}`} onClick={onPick}>
-      <img className="pl-card__art" src={publicUrl(`/img/planets/${s.planet}.png`)} alt="" />
-      <span className="pl-card__body">
-        <span className="pl-card__top">
-          <b>{titleCase(s.planet)}</b>
-          <em className={`pl-status is-${s.status}`}>{STATUS_LABEL[s.status]}</em>
-        </span>
-        <small className="pl-card__tag">{lore?.tagline ?? ''}</small>
-        {s.status === 'locked' && (
-          <span className="pl-bar" title={`${formatNumber(s.fundedDef, 0)} of ${formatNumber(s.thresholdDef, 0)} DEF`}>
-            <i style={{ width: `${funded * 100}%` }} />
-            <small className="num">
-              {formatNumber(s.fundedDef, 0)} / {formatNumber(s.thresholdDef, 0)} DEF
-            </small>
-          </span>
-        )}
-        {s.status !== 'locked' && s.onChain && (
-          <span className="pl-card__twin">
-            <span className="pl-bar is-atk" title="Attack scored against the target">
-              <i style={{ width: `${atk * 100}%` }} />
-              <small className="num">ATK {formatNumber(atk * 100, 0)}%</small>
-            </span>
-            <span className="pl-bar is-def" title="Defense scored against the target">
-              <i style={{ width: `${def * 100}%` }} />
-              <small className="num">DEF {formatNumber(def * 100, 0)}%</small>
-            </span>
-          </span>
-        )}
-        <small className="pl-card__foot faint">
-          {!s.onChain
-            ? 'Intelligence has not opened this world.'
-            : s.status === 'active' && s.endAt
-              ? `Season ${s.season} · ends in ${shortDuration(s.endAt - now)}`
-              : `Season ${s.season} · ${s.durationDays} days once open`}
-        </small>
-      </span>
-    </button>
-  )
-}
-
-// ---- One world in detail -----------------------------------------------------------------------------------
-
-type Run = ReturnType<typeof useTransaction>['run']
-
-function WorldDetail({
-  siege: s,
-  account,
-  now,
-  run,
-  pending,
-  spectating
-}: {
-  siege: Siege
-  account: string | null
-  now: number
-  run: Run
-  pending: string | null
-  spectating: boolean
-}) {
-  const lore = SIEGE_LORE[s.planet]
-  return (
-    <section className="pl-detail">
-      <header className="pl-detail__head">
-        <PlanetIcon planet={s.planet} size={28} />
-        <div>
-          <p className="eyebrow">{STATUS_LABEL[s.status]}</p>
+    <section className="pl-world">
+      <header className="pl-hero">
+        <img className="pl-hero__art" src={publicUrl(`/img/planets/${s.planet}.png`)} alt="" />
+        <div className="pl-hero__title">
           <h3>{titleCase(s.planet)}</h3>
-          {lore && <p className="muted">{lore.tagline}</p>}
+          {lore && <p>{lore.tagline}</p>}
         </div>
         {s.onChain && (
-          <div className="pl-detail__figures">
-            <Figure label="Season" value={formatNumber(s.season, 0)} />
-            <Figure
-              label="Entry"
-              value={`${formatToken(s.entryTlm)} TLM`}
-              help="Taken from the TLM balance core.pdef holds for you when a division joins."
-            />
-            <Figure
-              label="Needs"
-              value={`${formatNumber(s.minAtk, 0)} ATK · ${formatNumber(s.minDef, 0)} DEF`}
-              help="The least a division must have to join."
-            />
-            <Figure
-              label="Cooldown"
-              value={formatDuration(s.cooldownBase)}
-              help="Base; each move point of the division adds 10 seconds."
-            />
-          </div>
+          <dl className="pl-facts">
+            <div>
+              <dt>Season</dt>
+              <dd className="num">{s.season}</dd>
+            </div>
+            <div>
+              <dt>Length</dt>
+              <dd className="num">{s.durationDays} days</dd>
+            </div>
+            <div>
+              <dt>Entry</dt>
+              <dd className="num">{formatToken(s.entryTlm)} TLM</dd>
+            </div>
+            <div>
+              <dt>Division needs</dt>
+              <dd className="num">
+                {formatNumber(s.minAtk, 0)} ATK · {formatNumber(s.minDef, 0)} DEF
+              </dd>
+            </div>
+            <div>
+              <dt>
+                Cooldown <Tooltip text="Base cooldown; each move point of the division adds 10 seconds." />
+              </dt>
+              <dd className="num">{formatDuration(s.cooldownBase)} + move</dd>
+            </div>
+          </dl>
         )}
       </header>
 
-      {!s.onChain ? (
+      {phase === null ? (
         <div className="empty">
           <strong>Sealed</strong>
-          <span>Nothing moves here until the game opens the world.</span>
+          <span>Nothing moves here until the game opens this world.</span>
         </div>
       ) : (
-        <div className="pl-detail__grid">
-          <div className="pl-col">
-            {s.status === 'locked' ? (
-              <UnlockPanel siege={s} account={account} run={run} pending={pending} spectating={spectating} />
-            ) : (
-              <SeasonPanel siege={s} account={account} now={now} run={run} pending={pending} spectating={spectating} />
-            )}
-            <Prizes planetId={s.planetId} />
+        <>
+          <Phases siege={s} phase={phase} />
+          <div className="pl-layout">
+            <div className="pl-main">
+              {phase === 0 ? (
+                <FundPanel siege={s} tx={tx} amount={amount} setAmount={setAmount} />
+              ) : (
+                <SiegePanel siege={s} now={now} tx={tx} />
+              )}
+              {phase === 0 && <Contributions rows={recent} loading={fundersLoading} account={tx.account} now={now} />}
+              {phase > 0 && <Leaderboard siege={s} account={tx.account} funders={funders} />}
+            </div>
+            <aside className="pl-side">
+              <FunderPanel
+                funders={funders}
+                loading={fundersLoading}
+                account={tx.account}
+                onTake={phase === 0 ? (def) => setAmount(String(def)) : undefined}
+              />
+              <Prizes planetId={s.planetId} />
+            </aside>
           </div>
-          <div className="pl-col">
-            {lore && <Dossier planet={s.planet} lore={lore.lore} />}
-            {s.status === 'locked' ? <Contributions siege={s} /> : <Leaderboard siege={s} account={account} />}
-          </div>
-        </div>
+          {lore && <Dossier planet={s.planet} lore={lore.lore} />}
+        </>
       )}
     </section>
   )
 }
 
-// ---- Funding a locked world -----------------------------------------------------------------------------
+/** The three phases of a season, the current one lit, with the funder bonus spelled out. */
+function Phases({ siege: s, phase }: { siege: Siege; phase: number }) {
+  const steps: { title: string; body: ReactNode }[] = [
+    {
+      title: 'Fund',
+      body: (
+        <>
+          The community sends {formatNumber(s.thresholdDef, 0)} DEF to open the world. The three biggest funders get{' '}
+          <b className="pl-gold">{FUNDER_BONUS.map(pct).join(' / ')}</b> on their score in the siege.
+        </>
+      )
+    },
+    {
+      title: 'Siege',
+      body: (
+        <>
+          For {s.durationDays} days, divisions join for {formatToken(s.entryTlm)} TLM each. Every join adds the division's ATK and
+          DEF to your score.
+        </>
+      )
+    },
+    {
+      title: 'Prizes',
+      body: <>When the season closes, leaderboard ranks are paid in DEF, Quantum Chests and NFTs.</>
+    }
+  ]
+  return (
+    <ol className="pl-phases">
+      {steps.map((st, i) => (
+        <li key={st.title} className={i === phase ? 'is-now' : i < phase ? 'is-done' : ''}>
+          <span className="pl-phases__n">{i < phase ? <CheckIcon width={12} height={12} /> : i + 1}</span>
+          <div>
+            <b>
+              {st.title}
+              {i === phase && <em>Now</em>}
+            </b>
+            <p>{st.body}</p>
+          </div>
+        </li>
+      ))}
+    </ol>
+  )
+}
 
-function UnlockPanel({
+// ---- Phase 1: funding --------------------------------------------------------------------------------------
+
+function FundPanel({
   siege: s,
-  account,
-  run,
-  pending,
-  spectating
+  tx,
+  amount: text,
+  setAmount
 }: {
   siege: Siege
-  account: string | null
-  run: Run
-  pending: string | null
-  spectating: boolean
+  tx: Tx
+  amount: string
+  setAmount: (v: string) => void
 }) {
-  const player = usePlayer(account)
-  const contributions = useContributions(s.planetId)
-  const [text, setText] = useState('')
+  const player = usePlayer(tx.account)
   const [agreed, setAgreed] = useState(false)
   const amount = Math.max(0, Number(text) || 0)
   const remaining = Math.max(0, s.thresholdDef - s.fundedDef)
   const funded = s.thresholdDef > 0 ? Math.min(1, s.fundedDef / s.thresholdDef) : 0
   const have = player.data?.def ?? 0
-  const contributors = new Set((contributions.data ?? []).map((c) => c.account)).size
-  const mine = (contributions.data ?? []).filter((c) => c.account === account).reduce((n, c) => n + c.def, 0)
 
   async function contribute() {
     if (!(amount > 0) || !agreed) return
-    const ok = await run(
+    const ok = await tx.run(
       (a, p) => contributeDefAction(a, p, s.planetId, amount),
       `${formatToken(amount)} DEF sent to ${titleCase(s.planet)}`,
       'contribute'
     )
     if (ok) {
-      setText('')
+      setAmount('')
       setAgreed(false)
-      void refreshSieges(account)
+      void refreshSieges(tx.account)
     }
   }
 
   return (
-    <article className="pl-panel panel">
-      <p className="eyebrow">DEF unlock</p>
-      <h4>
-        {formatNumber(s.fundedDef, 0)} <small className="faint">of {formatNumber(s.thresholdDef, 0)} DEF</small>
-      </h4>
-      <p className="muted">
-        This world stays locked until the community has sent enough DEF. Anyone can send any amount at any time; the DEF is never
-        returned, whatever the season brings.
-      </p>
-      <span className="pl-bar pl-bar--big">
-        <i style={{ width: `${funded * 100}%` }} />
-      </span>
-      <div className="pl-panel__figures">
-        <Figure label="Threshold" value={`${formatNumber(s.thresholdDef, 0)} DEF`} />
-        <Figure label="Remaining" value={`${formatNumber(remaining, 0)} DEF`} />
-        <Figure label="Contributors" value={contributions.data ? formatNumber(contributors, 0) : '…'} />
-        {mine > 0 && <Figure label="Yours" value={`${formatNumber(mine, 0)} DEF`} tone="c-tlm" />}
+    <article className="panel pl-card">
+      <div className="pl-card__head">
+        <h4>Open the world</h4>
+      </div>
+      <div className="pl-progress pl-progress--big">
+        <div className="pl-progress__label">
+          <span>
+            <b className="num">{formatNumber(s.fundedDef, 0)}</b>
+            <span className="faint num"> / {formatNumber(s.thresholdDef, 0)} DEF</span>
+          </span>
+          <span className="faint num">{formatNumber(remaining, 0)} to go</span>
+        </div>
+        <span className="pl-bar">
+          <i style={{ width: `${funded > 0 ? Math.max(funded * 100, 1) : 0}%` }} />
+        </span>
       </div>
 
-      <div className="pl-form">
-        <label className="pl-form__amount">
-          <span>Amount to contribute</span>
-          <span className="pl-form__input">
+      <div className="pl-fund">
+        <div className="pl-fund__row">
+          <span className="pl-fund__input">
             <input
-              className="input num"
+              className="num"
               inputMode="decimal"
               value={text}
               placeholder="0"
-              onChange={(e) => setText(e.target.value.replace(/[^\d.]/g, ''))}
+              aria-label="DEF to send"
+              onChange={(e) => setAmount(e.target.value.replace(/[^\d.]/g, ''))}
             />
-            <TokenIcon symbol="DEF" size={16} /> DEF
+            <span>
+              <TokenIcon symbol="DEF" size={14} /> DEF
+            </span>
           </span>
-        </label>
-        <span className="pl-form__quick">
-          {QUICK_DEF.map((q) => (
-            <button key={q} type="button" className="mk-link" onClick={() => setText(String(q))}>
-              {q}
+          <span className="pl-chips">
+            {QUICK_DEF.map((q) => (
+              <button key={q} type="button" onClick={() => setAmount(String(q))}>
+                {q}
+              </button>
+            ))}
+            <button type="button" disabled={remaining <= 0} onClick={() => setAmount(String(Math.ceil(remaining)))}>
+              Rest
             </button>
-          ))}
-          <button type="button" className="mk-link" disabled={remaining <= 0} onClick={() => setText(String(remaining))}>
-            Fill the gap
-          </button>
-        </span>
-        <small className="faint">You hold {formatToken(have)} DEF.</small>
-        <label className="pl-form__agree">
+          </span>
+        </div>
+        <small className={amount > have ? 'c-red' : 'faint'}>
+          {amount > have ? 'More than you hold. ' : ''}You hold {formatToken(have)} DEF.
+        </small>
+        <label className="pl-fund__agree">
           <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} />
-          <span>I understand that this DEF will not be returned, whatever the outcome of the season.</span>
+          <span>Sent DEF is never returned, whatever happens in the season.</span>
         </label>
         <Button
           color="gradientYellow"
-          disabled={spectating || !agreed || !(amount > 0) || amount > have}
-          isLoading={pending === 'contribute'}
+          disabled={tx.spectating || !agreed || !(amount > 0) || amount > have}
+          isLoading={tx.pending === 'contribute'}
           onClick={contribute}
         >
-          Contribute {amount > 0 ? `${formatToken(amount)} DEF` : 'DEF'}
+          Send {amount > 0 ? `${formatToken(amount)} DEF` : 'DEF'}
         </Button>
-        {amount > have && <small className="c-red">That is more DEF than you hold.</small>}
       </div>
     </article>
   )
 }
 
-// ---- An open season: deploy, claim, progress ------------------------------------------------------------
-
-function SeasonPanel({
-  siege: s,
+/** The bonus places: who holds them, and what it takes to claim one. */
+function FunderPanel({
+  funders,
+  loading,
   account,
-  now,
-  run,
-  pending,
-  spectating
+  onTake
 }: {
-  siege: Siege
+  funders: Funder[]
+  loading: boolean
+  account: string | null
+  onTake?: (def: number) => void
+}) {
+  const mine = funders.find((f) => f.account === account)
+  const mineDef = mine?.def ?? 0
+  return (
+    <article className="panel pl-card">
+      <div className="pl-card__head">
+        <h4>Funder bonus</h4>
+        <Tooltip text="Seen in the contract after the first Magor season: the three biggest DEF funders had 15, 10 and 5 percent added to their siege score at season close. Everyone else gets no bonus, whatever they sent." />
+      </div>
+      <p className="pl-note">
+        {onTake
+          ? 'The top three funders of this phase get a bonus on everything they score once the siege starts.'
+          : 'Set when the world opened. Added to these players’ scores when the season closes.'}
+      </p>
+      {loading ? (
+        <p className="pl-note">Reading the contributions…</p>
+      ) : (
+        <ul className="pl-tiers">
+          {FUNDER_BONUS.map((bonus, i) => {
+            const f = funders[i]
+            // To take this place: one whole DEF more than its holder has sent, less what you sent already.
+            const need = f ? Math.max(1, Math.floor(f.def - mineDef) + 1) : 1
+            const yours = !!f && f.account === account
+            return (
+              <li key={i} className={yours ? 'is-me' : f ? '' : 'is-open'}>
+                <span className="pl-tiers__bonus num">{pct(bonus)}</span>
+                <span className="pl-tiers__who">
+                  <b>{f ? f.account : 'Open'}</b>
+                  <small>
+                    {PLACE[i]} funder{f ? ` · ${formatNumber(f.def, 0)} DEF` : ''}
+                  </small>
+                </span>
+                {onTake && !yours && account && (
+                  <Tooltip
+                    text={`Put ${formatNumber(need, 0)} DEF in the form: enough to pass the ${PLACE[i]} place as it stands now.`}
+                  >
+                    <button type="button" className="pl-take num" onClick={() => onTake(need)}>
+                      {formatNumber(need, 0)} DEF
+                    </button>
+                  </Tooltip>
+                )}
+              </li>
+            )
+          })}
+        </ul>
+      )}
+      {mine && mine.rank > 3 && (
+        <p className="pl-note">
+          You sent {formatNumber(mine.def, 0)} DEF so far: funder #{mine.rank}.
+        </p>
+      )}
+      {!onTake && !loading && !funders.length && <p className="pl-note">No funders recorded for this season.</p>}
+    </article>
+  )
+}
+
+/** The DEF sent in this funding phase, newest first. */
+function Contributions({
+  rows,
+  loading,
+  account,
+  now
+}: {
+  rows: Contribution[]
+  loading: boolean
   account: string | null
   now: number
-  run: Run
-  pending: string | null
-  spectating: boolean
 }) {
-  const army = useArmy(account)
-  const entries = useSiegeEntries(account, [s.planetId])
-  const balance = useTlmBalance(account)
-  const credit = useEntryCredit(account, s.planetId)
+  const [all, setAll] = useState(false)
+  const shown = all ? rows : rows.slice(0, 8)
+  return (
+    <article className="panel pl-card">
+      <div className="pl-card__head">
+        <h4>Contributions</h4>
+        {rows.length > 0 && <span className="faint num">{rows.length} this phase</span>}
+      </div>
+      {loading ? (
+        <p className="pl-note">Reading the history…</p>
+      ) : rows.length === 0 ? (
+        <p className="pl-note">Nobody has sent DEF in this phase yet.</p>
+      ) : (
+        <ul className="pl-contribs">
+          {shown.map((c) => (
+            <li key={c.trxId + c.account} className={c.account === account ? 'is-me' : ''}>
+              <span className="pl-contribs__who">{c.account}</span>
+              <span className="num pl-gold">{formatNumber(c.def, 0)} DEF</span>
+              <span className="num faint">{shortDuration(Math.max(0, now - c.at))} ago</span>
+            </li>
+          ))}
+        </ul>
+      )}
+      {rows.length > 8 && (
+        <button type="button" className="pl-more" onClick={() => setAll((v) => !v)}>
+          {all ? 'Show fewer' : 'Show all ' + rows.length}
+        </button>
+      )}
+    </article>
+  )
+}
+
+// ---- Phase 2: the siege ---------------------------------------------------------------------------------------
+
+function SiegePanel({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) {
+  const army = useArmy(tx.account)
+  const entries = useSiegeEntries(tx.account, [s.planetId])
+  const balance = useTlmBalance(tx.account)
+  const credit = useEntryCredit(tx.account, s.planetId)
   const open = joinOpen(s, now)
   const atk = s.targetAtk > 0 ? Math.min(1, s.cumAtk / s.targetAtk) : 0
   const def = s.targetDef > 0 ? Math.min(1, s.cumDef / s.targetDef) : 0
 
   const entered = new Set((entries.data ?? []).map((e) => e.divisionId))
   const divisions = (army.data?.divisions ?? []).filter((d) => d.units.length > 0)
-  const eligible = divisions.filter(
-    (d) => !entered.has(d.id) && d.atk >= s.minAtk && d.def >= s.minDef && !(d.lock && +chainDate(d.lock.locked_until) > now)
-  )
+  const eligible = divisions
+    .filter(
+      (d) => !entered.has(d.id) && d.atk >= s.minAtk && d.def >= s.minDef && !(d.lock && +chainDate(d.lock.locked_until) > now)
+    )
+    .sort((a, b) => b.atk + b.def - (a.atk + a.def))
   const tooWeak = divisions.filter((d) => !entered.has(d.id) && (d.atk < s.minAtk || d.def < s.minDef))
 
-  // What the entry costs from the wallet: the fee, less credit already paid, less the balance held.
+  // What an entry takes from the wallet: the fee, less unused credit, less the balance core.pdef holds.
   const shortfall = Math.max(0, s.entryTlm - (credit.data ?? 0) - (balance.data ?? 0))
 
   async function deploy(d: Division) {
-    const ok = await run(
+    const ok = await tx.run(
       (a, p) => [
         ...(shortfall > 0 ? [depositTlmAction(a, p, shortfall)] : []),
         ...(d.fresh ? [] : [recalcDivision(a, p, d.id)]),
@@ -369,110 +476,96 @@ function SeasonPanel({
       `Division #${d.id} deployed to ${titleCase(s.planet)}: back in ${formatDuration(missionLockSeconds(s.cooldownBase, d.move))}`,
       `siege-${d.id}`
     )
-    if (ok) void refreshSieges(account)
+    if (ok) void refreshSieges(tx.account)
   }
 
   async function claim(entryId: number, divisionId: number) {
-    const ok = await run(
+    const ok = await tx.run(
       (a, p) => claimSiegeAction(a, p, s.planetId, entryId),
       `Division #${divisionId} is back from ${titleCase(s.planet)}`,
       `claim-${entryId}`
     )
-    if (ok) void refreshSieges(account)
+    if (ok) void refreshSieges(tx.account)
   }
 
   return (
-    <article className="pl-panel panel">
-      <p className="eyebrow">Season {s.season}</p>
-      <h4>{s.status === 'active' ? (s.endAt ? `Ends in ${shortDuration(s.endAt - now)}` : 'Open') : STATUS_LABEL[s.status]}</h4>
-      <div className="pl-targets">
-        <span
-          className="pl-bar pl-bar--big is-atk"
-          title="Attack scored by every division joined this season, against the target"
-        >
-          <i style={{ width: `${atk * 100}%` }} />
-          <small className="num">
-            ATK {formatNumber(s.cumAtk, 0)} / {formatNumber(s.targetAtk, 0)}
-          </small>
-        </span>
-        <span className="pl-bar pl-bar--big is-def" title="Defense scored, against the target">
-          <i style={{ width: `${def * 100}%` }} />
-          <small className="num">
-            DEF {formatNumber(s.cumDef, 0)} / {formatNumber(s.targetDef, 0)}
-          </small>
+    <article className="panel pl-card">
+      <div className="pl-card__head">
+        <h4>{s.status === 'active' ? (s.endAt ? `${shortDuration(s.endAt - now)} left` : 'Siege open') : 'Season over'}</h4>
+        <span className="faint num">
+          {formatNumber(s.participants, 0)} players · {formatNumber(s.deployments, 0)} joins
         </span>
       </div>
-      <div className="pl-panel__figures">
-        <Figure label="Participants" value={formatNumber(s.participants, 0)} />
-        <Figure label="Deployments" value={formatNumber(s.deployments, 0)} />
-        <Figure
-          label="Your TLM balance"
-          value={balance.data === undefined ? '…' : `${formatToken(balance.data)} TLM`}
-          help="Held by core.pdef for entry fees. Whatever an entry still needs is deposited in the same transaction."
-        />
-        {(credit.data ?? 0) > 0 && <Figure label="Entry credit" value={`${formatToken(credit.data!)} TLM`} />}
+      <div className="pl-targets">
+        <Target label="Attack" tone="atk" value={s.cumAtk} target={s.targetAtk} share={atk} />
+        <Target label="Defense" tone="def" value={s.cumDef} target={s.targetDef} share={def} />
       </div>
 
       {(entries.data ?? []).length > 0 && (
-        <>
-          <p className="eyebrow">Your divisions here</p>
-          <ul className="pl-list">
+        <div className="pl-group">
+          <h5>Your divisions here</h5>
+          <ul className="pl-rows">
             {entries.data!.map((e) => {
               const back = e.unlockAt <= now
               return (
-                <li key={e.entryId} className="pl-list__row">
-                  <b>#{e.divisionId}</b>
+                <li key={e.entryId}>
+                  <b className="num">#{e.divisionId}</b>
                   <StatTrio atk={e.atk} def={e.def} move={e.move} size="sm" />
                   <span className={`num ${back ? 'c-green' : 'faint'}`}>
-                    <TimerIcon width={11} height={11} /> {back ? 'back' : cooldownLabel(e.unlockAt, now, 'back')}
+                    {back ? 'Back' : cooldownLabel(e.unlockAt, now, 'back')}
                   </span>
                   <Button
                     size="sm"
                     color={back ? 'gradientYellow' : 'ghost'}
-                    disabled={!back || spectating}
-                    isLoading={pending === `claim-${e.entryId}`}
+                    disabled={!back || tx.spectating}
+                    isLoading={tx.pending === `claim-${e.entryId}`}
                     onClick={() => void claim(e.entryId, e.divisionId)}
                   >
-                    <CheckIcon width={13} height={13} /> Claim
+                    Claim
                   </Button>
                 </li>
               )
             })}
           </ul>
-        </>
+        </div>
       )}
 
-      <p className="eyebrow">Deploy a division</p>
-      {!account ? (
-        <p className="muted">Sign in to deploy.</p>
-      ) : !open ? (
-        <p className="muted">The season is not taking divisions right now.</p>
-      ) : army.isLoading ? (
-        <p className="muted">Reading your divisions…</p>
-      ) : eligible.length === 0 ? (
-        <p className="muted">
-          No idle division of yours reaches {formatNumber(s.minAtk, 0)} ATK and {formatNumber(s.minDef, 0)} DEF
-          {tooWeak.length ? ` (${tooWeak.length} fall short)` : ''}. <Link to="/army">Build one in the Army.</Link>
-        </p>
-      ) : (
-        <ul className="pl-list">
-          {eligible
-            .sort((a, b) => b.atk + b.def - (a.atk + a.def))
-            .map((d) => (
-              <li key={d.id} className="pl-list__row">
-                <b>#{d.id}</b>
+      <div className="pl-group">
+        <h5>
+          Deploy
+          <small className="faint num">
+            balance {balance.data === undefined ? '…' : `${formatToken(balance.data)} TLM`}
+            {(credit.data ?? 0) > 0 ? ` · credit ${formatToken(credit.data!)} TLM` : ''}
+          </small>
+        </h5>
+        {!tx.account ? (
+          <p className="pl-note">Sign in to deploy.</p>
+        ) : !open ? (
+          <p className="pl-note">The season is not taking divisions right now.</p>
+        ) : army.isLoading ? (
+          <p className="pl-note">Reading your divisions…</p>
+        ) : eligible.length === 0 ? (
+          <p className="pl-note">
+            No idle division reaches {formatNumber(s.minAtk, 0)} ATK and {formatNumber(s.minDef, 0)} DEF
+            {tooWeak.length ? ` (${tooWeak.length} fall short)` : ''}. <Link to="/army">Build one in the Army.</Link>
+          </p>
+        ) : (
+          <ul className="pl-rows">
+            {eligible.map((d) => (
+              <li key={d.id}>
+                <b className="num">#{d.id}</b>
                 <StatTrio atk={d.atk} def={d.def} move={d.move} size="sm" />
                 <span className="faint num">
                   <TimerIcon width={11} height={11} /> {formatDuration(missionLockSeconds(s.cooldownBase, d.move))}
                 </span>
                 <Tooltip
-                  text={`Entry ${formatToken(s.entryTlm)} TLM${shortfall > 0 ? `, of which ${formatToken(shortfall)} TLM is deposited first` : ', covered by your balance'}. The division scores its ${formatNumber(d.atk, 0)} ATK and ${formatNumber(d.def, 0)} DEF for the season and is back after the cooldown.`}
+                  text={`Entry ${formatToken(s.entryTlm)} TLM${shortfall > 0 ? `, of which ${formatToken(shortfall)} TLM is deposited first` : ', paid from your balance'}. Adds ${formatNumber(d.atk + d.def, 0)} to your score.`}
                 >
                   <Button
                     size="sm"
                     color="solidBlue"
-                    disabled={spectating}
-                    isLoading={pending === `siege-${d.id}`}
+                    disabled={tx.spectating}
+                    isLoading={tx.pending === `siege-${d.id}`}
                     onClick={() => void deploy(d)}
                   >
                     <RocketIcon /> Deploy
@@ -480,117 +573,155 @@ function SeasonPanel({
                 </Tooltip>
               </li>
             ))}
-        </ul>
+          </ul>
+        )}
+      </div>
+    </article>
+  )
+}
+
+function Target({
+  label,
+  tone,
+  value,
+  target,
+  share
+}: {
+  label: string
+  tone: 'atk' | 'def'
+  value: number
+  target: number
+  share: number
+}) {
+  return (
+    <div className="pl-progress">
+      <div className="pl-progress__label">
+        <span>{label}</span>
+        <span className="num">
+          {formatNumber(value, 0)} <span className="faint">/ {formatNumber(target, 0)}</span>
+        </span>
+      </div>
+      <span className={`pl-bar is-${tone}`}>
+        <i style={{ width: `${share * 100}%` }} />
+      </span>
+    </div>
+  )
+}
+
+function Leaderboard({ siege, account, funders }: { siege: Siege; account: string | null; funders: Funder[] }) {
+  const board = useLeaderboard(siege)
+  const rows = board.data ?? []
+  const me = rows.find((r) => r.account === account)
+  const bonusOf = new Map(funders.slice(0, 3).map((f, i) => [f.account, FUNDER_BONUS[i]]))
+  const shown = me && me.rank > 10 ? [...rows.slice(0, 10), me] : rows.slice(0, 10)
+  return (
+    <article className="panel pl-card">
+      <div className="pl-card__head">
+        <h4>Leaderboard</h4>
+        <Tooltip text="Score is the ATK plus DEF of every division joined this season. The funder bonus is added when the season closes." />
+      </div>
+      {board.isLoading ? (
+        <p className="pl-note">Reading the scores…</p>
+      ) : rows.length === 0 ? (
+        <p className="pl-note">No division has joined this season yet.</p>
+      ) : (
+        <ol className="pl-board">
+          <li className="pl-board__head">
+            <span>#</span>
+            <span>Player</span>
+            <span>Joins</span>
+            <span>Score</span>
+          </li>
+          {shown.map((r) => (
+            <li key={r.account} className={r.account === account ? 'is-me' : ''}>
+              <span className="num faint">{r.rank}</span>
+              <span>
+                {r.account}
+                {bonusOf.has(r.account) && <em className="pl-gold"> {pct(bonusOf.get(r.account)!)}</em>}
+              </span>
+              <span className="num faint">{formatNumber(r.deployments, 0)}</span>
+              <span className="num">{formatNumber(r.score, 0)}</span>
+            </li>
+          ))}
+        </ol>
       )}
     </article>
   )
 }
 
-// ---- Prizes, scores, contributions, lore ---------------------------------------------------------------
+// ---- Phase 3: prizes --------------------------------------------------------------------------------------------
+
+/** Ranks that pay exactly the same, folded into one row. */
+interface PrizeBand {
+  from: number
+  to: number
+  prize: RankPrize
+}
+
+const sameAs = (a: RankPrize, b: RankPrize) =>
+  a.def === b.def &&
+  a.nfts.length === b.nfts.length &&
+  a.nfts.every((n, i) => n.templateId === b.nfts[i].templateId && n.count === b.nfts[i].count)
 
 function Prizes({ planetId }: { planetId: number }) {
   const prizes = useRankPrizes(planetId)
   const templates = useCollectionTemplates()
   const stats = useTemplates()
   const [all, setAll] = useState(false)
-  const rows = prizes.data ?? []
-  if (!rows.length) return null
+  const bands = useMemo(() => {
+    const out: PrizeBand[] = []
+    for (const p of prizes.data ?? []) {
+      const last = out[out.length - 1]
+      if (last && last.to === p.rank - 1 && sameAs(last.prize, p)) last.to = p.rank
+      else out.push({ from: p.rank, to: p.rank, prize: p })
+    }
+    return out
+  }, [prizes.data])
+  if (!bands.length) return null
   const name = (t: string) => stats.data?.[t]?.name ?? templates.data?.get(t)?.name ?? `#${t}`
-  const shown = all ? rows : rows.slice(0, 10)
+  const shown = all ? bands : bands.slice(0, 5)
+  const ranks = bands[bands.length - 1].to
   return (
-    <article className="pl-panel panel">
-      <p className="eyebrow">Season prizes</p>
-      <p className="muted">By rank on the leaderboard when the season closes. Lower ranks are grouped where they pay the same.</p>
+    <article className="panel pl-card">
+      <div className="pl-card__head">
+        <h4>Prizes</h4>
+        <span className="faint num">{ranks} ranks paid</span>
+      </div>
       <ul className="pl-prizes">
-        {shown.map((p) => (
-          <li key={p.rank}>
-            <b className="num">#{p.rank}</b>
-            <span className="num c-deft">{formatNumber(p.def, 0)} DEF</span>
-            <span className="pl-prizes__nfts">
-              {p.nfts.map((n, i) => (
-                <small key={i}>
-                  {n.count}× {name(n.templateId)}
-                </small>
-              ))}
-            </span>
-          </li>
-        ))}
+        {shown.map((b) => {
+          const isChest = (t: string) => /chest/i.test(name(t))
+          const chests = b.prize.nfts.filter((n) => isChest(n.templateId)).reduce((n, c) => n + c.count, 0)
+          const rest = b.prize.nfts.filter((n) => !isChest(n.templateId))
+          return (
+            <li key={b.from}>
+              <span className="pl-prizes__rank num">{b.from === b.to ? `#${b.from}` : `#${b.from}–${b.to}`}</span>
+              <span className="pl-prizes__main">
+                <span className="num">
+                  <b>{formatNumber(b.prize.def, 0)} DEF</b>
+                  {chests > 0 && <span className="faint"> · {chests} chests</span>}
+                </span>
+                {rest.length > 0 && (
+                  <small className="faint">{rest.map((n) => `${n.count}× ${name(n.templateId)}`).join(', ')}</small>
+                )}
+              </span>
+            </li>
+          )
+        })}
       </ul>
-      {rows.length > 10 && (
-        <button type="button" className="mk-link" onClick={() => setAll((v) => !v)}>
-          {all ? 'Fewer ranks' : `All ${rows.length} ranks`}
+      {bands.length > 5 && (
+        <button type="button" className="pl-more" onClick={() => setAll((v) => !v)}>
+          {all ? 'Show fewer' : `Show all ${ranks} ranks`}
         </button>
       )}
     </article>
   )
 }
 
-function Leaderboard({ siege, account }: { siege: Siege; account: string | null }) {
-  const board = useLeaderboard(siege)
-  const rows = board.data ?? []
-  const me = rows.find((r) => r.account === account)
-  return (
-    <article className="pl-panel panel">
-      <p className="eyebrow">Leaderboard · season {siege.season}</p>
-      {board.isLoading ? (
-        <p className="muted">Reading the scores…</p>
-      ) : rows.length === 0 ? (
-        <p className="muted">No division has joined this season yet.</p>
-      ) : (
-        <ul className="pl-board">
-          {rows.slice(0, 10).map((r) => (
-            <li key={r.account} className={r.account === account ? 'is-me' : ''}>
-              <b className="num">#{r.rank}</b>
-              <span>{r.account}</span>
-              <span className="num c-atk">{formatNumber(r.atk, 0)}</span>
-              <span className="num c-def">{formatNumber(r.def, 0)}</span>
-              <span className="num">{formatNumber(r.score, 0)}</span>
-            </li>
-          ))}
-          {me && me.rank > 10 && (
-            <li className="is-me">
-              <b className="num">#{me.rank}</b>
-              <span>{me.account}</span>
-              <span className="num c-atk">{formatNumber(me.atk, 0)}</span>
-              <span className="num c-def">{formatNumber(me.def, 0)}</span>
-              <span className="num">{formatNumber(me.score, 0)}</span>
-            </li>
-          )}
-        </ul>
-      )}
-    </article>
-  )
-}
-
-function Contributions({ siege }: { siege: Siege }) {
-  const contributions = useContributions(siege.planetId)
-  const rows = contributions.data ?? []
-  return (
-    <article className="pl-panel panel">
-      <p className="eyebrow">Recent contributions</p>
-      {contributions.isLoading ? (
-        <p className="muted">Reading the history…</p>
-      ) : rows.length === 0 ? (
-        <p className="muted">No DEF has reached this world yet. The first contribution opens the count.</p>
-      ) : (
-        <ul className="pl-board">
-          {rows.slice(0, 8).map((c) => (
-            <li key={c.trxId + c.account}>
-              <span>{c.account}</span>
-              <span className="num c-deft">{formatNumber(c.def, 0)} DEF</span>
-              <span className="faint">{shortDuration(Date.now() - c.at)} ago</span>
-            </li>
-          ))}
-        </ul>
-      )}
-    </article>
-  )
-}
+// ---- The dossier -------------------------------------------------------------------------------------------------
 
 /**
- * The dossier, from the lore's blocks: the first block is the header, a short block ending with a
- * colon a title, one ending with a semicolon a bullet, a short one mentioning priority a quote,
- * and a closing line about the Federation the footer.
+ * The world's lore, folded away. Its blocks: the first is the header, a short block ending with a
+ * colon a title, one ending with a semicolon a bullet, a short one mentioning priority a quote.
  */
 function Dossier({ planet, lore }: { planet: string; lore: string }) {
   const blocks = useMemo(
@@ -632,22 +763,16 @@ function Dossier({ planet, lore }: { planet: string; lore: string }) {
     flush()
     if (b.length < 60 && /:$/.test(b)) nodes.push(<h5 key={i}>{b.replace(/:$/, '')}</h5>)
     else if (b.length < 80 && /priority/i.test(b)) nodes.push(<blockquote key={i}>{b}</blockquote>)
-    else if (i === blocks.length - 1 && /federation|worth|proof/i.test(b))
-      nodes.push(
-        <p key={i} className="pl-dossier__foot">
-          {b}
-        </p>
-      )
     else nodes.push(<p key={i}>{b}</p>)
   })
   flush()
   return (
-    <article className={`pl-panel panel pl-dossier ${open ? 'is-open' : ''}`}>
-      <p className="eyebrow">Field dossier</p>
-      <div className="pl-dossier__body">{nodes}</div>
-      <button type="button" className="mk-link" onClick={() => setOpen((v) => !v)}>
-        {open ? 'Fold the dossier' : 'Read the whole dossier'}
+    <article className={`pl-dossier ${open ? 'is-open' : ''}`}>
+      <button type="button" className="pl-dossier__toggle" onClick={() => setOpen((v) => !v)} aria-expanded={open}>
+        <span>Field dossier</span>
+        <small>{open ? 'Fold' : 'Read'}</small>
       </button>
+      {open && <div className="pl-dossier__body">{nodes}</div>}
     </article>
   )
 }
