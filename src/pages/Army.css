@@ -1167,3 +1167,43 @@
   font-size: 12px;
   line-height: 1.5;
 }
+
+/* ---- Score target in the mission list ---- */
+
+.mdiv__score {
+  cursor: pointer;
+}
+
+.mdiv__score-icon {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  color: var(--cyan);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.mdiv__score-field {
+  margin-left: auto;
+}
+
+.mdiv__score-field input {
+  width: 96px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: rgba(0, 0, 0, 0.25);
+  color: var(--text);
+  font: inherit;
+  font-weight: 700;
+  text-align: right;
+}
+
+.mdiv__score-field input:focus {
+  border-color: var(--cyan);
+  outline: 0;
+}

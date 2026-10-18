@@ -13,7 +13,7 @@ import { TimerIcon, XIcon } from '@/icons'
 import type { SlotKind } from '@/lib/bundle'
 import { formatDuration, formatNumber } from '@/lib/format'
 import { missionEconomics, rewardParts, type MissionEconomics } from '@/lib/loop'
-import { planMissionDivision, type MissionPlan } from '@/lib/missionDivision'
+import { planMissionDivision, planScoreDivisionAsync, type MissionPlan } from '@/lib/missionDivision'
 import { GEAR_KINDS, missionLockSeconds, type Kind } from '@/lib/stats'
 import { useTransaction } from '@/wallet/useTransaction'
 
@@ -113,6 +113,24 @@ export function DisbandAllModal({
 
 // ---- A division for a mission ------------------------------------------------------------------------
 
+/** The last score typed in, so the field keeps it between visits. */
+const SCORE_KEY = 'pd:army:score'
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+function writeStored(key: string, value: string) {
+  try {
+    if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
+  } catch {
+    // Storage blocked: the score is simply not remembered.
+  }
+}
+
 export function MissionDivisionModal({
   account,
   free,
@@ -131,7 +149,10 @@ export function MissionDivisionModal({
   const config = useMissionConfig()
   const army = useArmy(account)
   const { run, pending, spectating } = useTransaction()
-  const [missionId, setMissionId] = useState<number | null>(null)
+  /** A mission's id, 'score' for a division built to an attack-plus-defense score, or null for the first reachable mission. */
+  const [missionId, setMissionId] = useState<number | 'score' | null>(null)
+  const [scoreText, setScoreText] = useState(() => readStored(SCORE_KEY) ?? '')
+  const score = Math.max(0, Math.floor(Number(scoreText) || 0))
 
   const missions = useMemo(() => {
     if (!config.data) return []
@@ -190,14 +211,39 @@ export function MissionDivisionModal({
   }, [reserveKey, missions])
   const planned = plans.key === reserveKey ? plans.byMission : new Map<number, MissionPlan | null>()
 
+  // The score division, planned a moment after typing stops (several solver runs, one per split).
+  const scoreKey = `${reserveKey}|${score}`
+  const [scorePlan, setScorePlan] = useState<{ key: string; plan: MissionPlan | null } | null>(null)
+  useEffect(() => {
+    writeStored(SCORE_KEY, scoreText)
+    if (missionId !== 'score' || !(score > 0)) return
+    // Wait for typing to stop, then search with a pause after every solver run so the dialog stays responsive.
+    let cancelled = false
+    const t = setTimeout(() => {
+      void planScoreDivisionAsync(free, score, forgeLevel, slotsFree, () => cancelled).then((plan) => {
+        if (!cancelled && plan !== undefined) setScorePlan({ key: scoreKey, plan })
+      })
+    }, 300)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+    // The reserve's content is in scoreKey.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scoreKey, missionId])
+  const scoreMode = missionId === 'score'
+  const scoreReady = scorePlan?.key === scoreKey
+
   // Until the user picks one, show the first mission the reserve can field.
   const firstReachable = missions.find((m) => planned.get(m.id))?.id ?? null
-  const shownId = missionId ?? firstReachable
+  const shownId = scoreMode ? null : (missionId ?? firstReachable)
   const mission = missions.find((m) => m.id === shownId) ?? null
-  const plan = mission ? (planned.get(mission.id) ?? null) : null
-  const planning = !!mission && !planned.has(mission.id)
+  const plan = scoreMode ? (scoreReady ? scorePlan!.plan : null) : mission ? (planned.get(mission.id) ?? null) : null
+  const planning = scoreMode ? score > 0 && !scoreReady : !!mission && !planned.has(mission.id)
+  /** What the division is built for, in the header and the success message. */
+  const goal = scoreMode ? `a score of ${formatNumber(score, 0)}` : (mission?.title ?? '')
 
-  async function create(m: MissionEconomics) {
+  async function create(m: MissionEconomics | null) {
     if (!plan) return
     const b = plan.bundle
     const id = (key: string) => plan.assets.get(key)!.assetId
@@ -224,7 +270,7 @@ export function MissionDivisionModal({
           GEAR_KINDS.filter((k) => u.gear[k]).map((k) => assignGear(a, p, div, id(u.merc.key), k, id(u.gear[k]!.key)))
         )
       ],
-      `Division #${div} is ready for ${m.title}: ${formatNumber(b.atk, 0)} ATK / ${formatNumber(b.def, 0)} DEF`,
+      `Division #${div} is ready for ${m ? m.title : goal}: ${formatNumber(b.atk, 0)} ATK / ${formatNumber(b.def, 0)} DEF`,
       'mission-div'
     )
     onCreated(ok ? div : null)
@@ -248,8 +294,8 @@ export function MissionDivisionModal({
           <p className="eyebrow">From your reserve</p>
           <h3>A division for a mission</h3>
           <p className="muted">
-            Pick a mission. The division that just meets it is built from your staked NFTs: the weakest units that reach the
-            requirement, so your strong ones stay free, with the lowest move cost for a short lock.
+            Pick a mission, or enter a score (attack plus defense). The division that just meets it is built from your staked
+            NFTs: the weakest units that reach it, so your strong ones stay free, with the lowest move cost for a short lock.
           </p>
         </div>
         <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
@@ -262,6 +308,37 @@ export function MissionDivisionModal({
       ) : (
         <div className="mdiv__layout">
           <ul className="mdiv__missions">
+            <li>
+              <div
+                className={`mdiv__mission mdiv__score ${scoreMode ? 'is-on' : ''}`}
+                role="button"
+                tabIndex={0}
+                onClick={() => setMissionId('score')}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && e.target === e.currentTarget) setMissionId('score')
+                }}
+              >
+                <span className="mdiv__score-icon num">Σ</span>
+                <span className="mdiv__mission-text">
+                  <b>Score</b>
+                  <small className="faint">Attack + defense, in any mix</small>
+                </span>
+                <label className="mdiv__score-field">
+                  <input
+                    className="num"
+                    inputMode="numeric"
+                    placeholder="e.g. 2000"
+                    aria-label="Score: attack plus defense"
+                    value={scoreText}
+                    onFocus={() => setMissionId('score')}
+                    onChange={(e) => {
+                      setScoreText(e.target.value.replace(/\D/g, ''))
+                      setMissionId('score')
+                    }}
+                  />
+                </label>
+              </div>
+            </li>
             {missions.map((m) => (
               <li key={m.id}>
                 <button
@@ -285,7 +362,11 @@ export function MissionDivisionModal({
           </ul>
 
           <section className="mdiv__plan">
-            {!mission ? (
+            {scoreMode && !(score > 0) ? (
+              <p className="muted">
+                Enter the attack plus defense the division should reach. Any mix counts: a siege, for one, scores both together.
+              </p>
+            ) : !scoreMode && !mission ? (
               <p className="muted">
                 {planned.size < missions.length
                   ? 'Working out what your reserve can field…'
@@ -299,9 +380,11 @@ export function MissionDivisionModal({
                 <span>
                   {shortBecause ?? (
                     <>
-                      The staked NFTs in no division, with your free Forge slots, fall short of {formatNumber(mission.minAtk, 0)}{' '}
-                      ATK
-                      {mission.minDef ? ` / ${formatNumber(mission.minDef, 0)} DEF` : ''}. Disband a division or stake more first.
+                      The staked NFTs in no division, with your free Forge slots, fall short of{' '}
+                      {scoreMode || !mission
+                        ? `a score of ${formatNumber(score, 0)}`
+                        : `${formatNumber(mission.minAtk, 0)} ATK${mission.minDef ? ` / ${formatNumber(mission.minDef, 0)} DEF` : ''}`}
+                      . Disband a division or stake more first.
                     </>
                   )}
                 </span>
@@ -311,13 +394,19 @@ export function MissionDivisionModal({
                 <div className="mdiv__head">
                   <CardArt asset={plan.assets.get(plan.bundle.warlord.key)!} shape="square" className="mdiv__leader" />
                   <div>
-                    <p className="eyebrow">{mission.title}</p>
+                    <p className="eyebrow">{scoreMode || !mission ? `Score ${formatNumber(score, 0)}` : mission.title}</p>
                     <h4>{plan.assets.get(plan.bundle.warlord.key)!.name}</h4>
                     <StatTrio atk={plan.bundle.atk} def={plan.bundle.def} move={plan.bundle.move} />
                     <p className="faint mdiv__lock">
-                      <TimerIcon width={12} height={12} /> Mission lock{' '}
-                      {formatDuration(missionLockSeconds(mission.cooldownBase, plan.bundle.move))} · {plan.bundle.mercs.length} of{' '}
-                      {plan.bundle.warlord.slots} slots · {gearCount} gear
+                      {scoreMode || !mission ? (
+                        <>Score {formatNumber(plan.bundle.atk + plan.bundle.def, 0)}</>
+                      ) : (
+                        <>
+                          <TimerIcon width={12} height={12} /> Mission lock{' '}
+                          {formatDuration(missionLockSeconds(mission.cooldownBase, plan.bundle.move))}
+                        </>
+                      )}{' '}
+                      · {plan.bundle.mercs.length} of {plan.bundle.warlord.slots} slots · {gearCount} gear
                     </p>
                   </div>
                 </div>
@@ -354,7 +443,7 @@ export function MissionDivisionModal({
                     color="gradientYellow"
                     disabled={spectating || !account}
                     isLoading={pending === 'mission-div'}
-                    onClick={() => void create(mission)}
+                    onClick={() => void create(scoreMode ? null : mission)}
                   >
                     Create this division
                   </Button>

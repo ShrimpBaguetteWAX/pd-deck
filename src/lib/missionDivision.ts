@@ -196,3 +196,112 @@ export function planFromDivision(d: Division): MissionPlan | null {
   }
   return { bundle, assets }
 }
+
+/** At most this many of the reserve's own attack shares are tried on top of the fixed splits. */
+const MAX_RESERVE_RATIOS = 12
+
+/**
+ * The attack shares (attack / (attack + defense)) the reserve's mercenaries have, the most common
+ * first: a division of lopsided units only meets a split close to their own share.
+ */
+function reserveRatios(free: Record<Kind, AssetRef[]>): number[] {
+  const counts = new Map<number, { ratio: number; n: number }>()
+  for (const a of free.mercenary) {
+    const atk = Number(a.stats?.attack || 0)
+    const def = Number(a.stats?.defense || 0)
+    if (atk + def <= 0) continue
+    const ratio = atk / (atk + def)
+    const bucket = Math.round(ratio * 100)
+    if (SCORE_SPLITS.some((f) => Math.round(f * 100) === bucket)) continue
+    const c = counts.get(bucket)
+    if (c) c.n++
+    else counts.set(bucket, { ratio, n: 1 })
+  }
+  return [...counts.values()]
+    .sort((x, y) => y.n - x.n)
+    .slice(0, MAX_RESERVE_RATIOS)
+    .map((c) => c.ratio)
+}
+
+/** How a score target is split between attack and defense when looking for the cheapest division. */
+const SCORE_SPLITS = [0.5, 0.4, 0.6, 0.3, 0.7, 0.2, 0.8, 0.1, 0.9, 0, 1]
+
+/** Grid of the quick first pass over every split; the best few are then solved on the full grid. */
+const SCAN_GRID = 16
+const REFINE_SPLITS = 3
+/** A full solve slower than this (big reserves) ends the refining after the best split. */
+const SLOW_SOLVE_MS = 1000
+
+const better = (b: MissionPlan, best: MissionPlan | null) =>
+  !best ||
+  b.bundle.cost < best.bundle.cost - 1e-9 ||
+  (Math.abs(b.bundle.cost - best.bundle.cost) <= 1e-9 && b.bundle.move < best.bundle.move)
+
+/**
+ * The search behind planScoreDivision, one solver run per step so a caller can pause between them.
+ * The solver works on separate attack and defense minimums, so the score is tried at several
+ * splits on a coarse grid, and the most promising splits are solved again on the full grid.
+ */
+export function* scoreSearch(
+  free: Record<Kind, AssetRef[]>,
+  score: number,
+  forgeLevel: number,
+  slotsFree: Record<SlotKind, number>,
+  options: Parameters<typeof planMissionDivision>[4] = {}
+): Generator<void, MissionPlan | null> {
+  if (!(score > 0)) return null
+  const splits: { atk: number; def: number; cost: number }[] = []
+  const tried = new Set<string>()
+  for (const f of [...SCORE_SPLITS, ...reserveRatios(free)]) {
+    const atk = Math.floor(score * f)
+    const def = Math.max(0, Math.ceil(score - atk))
+    const key = `${atk}/${def}`
+    if (tried.has(key)) continue
+    tried.add(key)
+    const plan = planMissionDivision(free, { atk, def }, forgeLevel, slotsFree, { ...options, gridMax: SCAN_GRID })
+    if (plan && plan.bundle.atk + plan.bundle.def >= score) splits.push({ atk, def, cost: plan.bundle.cost })
+    yield
+  }
+  let best: MissionPlan | null = null
+  for (const sp of splits.sort((x, y) => x.cost - y.cost).slice(0, REFINE_SPLITS)) {
+    const started = Date.now()
+    const plan = planMissionDivision(free, { atk: sp.atk, def: sp.def }, forgeLevel, slotsFree, options)
+    if (plan && plan.bundle.atk + plan.bundle.def >= score && better(plan, best)) best = plan
+    // On a very big reserve a full solve takes seconds: the coarse pass's favourite split is enough.
+    if (best && Date.now() - started > SLOW_SOLVE_MS) break
+    yield
+  }
+  return best
+}
+
+/** The weakest division (lowest cost, then lowest move) whose attack plus defense reaches `score`. */
+export function planScoreDivision(
+  free: Record<Kind, AssetRef[]>,
+  score: number,
+  forgeLevel: number,
+  slotsFree: Record<SlotKind, number>,
+  options: Parameters<typeof planMissionDivision>[4] = {}
+): MissionPlan | null {
+  const run = scoreSearch(free, score, forgeLevel, slotsFree, options)
+  for (;;) {
+    const step = run.next()
+    if (step.done) return step.value
+  }
+}
+
+/** planScoreDivision without blocking the page: a pause after every solver run; stops when cancelled. */
+export async function planScoreDivisionAsync(
+  free: Record<Kind, AssetRef[]>,
+  score: number,
+  forgeLevel: number,
+  slotsFree: Record<SlotKind, number>,
+  cancelled: () => boolean
+): Promise<MissionPlan | null | undefined> {
+  const run = scoreSearch(free, score, forgeLevel, slotsFree)
+  for (;;) {
+    if (cancelled()) return undefined
+    const step = run.next()
+    if (step.done) return step.value
+    await new Promise((r) => setTimeout(r, 0))
+  }
+}

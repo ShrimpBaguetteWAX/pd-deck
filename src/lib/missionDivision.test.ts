@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { CATEGORY } from '@/chain/config'
 import type { AssetRef } from '@/data/assets'
 
-import { planMissionDivision } from './missionDivision'
+import { planMissionDivision, planScoreDivision } from './missionDivision'
 import type { Kind } from './stats'
 
 let next = 1
@@ -71,5 +71,42 @@ describe('planMissionDivision', () => {
     expect(planMissionDivision(free, { atk: 10, def: 0 }, 0, noSlots)).toBeNull()
     free.warlord.push(nft(CATEGORY.WARLORD, { slots: 3 }))
     expect(planMissionDivision(free, { atk: 600, def: 0 }, 0, noSlots)).toBeNull()
+  })
+})
+
+describe('planScoreDivision', () => {
+  it('reaches attack plus defense with the weakest units, whatever the split', () => {
+    const free = empty()
+    free.warlord.push(nft(CATEGORY.WARLORD, { slots: 2 }))
+    free.mercenary.push(
+      nft(CATEGORY.MERCENARY, { atk: 300, def: 300, move: 50 }, 'hero'),
+      // Lopsided units: neither reaches an even split alone, but together they make the score.
+      nft(CATEGORY.MERCENARY, { atk: 90, def: 10, move: 20 }, 'striker'),
+      nft(CATEGORY.MERCENARY, { atk: 10, def: 90, move: 20 }, 'wall'),
+      nft(CATEGORY.MERCENARY, { atk: 20, def: 20, move: 20 }, 'small')
+    )
+    const plan = planScoreDivision(free, 200, 0, noSlots)!
+    const names = plan.bundle.mercs.map((m) => plan.assets.get(m.key)!.name).sort()
+    expect(names).toEqual(['striker', 'wall'])
+    expect(plan.bundle.atk + plan.bundle.def).toBeGreaterThanOrEqual(200)
+  })
+
+  it('takes a lopsided division when that is the cheapest way to the score', () => {
+    const free = empty()
+    free.warlord.push(nft(CATEGORY.WARLORD, { slots: 1 }))
+    free.mercenary.push(
+      nft(CATEGORY.MERCENARY, { atk: 140, def: 10, move: 10 }, 'striker'),
+      nft(CATEGORY.MERCENARY, { atk: 200, def: 200, move: 10 }, 'hero')
+    )
+    const plan = planScoreDivision(free, 150, 0, noSlots)!
+    expect(plan.assets.get(plan.bundle.mercs[0].key)!.name).toBe('striker')
+  })
+
+  it('is null when the reserve cannot reach the score', () => {
+    const free = empty()
+    free.warlord.push(nft(CATEGORY.WARLORD, { slots: 1 }))
+    free.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 50, def: 50 }))
+    expect(planScoreDivision(free, 500, 0, noSlots)).toBeNull()
+    expect(planScoreDivision(free, 0, 0, noSlots)).toBeNull()
   })
 })
