@@ -80,7 +80,7 @@ export default function Planets() {
   if (sieges.isLoading && !sieges.data) return <Loading inline label="Surveying the worlds" />
 
   return (
-    <div className="page planets">
+    <div className="page pl-page">
       <header className="pl-head">
         <div>
           <p className="eyebrow">Planetary sieges</p>

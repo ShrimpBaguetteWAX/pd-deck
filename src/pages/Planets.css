@@ -3,7 +3,7 @@
  * and the funder bonus, red and green only for attack and defense. Quiet panels, no stacked chips.
  */
 
-.planets {
+.pl-page {
   display: flex;
   flex-direction: column;
   gap: 18px;
