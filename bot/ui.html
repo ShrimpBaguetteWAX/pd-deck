@@ -252,7 +252,7 @@
       }
       .cards {
         display: grid;
-        grid-template-columns: repeat(4, minmax(0, 1fr));
+        grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
         gap: 12px;
       }
       .card,
@@ -274,6 +274,22 @@
         margin-top: 4px;
         font-size: 22px;
         font-weight: 700;
+      }
+      .cpu-bar {
+        display: block;
+        height: 5px;
+        margin-top: 8px;
+        overflow: hidden;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .cpu-bar i {
+        display: block;
+        height: 100%;
+        background: var(--cyan);
+      }
+      .cpu-bar i.is-hot {
+        background: var(--red);
       }
       .card b.gold {
         color: var(--gold);
@@ -584,8 +600,14 @@
         <section class="cards">
           <div class="card"><small>WAX in wallet</small><b class="num" id="wax">–</b></div>
           <div class="card"><small>TLM in wallet</small><b class="num" id="tlm">–</b></div>
+          <div class="card"><small>DEF in wallet</small><b class="num" id="def">–</b></div>
           <div class="card">
-            <small>Profit so far</small><b class="num gold" id="profit">–</b><b class="num gold" id="profitTlm">–</b>
+            <small>CPU used</small><b class="num" id="cpu">–</b>
+            <span class="cpu-bar"><i id="cpuBar"></i></span>
+          </div>
+          <div class="card">
+            <small>Profit so far</small><b class="num gold" id="profit">–</b><b class="num gold" id="profitTlm">–</b
+            ><b class="num gold" id="profitDef">–</b>
           </div>
           <div class="card"><small>Trades</small><b class="num" id="count">–</b></div>
         </section>
@@ -603,6 +625,7 @@
             <div class="checks">
               <label><input type="checkbox" name="startWAX" /> From WAX</label>
               <label><input type="checkbox" name="startTLM" /> From TLM</label>
+              <label><input type="checkbox" name="startDEF" /> From DEF</label>
               <label><input type="checkbox" name="watchOnly" /> Watch only</label>
             </div>
             <button type="submit" class="btn-ghost">Save</button>
@@ -754,11 +777,19 @@
         const four = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
         $('wax').textContent = s.balances.at ? four(s.balances.wax) : '–'
         $('tlm').textContent = s.balances.at ? four(s.balances.tlm) : '–'
+        $('def').textContent = s.balances.at ? four(s.balances.def || 0) : '–'
+        // CPU over the chain's 24-hour window; past 100% transactions fail until it recovers.
+        const cpu = s.cpu || { pct: 0, at: 0 }
+        $('cpu').textContent = cpu.at ? cpu.pct.toFixed(cpu.pct < 1 ? 2 : 1) + '%' : '–'
+        $('cpu').className = 'num' + (cpu.pct >= 90 ? ' loss' : cpu.pct >= 70 ? ' gold' : '')
+        $('cpuBar').style.width = Math.min(100, cpu.pct || 0) + '%'
+        $('cpuBar').className = cpu.pct >= 90 ? 'is-hot' : ''
         // Profit in the token each loop started and ended in, over every trade so far.
         const by = s.profitBySymbol || {}
         const plus = (n) => (n > 0 ? '+' : '') + four(n || 0)
         $('profit').textContent = plus(by.WAX) + ' WAX'
         $('profitTlm').textContent = plus(by.TLM) + ' TLM'
+        $('profitDef').textContent = plus(by.DEF) + ' DEF'
         const counts = s.tradeCounts || { done: 0, failed: 0 }
         $('count').textContent = `${counts.done}` + (counts.failed ? ` (+${counts.failed} failed)` : '')
 
@@ -770,6 +801,7 @@
           f.tradeGapSec.value = s.settings.tradeGapSec
           f.startWAX.checked = s.settings.starts.includes('WAX')
           f.startTLM.checked = s.settings.starts.includes('TLM')
+          f.startDEF.checked = s.settings.starts.includes('DEF')
           f.watchOnly.checked = s.settings.watchOnly
         }
 
@@ -872,7 +904,7 @@
       $('settings').addEventListener('submit', async (e) => {
         e.preventDefault()
         const f = e.target
-        const starts = [f.startWAX.checked && 'WAX', f.startTLM.checked && 'TLM'].filter(Boolean)
+        const starts = [f.startWAX.checked && 'WAX', f.startTLM.checked && 'TLM', f.startDEF.checked && 'DEF'].filter(Boolean)
         await call('/api/settings', {
           pollSec: Number(f.pollSec.value),
           fullRefreshMin: Number(f.fullRefreshMin.value),

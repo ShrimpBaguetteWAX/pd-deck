@@ -344,6 +344,7 @@ export function findLoops(pools: ClmmPool[], starts: string[]): Loop[] {
 
 export const WAX_TOKEN_ID = 'WAX@eosio.token'
 export const TLM_TOKEN_ID = 'TLM@alien.worlds'
+export const DEF_TOKEN_ID = 'DEF@defensetoken'
 
 /** Each token's price in WAX, from the pool holding the most WAX against it. */
 export function waxPrices(pools: ClmmPool[]): Map<string, number> {

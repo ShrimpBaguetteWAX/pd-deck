@@ -17,7 +17,7 @@ From a terminal the same works with `node bot/arb-bot.ts`.
 ## What it does
 
 1. At the start and every 5 minutes it reads every pool of Alcor and Taco and lays out every loop of
-   two or three pools that starts and ends in WAX or TLM (loops may mix both exchanges).
+   two or three pools that starts and ends in WAX, TLM or DEF (loops may mix both exchanges).
 2. Every 5 seconds it reads the swap logs of both exchanges. Each logged swap carries the pool's new
    state, so only the pools that traded are updated and only the loops through them are checked,
    a few seconds after the trade.
@@ -65,7 +65,7 @@ read from the transaction itself; the page shows them under **Transactions**.
 | Read every pool every  | 5 min   | How often every pool of both exchanges is read in full.  |
 | Largest input          | 500 WAX | Upper limit per trade, on top of the wallet limit.       |
 | Seconds between trades | 60 s    | At most one trade per this time; scans go on in between. |
-| From WAX / From TLM    | both    | Which start tokens to use.                               |
+| From WAX / TLM / DEF   | all     | Which start tokens to use.                               |
 | Watch only             | off     | Scan and confirm, but never sign.                        |
 
 Settings are kept in `bot/settings.json`.

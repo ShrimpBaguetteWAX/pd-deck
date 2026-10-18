@@ -42,6 +42,7 @@ import {
   otherToken,
   spotRate,
   TLM_TOKEN_ID,
+  DEF_TOKEN_ID,
   WAX_TOKEN_ID,
   waxPrices,
   type ClmmPool,
@@ -155,6 +156,18 @@ const endpointPool = new EndpointPool(
   [...(env.ARB_NODES ?? '').split(','), ...(env.ARB_HISTORY ?? '').split(',')].filter(Boolean)
 )
 
+/** The tokens a loop may start and end in. */
+type StartSymbol = 'WAX' | 'TLM' | 'DEF'
+const START_IDS: Record<StartSymbol, string> = { WAX: WAX_TOKEN_ID, TLM: TLM_TOKEN_ID, DEF: DEF_TOKEN_ID }
+
+/** What the wallet holds of a start token. */
+function heldOf(tokenId: string): number {
+  if (tokenId === WAX_TOKEN_ID) return state.balances.wax
+  if (tokenId === TLM_TOKEN_ID) return state.balances.tlm
+  if (tokenId === DEF_TOKEN_ID) return state.balances.def
+  return 0
+}
+
 interface Settings {
   /** How often the swap logs are polled. */
   pollSec: number
@@ -162,20 +175,23 @@ interface Settings {
   fullRefreshMin: number
   /** Largest input, in WAX worth, on top of the wallet limit. */
   maxTradeWax: number
-  starts: ('WAX' | 'TLM')[]
+  starts: StartSymbol[]
   /** Scan and confirm, but never sign. */
   watchOnly: boolean
   /** At most one trade per this many seconds; scans go on in between. */
   tradeGapSec: number
+  /** 2 once DEF is among the possible start tokens (settings saved before that get it added once). */
+  startsVersion: number
 }
 
 const DEFAULTS: Settings = {
   pollSec: 5,
   fullRefreshMin: 5,
   maxTradeWax: 500,
-  starts: ['WAX', 'TLM'],
+  starts: ['WAX', 'TLM', 'DEF'],
   watchOnly: false,
-  tradeGapSec: 60
+  tradeGapSec: 60,
+  startsVersion: 2
 }
 
 function loadSettings(): Settings {
@@ -186,6 +202,10 @@ function loadSettings(): Settings {
     }
     // There is no minimum profit any more: any profit counts.
     delete saved.minProfitWax
+    // DEF became a start token later: settings saved before then get it once; unticking it later sticks.
+    if ((saved.startsVersion ?? 1) < 2 && Array.isArray(saved.starts) && !saved.starts.includes('DEF'))
+      saved.starts = [...saved.starts, 'DEF']
+    saved.startsVersion = 2
     // Older settings had one scan interval; the log polling replaces it.
     delete saved.intervalSec
     return { ...DEFAULTS, ...saved }
@@ -358,7 +378,9 @@ interface Candidate {
 const state = {
   running: false,
   busy: false,
-  balances: { wax: 0, tlm: 0, at: 0 },
+  balances: { wax: 0, tlm: 0, def: 0, at: 0 },
+  /** The account's CPU over the chain's 24-hour window: used and available, in microseconds. */
+  cpu: { used: 0, max: 0, pct: 0, at: 0 },
   scan: null as null | {
     at: number
     ms: number
@@ -668,7 +690,7 @@ async function buildMarket(): Promise<Market> {
   const pools = [...rows.filter((r) => Number(r.active) && Number(r.liquidity) > 0).map(clmmFromRow), ...tacoPools(tacoRows)]
   const price = waxPrices(pools)
   const liquid = liquidPools(pools, price, MIN_POOL_WAX)
-  const starts = settings.starts.map((s) => (s === 'WAX' ? WAX_TOKEN_ID : TLM_TOKEN_ID))
+  const starts = settings.starts.map((s) => START_IDS[s])
   const loops = findLoops(liquid, starts)
   const loopsByPool = new Map<string, Loop[]>()
   for (const l of loops)
@@ -794,8 +816,24 @@ function remargin(l: Loop) {
 const routeOf = (loop: Loop) => loop.path.map((t) => t.symbol)
 
 async function refreshBalances() {
-  const [wax, tlm] = await Promise.all([balance('eosio.token', 'WAX'), balance('alien.worlds', 'TLM')])
-  state.balances = { wax, tlm, at: Date.now() }
+  const [wax, tlm, def] = await Promise.all([
+    balance('eosio.token', 'WAX'),
+    balance('alien.worlds', 'TLM'),
+    balance('defensetoken', 'DEF')
+  ])
+  state.balances = { wax, tlm, def, at: Date.now() }
+  if (ACCOUNT) {
+    try {
+      const acc = (await rpc('/v1/chain/get_account', { account_name: ACCOUNT })) as {
+        cpu_limit?: { used: number | string; max: number | string }
+      }
+      const used = Number(acc.cpu_limit?.used ?? 0)
+      const max = Number(acc.cpu_limit?.max ?? 0)
+      state.cpu = { used, max, pct: max > 0 ? (used / max) * 100 : 0, at: Date.now() }
+    } catch {
+      // The CPU figure is for the page only; the balances above are what the trading needs.
+    }
+  }
 }
 
 let lastBalanceAt = 0
@@ -862,7 +900,7 @@ async function scanOnce() {
   const capOf = (loop: Loop) => {
     const startWax = m.price.get(loop.start.id) ?? 0
     // Without an account (watching only) there is no wallet to limit the size.
-    const held = !ACCOUNT ? Infinity : loop.start.id === WAX_TOKEN_ID ? state.balances.wax : state.balances.tlm
+    const held = !ACCOUNT ? Infinity : heldOf(loop.start.id)
     return { startWax, cap: Math.min(held, startWax > 0 ? settings.maxTradeWax / startWax : 0) }
   }
   const screened = promising
@@ -949,7 +987,7 @@ async function scanOnce() {
   const fresh = await refreshRoute(best.loop)
   await refreshBalances()
   lastBalanceAt = Date.now()
-  const held = fresh.start.id === WAX_TOKEN_ID ? state.balances.wax : state.balances.tlm
+  const held = heldOf(fresh.start.id)
   const cap = Math.min(held, best.startWax > 0 ? settings.maxTradeWax / best.startWax : 0)
   if (!(cap > 0)) return
   const guess = Math.min(cap, Math.max(bestSize(fresh, cap).amount, best.input))
@@ -1086,7 +1124,7 @@ function snapshot() {
   const done = all.filter((t) => t.status === 'done')
   const total = done.reduce((n, t) => n + (t.profitWax ?? 0), 0)
   // Every trade so far, not just the ones shown: profit in the token each loop started and ended in.
-  const profitBySymbol = { WAX: 0, TLM: 0 } as Record<string, number>
+  const profitBySymbol = { WAX: 0, TLM: 0, DEF: 0 } as Record<string, number>
   for (const t of done) profitBySymbol[t.symbol] = (profitBySymbol[t.symbol] ?? 0) + (t.profit ?? 0)
   const tradeCounts = { done: done.length, failed: all.length - done.length }
   return {
@@ -1100,6 +1138,7 @@ function snapshot() {
     keyProblem,
     settings,
     balances: state.balances,
+    cpu: state.cpu,
     scan: state.scan,
     lastError: state.lastError,
     log: state.log,
@@ -1137,17 +1176,19 @@ function applySettings(input: Partial<Settings>) {
     const n = Number(v)
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback
   }
+  const startsBefore = settings.starts.join(',')
   settings = {
     pollSec: num(input.pollSec, 2, 600, settings.pollSec),
     fullRefreshMin: num(input.fullRefreshMin, 1, 120, settings.fullRefreshMin),
     maxTradeWax: num(input.maxTradeWax, 1, 1e7, settings.maxTradeWax),
-    starts: Array.isArray(input.starts)
-      ? (input.starts.filter((s) => s === 'WAX' || s === 'TLM') as Settings['starts'])
-      : settings.starts,
+    starts: Array.isArray(input.starts) ? (input.starts.filter((s) => s in START_IDS) as Settings['starts']) : settings.starts,
     watchOnly: typeof input.watchOnly === 'boolean' ? input.watchOnly : settings.watchOnly,
-    tradeGapSec: num(input.tradeGapSec, 0, 86400, settings.tradeGapSec)
+    tradeGapSec: num(input.tradeGapSec, 0, 86400, settings.tradeGapSec),
+    startsVersion: 2
   }
   writeFileSync(SETTINGS_FILE, JSON.stringify(settings, null, 2))
+  // Other start tokens mean other loops: they are laid out again on the next pass.
+  if (settings.starts.join(',') !== startsBefore) market = null
   log('Settings saved')
 }
 

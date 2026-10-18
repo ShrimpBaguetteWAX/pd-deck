@@ -20,7 +20,8 @@ export type Rpc = (path: string, body: unknown) => Promise<unknown>
 /** Accounts holding plenty of each start token, to quote loops for anyone. */
 export const QUOTE_HOLDERS: Record<string, string> = {
   'WAX@eosio.token': 'eosio.stake',
-  'TLM@alien.worlds': 'm.federation'
+  'TLM@alien.worlds': 'm.federation',
+  'DEF@defensetoken': 'miss.pdef'
 }
 
 /** The standard token transfer, so no ABI has to be fetched. */
