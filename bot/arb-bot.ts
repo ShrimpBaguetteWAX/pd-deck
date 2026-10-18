@@ -1081,8 +1081,14 @@ function stop() {
 // ---- The control page ----------------------------------------------------------------------------------
 
 function snapshot() {
-  const trades = readTrades().reverse().slice(0, 200)
-  const total = trades.filter((t) => t.status === 'done').reduce((n, t) => n + (t.profitWax ?? 0), 0)
+  const all = readTrades()
+  const trades = all.slice().reverse().slice(0, 200)
+  const done = all.filter((t) => t.status === 'done')
+  const total = done.reduce((n, t) => n + (t.profitWax ?? 0), 0)
+  // Every trade so far, not just the ones shown: profit in the token each loop started and ended in.
+  const profitBySymbol = { WAX: 0, TLM: 0 } as Record<string, number>
+  for (const t of done) profitBySymbol[t.symbol] = (profitBySymbol[t.symbol] ?? 0) + (t.profit ?? 0)
+  const tradeCounts = { done: done.length, failed: all.length - done.length }
   return {
     running: state.running,
     busy: state.busy,
@@ -1099,6 +1105,8 @@ function snapshot() {
     log: state.log,
     trades,
     totalProfitWax: total,
+    profitBySymbol,
+    tradeCounts,
     /** The WAX nodes in use, with speed and load. */
     endpoints: endpointPool.report(),
     /** The latest swaps on both exchanges, newest first. */

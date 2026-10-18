@@ -278,6 +278,11 @@
       .card b.gold {
         color: var(--gold);
       }
+      /* A second figure in the same card (the TLM profit under the WAX one). */
+      .card b + b {
+        margin-top: 2px;
+        font-size: 17px;
+      }
       .panel h2 {
         margin: 0 0 10px;
         font-size: 15px;
@@ -579,7 +584,9 @@
         <section class="cards">
           <div class="card"><small>WAX in wallet</small><b class="num" id="wax">–</b></div>
           <div class="card"><small>TLM in wallet</small><b class="num" id="tlm">–</b></div>
-          <div class="card"><small>Profit so far</small><b class="num gold" id="profit">–</b></div>
+          <div class="card">
+            <small>Profit so far</small><b class="num gold" id="profit">–</b><b class="num gold" id="profitTlm">–</b>
+          </div>
           <div class="card"><small>Trades</small><b class="num" id="count">–</b></div>
         </section>
 
@@ -747,10 +754,13 @@
         const four = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
         $('wax').textContent = s.balances.at ? four(s.balances.wax) : '–'
         $('tlm').textContent = s.balances.at ? four(s.balances.tlm) : '–'
-        const done = s.trades.filter((t) => t.status === 'done')
-        $('profit').textContent = signed(s.totalProfitWax, 4) + ' WAX'
-        $('count').textContent =
-          `${done.length}` + (s.trades.length > done.length ? ` (+${s.trades.length - done.length} failed)` : '')
+        // Profit in the token each loop started and ended in, over every trade so far.
+        const by = s.profitBySymbol || {}
+        const plus = (n) => (n > 0 ? '+' : '') + four(n || 0)
+        $('profit').textContent = plus(by.WAX) + ' WAX'
+        $('profitTlm').textContent = plus(by.TLM) + ' TLM'
+        const counts = s.tradeCounts || { done: 0, failed: 0 }
+        $('count').textContent = `${counts.done}` + (counts.failed ? ` (+${counts.failed} failed)` : '')
 
         if (!formTouched) {
           const f = $('settings')
