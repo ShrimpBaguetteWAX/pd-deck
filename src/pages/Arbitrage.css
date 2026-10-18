@@ -1,0 +1,234 @@
+/* Alcor loops. One accent (cyan) for controls, gold for the profit and the action, green and red only for a result. */
+
+.arb {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.arb-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px 24px;
+  flex-wrap: wrap;
+}
+
+.arb-head h2 {
+  margin: 2px 0 4px;
+}
+
+.arb-lead {
+  max-width: 72ch;
+  margin: 0;
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.arb-controls {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.arb-scan {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 7px 12px;
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-dim);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.arb-scan:hover:not(:disabled) {
+  border-color: var(--cyan);
+  color: var(--text);
+}
+
+.arb-scan:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
+.arb-scan .is-spinning {
+  animation: arb-spin 1s linear infinite;
+}
+
+@keyframes arb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.arb-facts {
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 12px;
+}
+
+/* ---- Table ---- */
+
+.arb-table {
+  display: flex;
+  flex-direction: column;
+  padding: 6px 16px;
+}
+
+.arb-row {
+  display: grid;
+  grid-template-columns: minmax(220px, 2fr) 1fr 1fr 1.2fr 1.1fr auto;
+  align-items: center;
+  gap: 14px;
+  padding: 11px 0;
+  font-size: 13px;
+}
+
+.arb-row + .arb-row,
+.arb-run + .arb-row {
+  border-top: 1px solid var(--border);
+}
+
+.arb-row--head {
+  padding: 8px 0;
+  color: var(--text-faint);
+  font-size: 11px;
+}
+
+.arb-row--head span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.arb-route {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.arb-route__tokens {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.arb-route__tokens b {
+  font-weight: 600;
+}
+
+.arb-route__tokens i {
+  color: var(--text-faint);
+  font-style: normal;
+}
+
+.arb-route small {
+  font-size: 11px;
+}
+
+.arb-profit {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.arb-profit b {
+  color: var(--tlm);
+  font-weight: 700;
+}
+
+.arb-profit small {
+  font-size: 11px;
+}
+
+.arb-go {
+  justify-self: end;
+}
+
+/* The outcome of an executed loop, under its row. */
+.arb-run {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 10px;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text-dim);
+  font-size: 12.5px;
+}
+
+.arb-run.is-gain {
+  border-color: rgba(46, 229, 157, 0.35);
+}
+
+.arb-run.is-gain b {
+  color: var(--green);
+}
+
+.arb-run.is-loss {
+  border-color: rgba(255, 77, 94, 0.35);
+}
+
+.arb-run.is-loss b {
+  color: var(--red);
+}
+
+.arb-link {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  color: var(--cyan);
+  font-size: 12px;
+  text-decoration: none;
+}
+
+.arb-note {
+  max-width: 90ch;
+  margin: 0;
+  color: var(--text-faint);
+  font-size: 12px;
+  line-height: 1.55;
+}
+
+/* ---- Narrow screens: each loop as a small card ---- */
+
+@media (max-width: 900px) {
+  .arb-row--head {
+    display: none;
+  }
+
+  .arb-row {
+    grid-template-columns: 1fr 1fr;
+    gap: 8px 14px;
+  }
+
+  .arb-route {
+    grid-column: 1 / -1;
+  }
+
+  .arb-go {
+    grid-column: 1 / -1;
+    justify-self: stretch;
+  }
+
+  .arb-go button {
+    width: 100%;
+  }
+
+  .arb-run {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

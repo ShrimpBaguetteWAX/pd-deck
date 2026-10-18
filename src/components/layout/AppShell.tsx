@@ -14,6 +14,7 @@ import {
   FlameIcon,
   GiftIcon,
   LedgerIcon,
+  LoopIcon,
   OrbitIcon,
   RocketIcon,
   SwordIcon,
@@ -33,6 +34,7 @@ const NAV = [
   { to: '/market', label: 'Market', icon: CartIcon },
   { to: '/blend', label: 'Blend', icon: SparkIcon },
   { to: '/swap', label: 'Swap', icon: SwapIcon },
+  { to: '/arbitrage', label: 'Arbitrage', icon: LoopIcon },
   { to: '/ledger', label: 'Ledger', icon: LedgerIcon }
 ]
 

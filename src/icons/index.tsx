@@ -163,6 +163,16 @@ export const SwapIcon = (p: P) => (
   </svg>
 )
 
+/** Two arrows chasing each other round: a loop of swaps back to where it started. */
+export const LoopIcon = (p: P) => (
+  <svg {...base(p)}>
+    <path d="M20 11a8 8 0 0 0-14.3-4.9L4 8" />
+    <path d="M4 4v4h4" />
+    <path d="M4 13a8 8 0 0 0 14.3 4.9L20 16" />
+    <path d="M20 20v-4h-4" />
+  </svg>
+)
+
 /** A ledger: coins stacked beside a rising line. */
 export const LedgerIcon = (p: P) => (
   <svg {...base(p)}>

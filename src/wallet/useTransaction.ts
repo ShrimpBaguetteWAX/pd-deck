@@ -58,7 +58,12 @@ export function useTransaction() {
   /** Set once a transaction of this session registered the player, so the next does not again. */
   const registered = useRef(false)
 
-  type Options = { split?: boolean; refresh?: boolean }
+  /**
+   * register: false leaves out the player registration a first-time player otherwise gets (for
+   * transactions that have nothing to do with the game, such as an Alcor swap).
+   * onSigned: called with the transaction id once each transaction is accepted.
+   */
+  type Options = { split?: boolean; refresh?: boolean; register?: boolean; onSigned?: (trxId: string) => void }
 
   /** Resolves true once signed and refreshed, false when cancelled, refused or failed. */
   async function run(build: Build, success: string, key = 'tx', opts: Options = {}): Promise<boolean> {
@@ -79,7 +84,7 @@ export function useTransaction() {
     try {
       const built = await build(account, permission)
       let actions = Array.isArray(built) ? built : [built]
-      const register = !!player.data && !player.data.registered && !registered.current
+      const register = opts.register !== false && !!player.data && !player.data.registered && !registered.current
       if (register) actions = [regPlayer(account, permission), ...actions]
       const parts = opts.split ? splitActions(actions) : [actions]
       for (let i = 0; i < parts.length; i++) {
@@ -88,8 +93,9 @@ export function useTransaction() {
           toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].length} actions. Please sign.`)
         }
         try {
-          await transact(parts[i])
+          const trxId = await transact(parts[i])
           if (register) registered.current = true
+          opts.onSigned?.(trxId)
         } catch (err) {
           if (i === 0) throw err
           // Earlier parts are on chain: say so, and show what is there now.

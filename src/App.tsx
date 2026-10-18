@@ -17,6 +17,7 @@ const Market = lazy(() => import('@/pages/Market'))
 const Blends = lazy(() => import('@/pages/Blends'))
 const Swap = lazy(() => import('@/pages/Swap'))
 const Ledger = lazy(() => import('@/pages/Ledger'))
+const Arbitrage = lazy(() => import('@/pages/Arbitrage'))
 const Planets = lazy(() => import('@/pages/Planets'))
 
 /** Pages behind sign-in share the session check and the app shell. */
@@ -63,6 +64,7 @@ export function App() {
               <Route path="/blend" element={<Blends />} />
               <Route path="/swap" element={<Swap />} />
               <Route path="/ledger" element={<Ledger />} />
+              <Route path="/arbitrage" element={<Arbitrage />} />
               <Route path="/planets" element={<Planets />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
