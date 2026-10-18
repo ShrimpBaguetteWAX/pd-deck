@@ -1,10 +1,13 @@
 import { CONTRACTS } from '@/chain/config'
 import { getTransactionActions } from '@/chain/history'
-import { getRow, getRows } from '@/chain/rpc'
+import { getRow, getRows, rpcCall } from '@/chain/rpc'
+import { QUOTE_HOLDERS, verifyLoop, type Verified } from '@/lib/alcorChain'
 import {
   bestSize,
   clmmFromRow,
   findLoops,
+  liquidPools,
+  waxPrices,
   spotRate,
   type ClmmPool,
   type ClmmTick,
@@ -38,7 +41,10 @@ export interface Opportunity {
   /** Pool ids and start, stable across scans. */
   key: string
   loop: Loop
-  best: Sized
+  /** The simulation's best size and profit. */
+  simulated: Sized
+  /** The best size the real contract confirms in a dry run, and what it returns. */
+  best: Verified
   /** WAX per unit of the start token. */
   startWax: number
 }
@@ -49,25 +55,11 @@ export interface Scan {
   liquid: number
   loops: number
   simulated: number
+  /** Loops the simulation liked that the dry runs did not confirm. */
+  rejected: number
   opportunities: Opportunity[]
   /** WAX per TLM, for showing TLM amounts in WAX. */
   waxPerTlm: number
-}
-
-/** Each token's price in WAX, from the pool holding the most WAX against it. */
-function waxPrices(pools: ClmmPool[]): Map<string, number> {
-  const price = new Map<string, number>([[WAX_ID, 1]])
-  const depth = new Map<string, number>()
-  for (const p of pools) {
-    const waxSide = p.a.id === WAX_ID ? 'a' : p.b.id === WAX_ID ? 'b' : null
-    if (!waxSide) continue
-    const other = waxSide === 'a' ? p.b : p.a
-    const wax = waxSide === 'a' ? p.reserveA : p.reserveB
-    if (wax <= (depth.get(other.id) ?? 0)) continue
-    depth.set(other.id, wax)
-    price.set(other.id, spotRate(p, other.id))
-  }
-  return price
 }
 
 async function readTicks(poolId: number): Promise<ClmmTick[]> {
@@ -95,11 +87,7 @@ export async function scanLoops(onStep?: (label: string) => void): Promise<Scan>
   const rows = await getRows<PoolRow>({ code: CONTRACTS.ALCOR_SWAP, table: 'pools' })
   const pools = rows.filter((r) => Number(r.active) && Number(r.liquidity) > 0).map(clmmFromRow)
   const price = waxPrices(pools)
-  const liquid = pools.filter((p) => {
-    const pa = price.get(p.a.id)
-    const pb = price.get(p.b.id)
-    return pa !== undefined && pb !== undefined && Math.min(p.reserveA * pa, p.reserveB * pb) >= MIN_POOL_WAX
-  })
+  const liquid = liquidPools(pools, price, MIN_POOL_WAX)
 
   onStep?.('Checking the loops')
   const loops = findLoops(liquid, [WAX_ID, TLM_ID])
@@ -111,14 +99,31 @@ export async function scanLoops(onStep?: (label: string) => void): Promise<Scan>
   onStep?.(`Simulating ${promising.length} loops exactly`)
   await withTicks([...new Set(promising.flatMap((l) => l.pools))])
 
-  const opportunities = promising
+  const candidates = promising
     .map((loop) => {
       const startWax = price.get(loop.start.id) ?? 0
-      const best = bestSize(loop, startWax > 0 ? MAX_TRADE_WAX / startWax : 1e6)
-      return { key: keyOf(loop), loop, best, startWax }
+      const cap = startWax > 0 ? MAX_TRADE_WAX / startWax : 1e6
+      return { loop, startWax, cap, simulated: bestSize(loop, cap) }
     })
-    .filter((o) => o.best.profit * o.startWax >= MIN_PROFIT_WAX)
-    .sort((a, b) => b.best.profit * b.startWax - a.best.profit * a.startWax)
+    .filter((c) => c.simulated.profit * c.startWax >= MIN_PROFIT_WAX)
+
+  // The simulation can be off (rounding inside thin pools, tokens that refuse transfers): the real
+  // contract decides, in free dry runs from an account that holds plenty of the start token.
+  onStep?.(`Checking ${candidates.length} loops against the contract`)
+  const opportunities: Opportunity[] = []
+  const queue = [...candidates]
+  await Promise.all(
+    Array.from({ length: 4 }, async () => {
+      for (let c = queue.shift(); c; c = queue.shift()) {
+        const holder = QUOTE_HOLDERS[c.loop.start.id]
+        if (!holder) continue
+        const { best } = await verifyLoop(rpcCall, holder, c.loop, c.simulated.amount, c.cap)
+        if (best && best.profit * c.startWax >= MIN_PROFIT_WAX)
+          opportunities.push({ key: keyOf(c.loop), loop: c.loop, simulated: c.simulated, best, startWax: c.startWax })
+      }
+    })
+  )
+  opportunities.sort((a, b) => b.best.profit * b.startWax - a.best.profit * a.startWax)
 
   return {
     at: Date.now(),
@@ -126,6 +131,7 @@ export async function scanLoops(onStep?: (label: string) => void): Promise<Scan>
     liquid: liquid.length,
     loops: loops.length,
     simulated: promising.length,
+    rejected: candidates.length - opportunities.length,
     opportunities,
     waxPerTlm: price.get(TLM_ID) ?? 0
   }

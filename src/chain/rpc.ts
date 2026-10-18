@@ -158,3 +158,8 @@ export async function getRow<T>(query: TableQuery, options: ReadOptions = {}): P
   const rows = await getRows<T>({ limit: 1, ...query }, options)
   return rows[0] ?? null
 }
+
+/** Any node call with the usual failover: JSON in, JSON out (used for dry runs of Alcor loops). */
+export async function rpcCall(path: string, body: unknown): Promise<unknown> {
+  return (await post<unknown>(path, body)).data
+}

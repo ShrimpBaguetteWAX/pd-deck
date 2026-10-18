@@ -813,14 +813,15 @@ function useReveal(account: string | null, run: Run) {
 
   useEffect(() => {
     if (!state || state.done || !account) return
-    const timer = setTimeout(async () => {
+    const poll = async () => {
       const assets = await atomic.getOwnedAssets(account, 'planetdefnft').catch(() => null)
       setState((r) => {
         if (r !== state) return r
         const found = assets ? assets.filter((a) => a.schema.schema_name === 'material' && !r.before.has(a.asset_id)) : r.found
         return { ...r, found, done: found.length >= r.expected || Date.now() - r.started > REVEAL_TIMEOUT_MS }
       })
-    }, REVEAL_POLL_MS)
+    }
+    const timer = setTimeout(() => void poll(), REVEAL_POLL_MS)
     return () => clearTimeout(timer)
   }, [state, account])
 

@@ -101,7 +101,11 @@ export function swapOut(p: ClmmPool, fromId: string, amount: number): number {
   const aToB = fromId === p.a.id
   let s = p.sqrt
   let L = p.liquidity
-  let x = amount * 10 ** (aToB ? p.a.decimals : p.b.decimals) * (1 - p.fee)
+  // The input arrives in whole raw units and the fee is rounded up to a whole unit, as the pool
+  // charges it: on a token with few decimals that can be most of a small trade.
+  const raw = Math.floor(amount * 10 ** (aToB ? p.a.decimals : p.b.decimals) + 1e-9)
+  let x = raw - Math.ceil(raw * p.fee - 1e-9)
+  if (x <= 0) return 0
   let out = 0
   const T = p.ticks
   if (aToB) {
@@ -271,4 +275,32 @@ export function findLoops(pools: ClmmPool[], starts: string[]): Loop[] {
     }
   }
   return loops
+}
+
+export const WAX_TOKEN_ID = 'WAX@eosio.token'
+export const TLM_TOKEN_ID = 'TLM@alien.worlds'
+
+/** Each token's price in WAX, from the pool holding the most WAX against it. */
+export function waxPrices(pools: ClmmPool[]): Map<string, number> {
+  const price = new Map<string, number>([[WAX_TOKEN_ID, 1]])
+  const depth = new Map<string, number>()
+  for (const p of pools) {
+    const waxSide = p.a.id === WAX_TOKEN_ID ? 'a' : p.b.id === WAX_TOKEN_ID ? 'b' : null
+    if (!waxSide) continue
+    const other = waxSide === 'a' ? p.b : p.a
+    const wax = waxSide === 'a' ? p.reserveA : p.reserveB
+    if (wax <= (depth.get(other.id) ?? 0)) continue
+    depth.set(other.id, wax)
+    price.set(other.id, spotRate(p, other.id))
+  }
+  return price
+}
+
+/** Pools whose both sides hold at least `minWax`, valued in WAX (tokens without a WAX price drop out). */
+export function liquidPools(pools: ClmmPool[], price: Map<string, number>, minWax: number): ClmmPool[] {
+  return pools.filter((p) => {
+    const pa = price.get(p.a.id)
+    const pb = price.get(p.b.id)
+    return pa !== undefined && pb !== undefined && Math.min(p.reserveA * pa, p.reserveB * pb) >= minWax
+  })
 }

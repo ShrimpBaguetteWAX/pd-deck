@@ -12,3 +12,7 @@ node-health.md
 
 # Local tool settings
 .claude/
+
+# Local arbitrage bot: its data stays on your computer
+bot/settings.json
+bot/trades.jsonl

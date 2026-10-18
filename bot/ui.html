@@ -1,0 +1,645 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Alcor Loop Bot</title>
+    <style>
+      :root {
+        --bg: #060a14;
+        --panel: rgba(255, 255, 255, 0.04);
+        --surface: rgba(255, 255, 255, 0.06);
+        --border: rgba(255, 255, 255, 0.09);
+        --border-2: rgba(255, 255, 255, 0.18);
+        --text: #eef3fb;
+        --dim: #a3b0c4;
+        --faint: #6b7a91;
+        --cyan: #00d4ff;
+        --gold: #ffd75e;
+        --green: #2ee59d;
+        --red: #ff5d6e;
+        --radius: 14px;
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      /* Without this, any element given display: flex below would ignore its hidden attribute. */
+      [hidden] {
+        display: none !important;
+      }
+      body {
+        margin: 0;
+        background: radial-gradient(1200px 600px at 20% -10%, rgba(0, 212, 255, 0.07), transparent), var(--bg);
+        color: var(--text);
+        font:
+          14px/1.45 Inter,
+          'Segoe UI',
+          system-ui,
+          sans-serif;
+      }
+      main {
+        max-width: 1180px;
+        margin: 0 auto;
+        padding: 28px 16px 60px;
+        display: flex;
+        flex-direction: column;
+        gap: 16px;
+      }
+      h1 {
+        margin: 2px 0 0;
+        font-size: 24px;
+        letter-spacing: 0.01em;
+      }
+      .eyebrow {
+        color: var(--cyan);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.16em;
+        text-transform: uppercase;
+      }
+      .num {
+        font-variant-numeric: tabular-nums;
+      }
+      .faint {
+        color: var(--faint);
+      }
+      .dim {
+        color: var(--dim);
+      }
+      header {
+        display: flex;
+        align-items: flex-end;
+        justify-content: space-between;
+        gap: 14px;
+        flex-wrap: wrap;
+      }
+      .who {
+        margin-top: 4px;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      .controls {
+        display: flex;
+        align-items: center;
+        gap: 10px;
+      }
+      .pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 7px;
+        padding: 5px 11px;
+        border: 1px solid var(--border-2);
+        border-radius: 999px;
+        color: var(--dim);
+        font-size: 12px;
+        font-weight: 600;
+      }
+      .pill i {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: var(--faint);
+      }
+      .pill.is-on i {
+        background: var(--green);
+        box-shadow: 0 0 8px var(--green);
+      }
+      .pill.is-watch i {
+        background: var(--gold);
+      }
+      button {
+        font: inherit;
+        cursor: pointer;
+      }
+      .btn {
+        padding: 9px 18px;
+        border: 0;
+        border-radius: 10px;
+        font-weight: 700;
+      }
+      .btn-start {
+        background: linear-gradient(180deg, #ffe08a, #e0b23a);
+        color: #1a1405;
+      }
+      .btn-stop {
+        background: rgba(255, 93, 110, 0.15);
+        border: 1px solid rgba(255, 93, 110, 0.45);
+        color: #ffb3bb;
+      }
+      .btn-ghost {
+        padding: 7px 14px;
+        border: 1px solid var(--border-2);
+        border-radius: 10px;
+        background: transparent;
+        color: var(--dim);
+      }
+      .btn-ghost:hover {
+        border-color: var(--cyan);
+        color: var(--text);
+      }
+      .banner {
+        padding: 10px 14px;
+        border: 1px solid rgba(255, 215, 94, 0.35);
+        border-radius: var(--radius);
+        background: rgba(255, 215, 94, 0.06);
+        color: var(--gold);
+        font-size: 13px;
+      }
+      .banner.is-error {
+        border-color: rgba(255, 93, 110, 0.35);
+        background: rgba(255, 93, 110, 0.06);
+        color: #ffb3bb;
+      }
+      .cards {
+        display: grid;
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+        gap: 12px;
+      }
+      .card,
+      .panel {
+        padding: 14px 16px;
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel);
+      }
+      .card small {
+        display: block;
+        color: var(--faint);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+      .card b {
+        display: block;
+        margin-top: 4px;
+        font-size: 22px;
+        font-weight: 700;
+      }
+      .card b.gold {
+        color: var(--gold);
+      }
+      .panel h2 {
+        margin: 0 0 10px;
+        font-size: 15px;
+      }
+      .panel-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 10px;
+        margin-bottom: 10px;
+      }
+      .panel-head h2 {
+        margin: 0;
+      }
+      .settings {
+        display: flex;
+        align-items: flex-end;
+        gap: 14px 18px;
+        flex-wrap: wrap;
+      }
+      .settings label {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        color: var(--faint);
+        font-size: 11px;
+      }
+      .settings input[type='number'] {
+        width: 110px;
+        padding: 7px 10px;
+        border: 1px solid var(--border-2);
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        color: var(--text);
+        font: inherit;
+        font-weight: 600;
+      }
+      .settings input[type='text'],
+      .settings input[type='password'] {
+        width: 170px;
+        padding: 7px 10px;
+        border: 1px solid var(--border-2);
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        color: var(--text);
+        font: inherit;
+      }
+      .settings label.wide input {
+        width: 340px;
+        max-width: 100%;
+      }
+      .keyline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        flex-wrap: wrap;
+      }
+      #keyPub {
+        overflow-wrap: anywhere;
+      }
+      .keyline > span:first-child {
+        min-width: 0;
+      }
+      .keyline__actions {
+        display: flex;
+        gap: 8px;
+      }
+      #keyError {
+        margin-top: 10px;
+      }
+      .settings input:focus {
+        border-color: var(--cyan);
+        outline: 0;
+      }
+      .checks {
+        display: flex;
+        gap: 14px;
+        padding-bottom: 8px;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      .checks label {
+        flex-direction: row;
+        align-items: center;
+        gap: 6px;
+        color: var(--dim);
+        font-size: 13px;
+      }
+      .checks input {
+        accent-color: var(--cyan);
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+      th {
+        padding: 6px 8px;
+        color: var(--faint);
+        font-size: 11px;
+        font-weight: 500;
+        text-align: left;
+      }
+      td {
+        padding: 8px;
+        border-top: 1px solid var(--border);
+        vertical-align: top;
+      }
+      th.r,
+      td.r {
+        text-align: right;
+      }
+      .route b {
+        font-weight: 600;
+      }
+      .route small {
+        display: block;
+        color: var(--faint);
+        font-size: 11px;
+      }
+      .gain {
+        color: var(--green);
+        font-weight: 700;
+      }
+      .loss {
+        color: var(--red);
+        font-weight: 700;
+      }
+      .status-failed {
+        color: #ffb3bb;
+      }
+      a {
+        color: var(--cyan);
+        text-decoration: none;
+      }
+      .empty {
+        padding: 14px 4px;
+        color: var(--faint);
+      }
+      .log {
+        max-height: 220px;
+        margin: 0;
+        overflow: auto;
+        color: var(--dim);
+        font:
+          12px/1.5 ui-monospace,
+          Consolas,
+          monospace;
+        white-space: pre-wrap;
+      }
+      .scroll {
+        overflow-x: auto;
+      }
+      @media (max-width: 760px) {
+        .cards {
+          grid-template-columns: repeat(2, minmax(0, 1fr));
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <div class="eyebrow">Alcor loops</div>
+          <h1>Loop bot</h1>
+          <div class="who" id="who">Connecting…</div>
+        </div>
+        <div class="controls">
+          <span class="pill" id="status"><i></i><span>Stopped</span></span>
+          <button class="btn btn-start" id="toggle">Start</button>
+        </div>
+      </header>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Wallet key</h2>
+          <span class="faint"
+            >Saved in bot/.env on this computer only. It is never shown again or sent anywhere but as a signature.</span
+          >
+        </div>
+        <div class="keyline" id="keyLoaded" hidden>
+          <span><b id="keyWho"></b> <span class="faint num" id="keyPub"></span></span>
+          <span class="keyline__actions">
+            <button type="button" class="btn-ghost" id="keyChange">Change</button>
+            <button type="button" class="btn-ghost" id="keyRemove">Remove key</button>
+          </span>
+        </div>
+        <form class="settings" id="keyForm" autocomplete="off" hidden>
+          <label>Account<input type="text" name="account" placeholder="youraccount.wam" spellcheck="false" /></label>
+          <label>Permission<input type="text" name="permission" placeholder="active" spellcheck="false" /></label>
+          <label class="wide"
+            >Private key<input
+              type="password"
+              name="key"
+              placeholder="PVT_K1_… or 5…"
+              autocomplete="new-password"
+              spellcheck="false"
+          /></label>
+          <button type="submit" class="btn-ghost">Save key</button>
+          <button type="button" class="btn-ghost" id="keyCancel" hidden>Cancel</button>
+        </form>
+        <div class="banner is-error" id="keyError" hidden></div>
+      </section>
+
+      <div class="banner" id="keyProblem" hidden></div>
+      <div class="banner is-error" id="lastError" hidden></div>
+
+      <section class="cards">
+        <div class="card"><small>WAX in wallet</small><b class="num" id="wax">–</b></div>
+        <div class="card"><small>TLM in wallet</small><b class="num" id="tlm">–</b></div>
+        <div class="card"><small>Profit so far</small><b class="num gold" id="profit">–</b></div>
+        <div class="card"><small>Trades</small><b class="num" id="count">–</b></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Settings</h2>
+          <span class="faint" id="saved"></span>
+        </div>
+        <form class="settings" id="settings">
+          <label>Minimum profit (WAX)<input type="number" step="0.01" min="0.001" name="minProfitWax" /></label>
+          <label>Scan every (seconds)<input type="number" step="1" min="5" name="intervalSec" /></label>
+          <label>Largest input (WAX worth)<input type="number" step="1" min="1" name="maxTradeWax" /></label>
+          <label>Seconds between trades<input type="number" step="1" min="0" name="tradeGapSec" /></label>
+          <div class="checks">
+            <label><input type="checkbox" name="startWAX" /> From WAX</label>
+            <label><input type="checkbox" name="startTLM" /> From TLM</label>
+            <label><input type="checkbox" name="watchOnly" /> Watch only</label>
+          </div>
+          <button type="submit" class="btn-ghost">Save</button>
+        </form>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Last scan</h2>
+          <span class="faint num" id="scanMeta">No scan yet</span>
+        </div>
+        <div class="scroll"><table id="confirmed"></table></div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">
+          <h2>Transactions</h2>
+          <span class="faint">Read from each transaction's actions after it went through</span>
+        </div>
+        <div class="scroll"><table id="trades"></table></div>
+      </section>
+
+      <section class="panel">
+        <h2>Activity</h2>
+        <pre class="log" id="log"></pre>
+      </section>
+    </main>
+
+    <script>
+      const $ = (id) => document.getElementById(id)
+      const fmt = (n, d = 4) =>
+        n === null || n === undefined || !Number.isFinite(n)
+          ? '–'
+          : n.toLocaleString('en-US', { maximumFractionDigits: Math.abs(n) >= 100 ? 2 : d })
+      const signed = (n, d) => (n > 0 ? '+' : '') + fmt(n, d)
+      const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c])
+      const time = (ms) => new Date(ms).toLocaleString()
+      const ago = (ms) => {
+        const s = Math.round((Date.now() - ms) / 1000)
+        return s < 60 ? s + ' s ago' : Math.round(s / 60) + ' min ago'
+      }
+      let current = null
+      let formTouched = false
+
+      /** A change sent to the bot; says so in the page when the bot cannot be reached. */
+      async function call(path, body) {
+        try {
+          const res = await fetch(path, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'X-Arb-Bot': '1' },
+            body: JSON.stringify(body || {})
+          })
+          const s = await res.json()
+          render(s)
+          return s
+        } catch {
+          showOffline()
+          return null
+        }
+      }
+
+      function showOffline() {
+        const b = $('lastError')
+        b.hidden = false
+        b.textContent =
+          location.protocol === 'file:'
+            ? 'This page was opened as a file. Start the bot with bot/start.cmd and use http://127.0.0.1:5199 instead.'
+            : 'The bot is not answering. Is the bot window still open? Start it again with bot/start.cmd.'
+      }
+
+      function route(r, pools) {
+        return `<span class="route"><b>${r.map(esc).join(' › ')}</b><small>pools ${pools.join(' · ')}</small></span>`
+      }
+
+      function render(s) {
+        current = s
+        $('who').textContent = s.account ? `${s.account}@${s.permission}` : 'No account configured'
+        const watch = !s.canTrade || s.settings.watchOnly
+        const pill = $('status')
+        pill.className = 'pill' + (s.running ? (watch ? ' is-watch' : ' is-on') : '')
+        pill.querySelector('span').textContent = s.running
+          ? (s.busy ? 'Scanning' : 'Running') + (watch ? ' · watch only' : '')
+          : 'Stopped'
+        const btn = $('toggle')
+        btn.textContent = s.running ? 'Stop' : 'Start'
+        btn.className = 'btn ' + (s.running ? 'btn-stop' : 'btn-start')
+
+        // The key panel: who signs and the public key, or the form to enter one.
+        const hasKey = !!s.publicKey
+        $('keyLoaded').hidden = !hasKey || editingKey
+        $('keyForm').hidden = hasKey && !editingKey
+        $('keyCancel').hidden = !hasKey
+        if (hasKey) {
+          $('keyWho').textContent = `${s.account}@${s.permission}`
+          $('keyPub').textContent = s.publicKey
+        }
+        if (!keyTouched) {
+          $('keyForm').account.value = s.account || ''
+          $('keyForm').permission.value = s.permission || 'active'
+        }
+
+        $('keyProblem').hidden = !s.keyProblem
+        $('keyProblem').textContent = s.keyProblem
+        $('lastError').hidden = !s.lastError
+        $('lastError').textContent = 'Last scan failed: ' + s.lastError
+
+        $('wax').textContent = s.balances.at ? fmt(s.balances.wax, 4) : '–'
+        $('tlm').textContent = s.balances.at ? fmt(s.balances.tlm, 4) : '–'
+        const done = s.trades.filter((t) => t.status === 'done')
+        $('profit').textContent = signed(s.totalProfitWax, 4) + ' WAX'
+        $('count').textContent =
+          `${done.length}` + (s.trades.length > done.length ? ` (+${s.trades.length - done.length} failed)` : '')
+
+        if (!formTouched) {
+          const f = $('settings')
+          f.minProfitWax.value = s.settings.minProfitWax
+          f.intervalSec.value = s.settings.intervalSec
+          f.maxTradeWax.value = s.settings.maxTradeWax
+          f.tradeGapSec.value = s.settings.tradeGapSec
+          f.startWAX.checked = s.settings.starts.includes('WAX')
+          f.startTLM.checked = s.settings.starts.includes('TLM')
+          f.watchOnly.checked = s.settings.watchOnly
+        }
+
+        if (s.scan) {
+          const sc = s.scan
+          $('scanMeta').textContent =
+            `${ago(sc.at)} · ${(sc.ms / 1000).toFixed(1)} s · ${sc.pools.toLocaleString()} pools · ${sc.liquid.toLocaleString()} liquid · ${sc.loops.toLocaleString()} loops · ${sc.simulated} simulated · ${sc.dryRun} dry-run`
+          $('confirmed').innerHTML = sc.confirmed.length
+            ? '<tr><th>Confirmed by the contract</th><th class="r">Input</th><th class="r">Comes back</th><th class="r">Profit</th></tr>' +
+              sc.confirmed
+                .map(
+                  (c) =>
+                    `<tr><td>${route(c.route, c.pools)}</td><td class="r num">${fmt(c.input)} ${esc(c.symbol)}</td><td class="r num">${fmt(c.received)} ${esc(c.symbol)}</td><td class="r num"><span class="${c.profitWax >= s.settings.minProfitWax ? 'gain' : 'dim'}">${signed(c.profit)} ${esc(c.symbol)}</span><br><small class="faint">≈ ${fmt(c.profitWax, 4)} WAX</small></td></tr>`
+                )
+                .join('')
+            : `<tr><td class="empty">No loop confirmed a profit with what the wallet holds. ${sc.dryRun ? sc.dryRun + ' looked promising in the simulation but not on the contract.' : ''}</td></tr>`
+        }
+
+        $('trades').innerHTML = s.trades.length
+          ? '<tr><th>Time</th><th>Route</th><th class="r">Input</th><th class="r">Output</th><th class="r">Profit</th><th>Result</th></tr>' +
+            s.trades
+              .map((t) => {
+                const ok = t.status === 'done'
+                const profit = ok
+                  ? `<span class="${t.profit > 0 ? 'gain' : 'loss'}">${signed(t.profit)} ${esc(t.symbol)}</span><br><small class="faint">≈ ${fmt(t.profitWax, 4)} WAX · expected ${signed(t.expected)}</small>`
+                  : `<span class="faint">expected ${signed(t.expected)}</span>`
+                const result = ok
+                  ? `<a href="https://waxblock.io/transaction/${esc(t.trxId)}" target="_blank" rel="noreferrer">Transaction ↗</a>`
+                  : `<span class="status-failed">Failed: ${esc(t.error || 'unknown')}</span>`
+                return `<tr><td class="num faint">${esc(time(t.at))}</td><td>${route(t.route, t.pools)}</td><td class="r num">${fmt(t.input)} ${esc(t.symbol)}</td><td class="r num">${ok ? fmt(t.output) + ' ' + esc(t.symbol) : '–'}</td><td class="r num">${profit}</td><td>${result}</td></tr>`
+              })
+              .join('')
+          : '<tr><td class="empty">No transactions yet.</td></tr>'
+
+        $('log').textContent = s.log.join('\n')
+      }
+
+      let editingKey = false
+      let keyTouched = false
+      $('keyForm').addEventListener('input', () => (keyTouched = true))
+      $('keyChange').addEventListener('click', () => {
+        editingKey = true
+        render(current)
+      })
+      $('keyCancel').addEventListener('click', () => {
+        editingKey = false
+        keyTouched = false
+        $('keyForm').key.value = ''
+        $('keyError').hidden = true
+        render(current)
+      })
+      $('keyRemove').addEventListener('click', () => {
+        if (confirm('Remove the saved private key? The bot stops and can only watch until a key is entered again.'))
+          call('/api/credentials/clear')
+      })
+      $('keyForm').addEventListener('submit', async (e) => {
+        e.preventDefault()
+        const f = e.target
+        const button = f.querySelector('button[type=submit]')
+        button.disabled = true
+        button.textContent = 'Checking…'
+        const s = await call('/api/credentials', {
+          account: f.account.value,
+          permission: f.permission.value,
+          key: f.key.value
+        })
+        button.disabled = false
+        button.textContent = 'Save key'
+        if (!s) return
+        // The key is gone from the page either way; the bot has it if it was accepted.
+        f.key.value = ''
+        $('keyError').hidden = !s.problem
+        $('keyError').textContent = s.problem || ''
+        if (!s.problem) {
+          editingKey = false
+          keyTouched = false
+          $('saved').textContent = ''
+          render(s)
+        }
+      })
+
+      $('toggle').addEventListener('click', () => call(current && current.running ? '/api/stop' : '/api/start'))
+      $('settings').addEventListener('input', () => (formTouched = true))
+      $('settings').addEventListener('submit', async (e) => {
+        e.preventDefault()
+        const f = e.target
+        const starts = [f.startWAX.checked && 'WAX', f.startTLM.checked && 'TLM'].filter(Boolean)
+        await call('/api/settings', {
+          minProfitWax: Number(f.minProfitWax.value),
+          intervalSec: Number(f.intervalSec.value),
+          maxTradeWax: Number(f.maxTradeWax.value),
+          tradeGapSec: Number(f.tradeGapSec.value),
+          starts,
+          watchOnly: f.watchOnly.checked
+        })
+        formTouched = false
+        $('saved').textContent = 'Saved'
+        setTimeout(() => ($('saved').textContent = ''), 2000)
+      })
+
+      async function poll() {
+        try {
+          const res = await fetch('/api/state', { cache: 'no-store' })
+          render(await res.json())
+        } catch {
+          $('who').textContent = 'Not connected'
+          showOffline()
+        }
+      }
+      poll()
+      setInterval(poll, 2000)
+    </script>
+  </body>
+</html>

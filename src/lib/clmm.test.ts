@@ -111,3 +111,15 @@ describe('rounding', () => {
     expect(out).toBe(3)
   })
 })
+
+describe('fee rounding', () => {
+  it('rounds the fee up to a whole unit, so one unit of a token without decimals buys nothing', () => {
+    const whole = token('W', 0)
+    const p = pool(10, whole, X, 1000, 1e9, 0.01)
+    expect(swapOut(p, whole.id, 1)).toBe(0)
+    // Five units with a 0.3% fee lose a whole unit to the fee: the same as swapping four fee-free.
+    const q = pool(11, whole, X, 1000, 1e12, 0.003)
+    const free = pool(11, whole, X, 1000, 1e12, 0)
+    expect(swapOut(q, whole.id, 5)).toBeCloseTo(swapOut(free, whole.id, 4), 4)
+  })
+})

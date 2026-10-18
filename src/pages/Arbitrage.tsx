@@ -18,7 +18,9 @@ import {
 } from '@/data/arbitrage'
 import { refreshPlayer, usePlayer } from '@/data/game'
 import { ExternalIcon, RefreshIcon } from '@/icons'
-import { bestSize, loopOut, type Loop } from '@/lib/clmm'
+import { rpcCall } from '@/chain/rpc'
+import { verifyLoop } from '@/lib/alcorChain'
+import { bestSize, type Loop } from '@/lib/clmm'
 import { formatNumber } from '@/lib/format'
 import { useNow } from '@/lib/time'
 import { useTransaction } from '@/wallet/useTransaction'
@@ -74,20 +76,22 @@ export default function Arbitrage() {
     let trxId = ''
     const ok = await run(
       async (a, p) => {
-        // The pools have moved since the scan: read them again and size to what you hold.
+        // The pools have moved since the scan: read them again, size to what the wallet holds (never
+        // more), and let the contract confirm the size in a dry run from this very account.
         const fresh = await refreshLoop(o.loop)
-        const cap = Math.min(balanceOf(start.id), o.startWax > 0 ? MAX_TRADE_WAX / o.startWax : 1e6)
-        const sized = bestSize(fresh, cap)
-        const input = floorTo(sized.amount, start)
-        const out = loopOut(fresh, input)
-        const profit = out - input
+        const cap = floorTo(Math.min(balanceOf(start.id), o.startWax > 0 ? MAX_TRADE_WAX / o.startWax : 1e6), start)
+        if (!(cap > 0)) throw new Error(`There is no ${start.symbol} in the wallet to run this loop with.`)
+        const guess = Math.min(cap, Math.max(bestSize(fresh, cap).amount, o.best.amount))
+        const { best, error } = await verifyLoop(rpcCall, a, fresh, guess, cap)
+        if (!best || best.profit * o.startWax < MIN_SIGN_WAX)
+          throw new Error(
+            `This loop no longer pays${error ? ` (${error})` : ''}: the pools have moved since the scan. Scan again.`
+          )
+        paid = best.amount
+        expected = best.profit
         const unit = 10 ** -start.decimals
-        if (!(input > 0) || !(profit > unit * 2) || profit * o.startWax < MIN_SIGN_WAX)
-          throw new Error('This loop no longer pays: the pools have moved since the scan. Scan again.')
-        paid = input
-        expected = profit
-        const minOut = input + Math.max(unit, profit * MIN_PROFIT_SHARE)
-        return loopSwapAction(a, p, fresh, input, minOut)
+        const minOut = best.amount + Math.max(unit, best.profit * MIN_PROFIT_SHARE)
+        return loopSwapAction(a, p, fresh, best.amount, minOut)
       },
       '',
       `arb-${o.key}`,
@@ -163,7 +167,7 @@ export default function Arbitrage() {
             <span>Profit</span>
             <span>
               With yours{' '}
-              <Tooltip text="The same loop sized to the WAX or TLM in your wallet, when that is less than the best size." />
+              <Tooltip text="Execute never puts in more than your wallet holds: below the best size it runs on what you have, sized again and confirmed by a dry run from your account." />
             </span>
             <span />
           </div>
@@ -171,8 +175,7 @@ export default function Arbitrage() {
             const t = o.loop.start
             const d = t.decimals
             const have = balanceOf(t.id)
-            const mine = account && have < o.best.amount ? bestSize(o.loop, have) : null
-            const usable = account ? (mine ? mine.profit : o.best.profit) : 0
+            const usable = account ? have : 0
             const state = runs[o.key]
             return (
               <Fragment key={o.key}>
@@ -182,7 +185,7 @@ export default function Arbitrage() {
                     {amount(o.best.amount, d)} <small className="faint">{t.symbol}</small>
                   </span>
                   <span className="num">
-                    {amount(o.best.out, d)} <small className="faint">{t.symbol}</small>
+                    {amount(o.best.received, d)} <small className="faint">{t.symbol}</small>
                   </span>
                   <span className="num arb-profit">
                     <b>
@@ -196,16 +199,14 @@ export default function Arbitrage() {
                   <span className="num">
                     {!account ? (
                       <span className="faint">Sign in</span>
-                    ) : mine && !(mine.profit > 0) ? (
-                      <span className="faint">
-                        Not enough {t.symbol} ({amount(have, d)})
-                      </span>
-                    ) : mine ? (
+                    ) : !(have >= 10 ** -d) ? (
+                      <span className="faint">No {t.symbol} in the wallet</span>
+                    ) : have < o.best.amount ? (
                       <>
-                        {signed(mine.profit, d)} <small className="faint">on {amount(mine.amount, d)}</small>
+                        Up to {amount(have, d)} <small className="faint">{t.symbol}</small>
                       </>
                     ) : (
-                      <span className="faint">Best size</span>
+                      <span className="faint">Best size fits</span>
                     )}
                   </span>
                   <span className="arb-go">
