@@ -23,8 +23,15 @@ export interface ClmmTick {
   net: number
 }
 
+/** Which exchange a pool belongs to: Alcor's concentrated liquidity, or Taco's constant product. */
+export type Venue = 'alcor' | 'taco'
+
 export interface ClmmPool {
+  /** Alcor's pool id; for Taco an internal number (the pair is in `name`). Unique across venues. */
   id: number
+  venue: Venue
+  /** For display and Taco reads: Alcor "#10447", Taco the pair id like "TACWAX". */
+  name: string
   a: ClmmToken
   b: ClmmToken
   /** sqrt(raw B per raw A). */
@@ -69,6 +76,8 @@ export function clmmFromRow(row: PoolRow): ClmmPool {
   const b = tokenOf(row.tokenB)
   return {
     id: Number(row.id),
+    venue: 'alcor',
+    name: `#${row.id}`,
     a: a.token,
     b: b.token,
     sqrt: Number((BigInt(row.currSlot.sqrtPriceX64) * 10n ** 12n) / 2n ** 64n) / 1e12,
@@ -81,12 +90,67 @@ export function clmmFromRow(row: PoolRow): ClmmPool {
   }
 }
 
+export interface TacoRow {
+  id: string
+  pool1: { quantity: string; contract: string }
+  pool2: { quantity: string; contract: string }
+}
+
+/** Taco internal ids start here, clear of Alcor's pool ids. */
+export const TACO_ID_BASE = 100_000_000
+
+/** Taco's swap fee, paid out of the input before it reaches the pair. */
+export const TACO_SWAP_FEE = 0.002
+/** Taco's pool fee, kept in the pair. */
+export const TACO_POOL_FEE = 0.001
+
+/** A Taco pair as a pool; `index` gives it a stable internal id. */
+export function tacoFromRow(row: TacoRow, index: number): ClmmPool {
+  const a = tokenOf(row.pool1)
+  const b = tokenOf(row.pool2)
+  return {
+    id: TACO_ID_BASE + index,
+    venue: 'taco',
+    name: row.id,
+    a: a.token,
+    b: b.token,
+    sqrt: 0,
+    tick: 0,
+    liquidity: 0,
+    fee: TACO_SWAP_FEE + TACO_POOL_FEE,
+    ticks: [],
+    reserveA: a.amount,
+    reserveB: b.amount
+  }
+}
+
 const sqrtAt = (tick: number) => Math.pow(1.0001, tick / 2)
 
 /** Mid price of `from` in the other token (display units), before fee and depth. */
 export function spotRate(p: ClmmPool, fromId: string): number {
+  if (p.venue === 'taco') {
+    if (!(p.reserveA > 0 && p.reserveB > 0)) return 0
+    return fromId === p.a.id ? p.reserveB / p.reserveA : p.reserveA / p.reserveB
+  }
   const bPerA = (p.sqrt * p.sqrt * 10 ** p.a.decimals) / 10 ** p.b.decimals
   return fromId === p.a.id ? bPerA : 1 / bPerA
+}
+
+/**
+ * Taco: the swap fee leaves the input first, the pool fee stays in the pair, the rest swaps at
+ * constant product; the output is paid in whole raw units.
+ */
+function tacoOut(p: ClmmPool, fromId: string, amount: number): number {
+  const aIn = fromId === p.a.id
+  const inT = aIn ? p.a : p.b
+  const outT = aIn ? p.b : p.a
+  const rIn = (aIn ? p.reserveA : p.reserveB) * 10 ** inT.decimals
+  const rOut = (aIn ? p.reserveB : p.reserveA) * 10 ** outT.decimals
+  const raw = Math.floor(amount * 10 ** inT.decimals + 1e-9)
+  const afterSwapFee = raw - Math.round(raw * TACO_SWAP_FEE)
+  if (afterSwapFee <= 0 || !(rIn > 0 && rOut > 0)) return 0
+  const effective = afterSwapFee * (1 - TACO_POOL_FEE)
+  return Math.floor((rOut * effective) / (rIn + effective)) / 10 ** outT.decimals
 }
 
 export const otherToken = (p: ClmmPool, fromId: string) => (fromId === p.a.id ? p.b : p.a)
@@ -98,6 +162,7 @@ export const otherToken = (p: ClmmPool, fromId: string) => (fromId === p.a.id ? 
  */
 export function swapOut(p: ClmmPool, fromId: string, amount: number): number {
   if (!(amount > 0)) return 0
+  if (p.venue === 'taco') return tacoOut(p, fromId, amount)
   const aToB = fromId === p.a.id
   let s = p.sqrt
   let L = p.liquidity
@@ -303,4 +368,59 @@ export function liquidPools(pools: ClmmPool[], price: Map<string, number>, minWa
     const pb = price.get(p.b.id)
     return pa !== undefined && pb !== undefined && Math.min(p.reserveA * pa, p.reserveB * pb) >= minWax
   })
+}
+
+/** One transfer of a loop: consecutive Alcor pools go in one swap, every Taco pair is its own. */
+export interface Segment {
+  venue: Venue
+  pools: ClmmPool[]
+  inToken: ClmmToken
+  inAmount: number
+  outToken: ClmmToken
+  /** The least this transfer must return, or the whole transaction fails. */
+  minOut: number
+}
+
+/** Each later transfer spends this much less than the previous one is expected to return. */
+export const SEGMENT_SLACK = 0.003
+
+const floorUnits = (n: number, t: ClmmToken) => Math.floor(n * 10 ** t.decimals + 1e-9) / 10 ** t.decimals
+
+/**
+ * The loop as transfers: `amount` into the first, each next one spending what the previous one is
+ * sure to return (its simulated output less SEGMENT_SLACK), the last asking for `minOut`. Whatever
+ * a transfer returns above that stays in the wallet as a small remainder of that token.
+ */
+export function planSegments(loop: Loop, amount: number, minOut: number): Segment[] {
+  const groups: ClmmPool[][] = []
+  for (const p of loop.pools) {
+    const last = groups[groups.length - 1]
+    if (p.venue === 'alcor' && last && last[0].venue === 'alcor') last.push(p)
+    else groups.push([p])
+  }
+  const segments: Segment[] = []
+  let token = loop.start
+  let input = amount
+  groups.forEach((pools, i) => {
+    let id = token.id
+    let out = input
+    for (const p of pools) {
+      out = swapOut(p, id, out)
+      id = otherToken(p, id).id
+    }
+    const outToken = otherToken(pools[pools.length - 1], pools.length > 1 ? pathBefore(pools, token) : token.id)
+    const last = i === groups.length - 1
+    const min = last ? minOut : floorUnits(out * (1 - SEGMENT_SLACK), outToken)
+    segments.push({ venue: pools[0].venue, pools, inToken: token, inAmount: input, outToken, minOut: min })
+    token = outToken
+    input = min
+  })
+  return segments
+}
+
+/** The token that goes into the last pool of `pools` when `start` goes into the first. */
+function pathBefore(pools: ClmmPool[], start: ClmmToken): string {
+  let id = start.id
+  for (const p of pools.slice(0, -1)) id = otherToken(p, id).id
+  return id
 }

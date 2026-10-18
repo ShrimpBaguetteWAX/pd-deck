@@ -1,15 +1,18 @@
 import { ABI, Action, API, PackedTransaction, SignedTransaction, Transaction } from '@wharfkit/antelope'
 
-import type { ClmmToken, Loop } from './clmm'
+import { planSegments, type ClmmToken, type Loop, type Segment } from './clmm.ts'
 
 /*
- * Alcor loops on the chain itself, shared by the Arbitrage page and the local bot. A loop is one
- * transfer of the start token to swap.alcor whose memo routes it through every pool and asks for a
- * minimum back. compute_transaction runs such a transaction on a node without signatures or any
- * effect, so the real contract says what would come back before anything is signed.
+ * Swap loops on the chain itself, shared by the Arbitrage page and the local bot. A loop is one
+ * transaction of transfers: consecutive Alcor pools in one transfer to swap.alcor (its memo routes
+ * through every pool), every Taco pair a transfer of its own to swap.taco; each asks for a minimum
+ * back. compute_transaction runs such a transaction on a node without signatures or any effect,
+ * so the real contracts say what would come back before anything is signed.
  */
 
 export const ALCOR = 'swap.alcor'
+export const TACO = 'swap.taco'
+const VENUE_CONTRACT = { alcor: ALCOR, taco: TACO } as const
 
 /** Any node call: path and JSON body in, JSON out (the caller handles failover). */
 export type Rpc = (path: string, body: unknown) => Promise<unknown>
@@ -44,9 +47,11 @@ const TRANSFER_ABI = ABI.from({
 
 const fixed = (n: number, decimals: number) => (Math.floor(n * 10 ** decimals + 1e-9) / 10 ** decimals).toFixed(decimals)
 
-/** The loop's swap as an action: `amount` in, at least `minOut` of the start token back to `account`. */
-export function loopAction(account: string, permission: string, loop: Loop, amount: number, minOut: number) {
-  const t = loop.start
+/** One transfer of a loop: its input to the exchange, with the least it must return in the memo. */
+function segmentAction(account: string, permission: string, seg: Segment) {
+  const t = seg.inToken
+  const o = seg.outToken
+  const min = `${fixed(seg.minOut, o.decimals)} ${o.symbol}@${o.contract}`
   return Action.from(
     {
       account: t.contract,
@@ -54,13 +59,21 @@ export function loopAction(account: string, permission: string, loop: Loop, amou
       authorization: [{ actor: account, permission }],
       data: {
         from: account,
-        to: ALCOR,
-        quantity: `${fixed(amount, t.decimals)} ${t.symbol}`,
-        memo: `swapexactin#${loop.pools.map((p) => p.id).join(',')}#${account}#${fixed(minOut, t.decimals)} ${t.symbol}@${t.contract}#0`
+        to: VENUE_CONTRACT[seg.venue],
+        quantity: `${fixed(seg.inAmount, t.decimals)} ${t.symbol}`,
+        memo: seg.venue === 'alcor' ? `swapexactin#${seg.pools.map((p) => p.id).join(',')}#${account}#${min}#0` : min
       }
     },
     TRANSFER_ABI
   )
+}
+
+/**
+ * The loop's transfers: `amount` of the start token in, at least `minOut` of it back to `account`
+ * at the end, or the whole transaction fails.
+ */
+export function loopActions(account: string, permission: string, loop: Loop, amount: number, minOut: number) {
+  return planSegments(loop, amount, minOut).map((seg) => segmentAction(account, permission, seg))
 }
 
 /** A transaction around `actions`, referencing the chain's last irreversible block. */
@@ -89,15 +102,17 @@ function transfers(processed: { action_traces?: Trace[] }): { contract: string; 
   return out
 }
 
-/** What the start token did for `account`: sent to Alcor, and received back from it. */
+/** What the start token did for `account`: sent to the exchanges, and received back from them. */
 export function loopFlows(processed: unknown, account: string, token: ClmmToken): { paid: number; received: number } {
   let paid = 0
   let received = 0
   for (const t of transfers(processed as { action_traces?: Trace[] })) {
     const [num, symbol] = t.quantity.split(' ')
     if (t.contract !== token.contract || symbol !== token.symbol) continue
-    if (t.from === account && t.to === ALCOR) paid += Number(num)
-    if (t.from === ALCOR && t.to === account) received += Number(num)
+    const venue = t.to === ALCOR || t.to === TACO ? t.to : t.from === ALCOR || t.from === TACO ? t.from : null
+    if (!venue) continue
+    if (t.from === account && t.to === venue) paid += Number(num)
+    if (t.from === venue && t.to === account) received += Number(num)
   }
   return { paid, received }
 }
@@ -114,7 +129,7 @@ export function chainError(err: unknown): string {
 /** Runs the loop's swap on a node without signing it: what the contract would really give back. */
 export async function dryRunLoop(rpc: Rpc, account: string, loop: Loop, amount: number, minOut = 0): Promise<DryRun> {
   try {
-    const { tx } = await buildTransaction(rpc, [loopAction(account, 'active', loop, amount, minOut)])
+    const { tx } = await buildTransaction(rpc, loopActions(account, 'active', loop, amount, minOut))
     const packed = PackedTransaction.fromSigned(SignedTransaction.from({ ...tx, signatures: [] }))
     const res = (await rpc('/v1/chain/compute_transaction', { transaction: packed })) as {
       processed?: { except?: { message?: string } | null }
@@ -144,7 +159,7 @@ export async function verifyLoop(
   simulatedBest: number,
   cap: number
 ): Promise<{ best: Verified | null; error?: string }> {
-  const sizes = [...new Set([0.15, 0.3, 0.5, 0.75, 1, 1.4, 2].map((f) => Math.min(cap, simulatedBest * f)))].filter(
+  const sizes = [...new Set([0.3, 0.6, 1, 1.6].map((f) => Math.min(cap, simulatedBest * f)))].filter(
     (x) => x > 10 ** -loop.start.decimals
   )
   let best: Verified | null = null

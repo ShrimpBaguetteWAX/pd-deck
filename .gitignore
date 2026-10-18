@@ -16,3 +16,4 @@ node-health.md
 # Local arbitrage bot: its data stays on your computer
 bot/settings.json
 bot/trades.jsonl
+bot/run-state.json

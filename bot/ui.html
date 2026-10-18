@@ -333,6 +333,94 @@
       .scroll {
         overflow-x: auto;
       }
+      .pool-tools {
+        display: flex;
+        gap: 10px;
+        flex-wrap: wrap;
+        margin-bottom: 10px;
+      }
+      .pool-tools input {
+        flex: 1;
+        min-width: 220px;
+        padding: 8px 12px;
+        border: 1px solid var(--border-2);
+        border-radius: 8px;
+        background: rgba(0, 0, 0, 0.3);
+        color: var(--text);
+        font: inherit;
+      }
+      .pool-tools input:focus {
+        border-color: var(--cyan);
+        outline: 0;
+      }
+      .seg {
+        display: inline-flex;
+        padding: 3px;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+      }
+      .seg button {
+        padding: 5px 12px;
+        border: 0;
+        border-radius: 7px;
+        background: transparent;
+        color: var(--dim);
+      }
+      .seg button.is-on {
+        background: rgba(0, 212, 255, 0.14);
+        color: var(--text);
+      }
+      .pool-scroll {
+        max-height: 520px;
+        overflow-y: auto;
+      }
+      .pool-scroll th {
+        position: sticky;
+        top: 0;
+        background: #0b111d;
+      }
+      .venue {
+        display: inline-block;
+        min-width: 44px;
+        margin-right: 6px;
+        color: var(--faint);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+      }
+      .act {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        white-space: nowrap;
+      }
+      .act-bar {
+        width: 64px;
+        height: 6px;
+        overflow: hidden;
+        border-radius: 3px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+      .act-bar i {
+        display: block;
+        height: 100%;
+        background: var(--cyan);
+      }
+      .act-bar.is-hot i {
+        background: var(--gold);
+      }
+      .reqs {
+        margin: -4px 0 10px;
+        font-size: 12px;
+      }
+      .pool-note {
+        margin: 10px 0 0;
+        font-size: 12px;
+      }
+      .blocked {
+        color: #ffb3bb;
+        font-size: 12px;
+      }
       @media (max-width: 760px) {
         .cards {
           grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -402,7 +490,8 @@
         </div>
         <form class="settings" id="settings">
           <label>Minimum profit (WAX)<input type="number" step="0.01" min="0.001" name="minProfitWax" /></label>
-          <label>Scan every (seconds)<input type="number" step="1" min="5" name="intervalSec" /></label>
+          <label>Check new swaps every (seconds)<input type="number" step="1" min="2" name="pollSec" /></label>
+          <label>Read every pool every (minutes)<input type="number" step="1" min="1" name="fullRefreshMin" /></label>
           <label>Largest input (WAX worth)<input type="number" step="1" min="1" name="maxTradeWax" /></label>
           <label>Seconds between trades<input type="number" step="1" min="0" name="tradeGapSec" /></label>
           <div class="checks">
@@ -419,6 +508,7 @@
           <h2>Last scan</h2>
           <span class="faint num" id="scanMeta">No scan yet</span>
         </div>
+        <p class="faint num reqs" id="requests"></p>
         <div class="scroll"><table id="confirmed"></table></div>
       </section>
 
@@ -431,7 +521,24 @@
       </section>
 
       <section class="panel">
-        <h2>Activity</h2>
+        <div class="panel-head">
+          <h2>Pools being scanned</h2>
+          <span class="faint num" id="poolMeta"></span>
+        </div>
+        <div class="pool-tools">
+          <input type="search" id="poolSearch" placeholder="Search a token or pool, e.g. TLM or TACWAX" spellcheck="false" />
+          <div class="seg" id="poolVenue">
+            <button type="button" data-venue="" class="is-on">All</button>
+            <button type="button" data-venue="alcor">Alcor</button>
+            <button type="button" data-venue="taco">Taco</button>
+          </div>
+        </div>
+        <div class="scroll pool-scroll"><table id="pools"></table></div>
+        <p class="faint pool-note" id="poolNote"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Activity log</h2>
         <pre class="log" id="log"></pre>
       </section>
     </main>
@@ -524,7 +631,8 @@
         if (!formTouched) {
           const f = $('settings')
           f.minProfitWax.value = s.settings.minProfitWax
-          f.intervalSec.value = s.settings.intervalSec
+          f.pollSec.value = s.settings.pollSec
+          f.fullRefreshMin.value = s.settings.fullRefreshMin
           f.maxTradeWax.value = s.settings.maxTradeWax
           f.tradeGapSec.value = s.settings.tradeGapSec
           f.startWAX.checked = s.settings.starts.includes('WAX')
@@ -535,7 +643,10 @@
         if (s.scan) {
           const sc = s.scan
           $('scanMeta').textContent =
-            `${ago(sc.at)} · ${(sc.ms / 1000).toFixed(1)} s · ${sc.pools.toLocaleString()} pools · ${sc.liquid.toLocaleString()} liquid · ${sc.loops.toLocaleString()} loops · ${sc.simulated} simulated · ${sc.dryRun} dry-run`
+            (sc.mode === 'full'
+              ? `Full read ${ago(sc.at)}: ${sc.pools.toLocaleString()} pools, ${sc.liquid.toLocaleString()} liquid, ${sc.loops.toLocaleString()} loops`
+              : `Logs ${ago(sc.at)}: ${sc.swaps} new swap${sc.swaps === 1 ? '' : 's'} in ${sc.changedPools} pool${sc.changedPools === 1 ? '' : 's'}, ${sc.checked.toLocaleString()} loops checked`) +
+            ` · ${sc.simulated} simulated · ${sc.dryRun} dry-run${sc.setAside ? ' · ' + sc.setAside + ' set aside' : ''} · logs ${fmt(sc.lagSec, 1)} s behind the chain · ${sc.swapsSeen.toLocaleString()} swaps seen · full read ${ago(sc.fullAt)}`
           $('confirmed').innerHTML = sc.confirmed.length
             ? '<tr><th>Confirmed by the contract</th><th class="r">Input</th><th class="r">Comes back</th><th class="r">Profit</th></tr>' +
               sc.confirmed
@@ -562,6 +673,16 @@
               })
               .join('')
           : '<tr><td class="empty">No transactions yet.</td></tr>'
+
+        // The chain requests are made by the bot program, so they do not show in this page's network tab.
+        const req = s.requests || {}
+        const totalReq = Object.values(req).reduce((n, v) => n + v, 0)
+        $('requests').textContent = totalReq
+          ? `Chain requests in the last minute, made by the bot program (not this page): ${totalReq} · ` +
+            Object.entries(req)
+              .map(([k, v]) => `${v} ${k}`)
+              .join(' · ')
+          : 'No chain requests in the last minute.'
 
         $('log').textContent = s.log.join('\n')
       }
@@ -618,7 +739,8 @@
         const starts = [f.startWAX.checked && 'WAX', f.startTLM.checked && 'TLM'].filter(Boolean)
         await call('/api/settings', {
           minProfitWax: Number(f.minProfitWax.value),
-          intervalSec: Number(f.intervalSec.value),
+          pollSec: Number(f.pollSec.value),
+          fullRefreshMin: Number(f.fullRefreshMin.value),
           maxTradeWax: Number(f.maxTradeWax.value),
           tradeGapSec: Number(f.tradeGapSec.value),
           starts,
@@ -640,6 +762,67 @@
       }
       poll()
       setInterval(poll, 2000)
+
+      // ---- Pools: a separate, filtered request every few seconds ----
+      let poolQuery = ''
+      let poolVenue = ''
+      const sinceText = (ms) => {
+        if (!ms) return '–'
+        const s = Math.max(0, Math.round((Date.now() - ms) / 1000))
+        if (s < 60) return s + ' s ago'
+        const m = Math.round(s / 60)
+        return m < 60 ? m + ' min ago' : Math.round(m / 60) + ' h ago'
+      }
+      const until = (ms) => {
+        const m = Math.round((ms - Date.now()) / 60000)
+        return m < 60 ? m + ' min' : Math.round(m / 60) + ' h'
+      }
+
+      async function loadPools() {
+        try {
+          const params = new URLSearchParams({ q: poolQuery, venue: poolVenue, limit: '300' })
+          const res = await fetch('/api/pools?' + params, { cache: 'no-store' })
+          const d = await res.json()
+          const minutes = Math.round(d.watchingMs / 60000)
+          $('poolMeta').textContent = d.total
+            ? `${d.matching.toLocaleString()} of ${d.total.toLocaleString()} pools${d.matching > d.pools.length ? ' · showing the ' + d.pools.length + ' most active' : ''}`
+            : ''
+          $('poolNote').textContent = d.total
+            ? `Activity is the number of swaps the exchanges logged in each pool over the last hour${minutes < 60 ? `; the bot has been watching for ${minutes} min, so the counts are still filling` : ''}. Every few seconds the swap logs update the pools that traded and only their loops are checked; every pool is read in full every few minutes. Alcor price ranges are read for pools in promising loops.`
+            : 'Start the bot: the list fills with the first scan.'
+          const max = Math.max(1, ...d.pools.map((p) => p.movesHour))
+          $('pools').innerHTML = d.pools.length
+            ? '<tr><th>Pool</th><th>Pair</th><th>Activity (last hour)</th><th class="r">Depth</th><th class="r">Fee</th><th>Read</th><th>Price ranges</th><th>Last dry-run</th></tr>' +
+              d.pools
+                .map((p) => {
+                  const w = Math.round((p.movesHour / max) * 100)
+                  const activity = `<span class="act"><span class="act-bar${p.movesHour >= 10 ? ' is-hot' : ''}"><i style="width:${w}%"></i></span><b class="num">${p.movesHour}</b><span class="faint">swaps${p.movedAt ? ' · last ' + sinceText(p.movedAt) : ''}</span></span>`
+                  return `<tr><td><span class="venue">${esc(p.venue)}</span>${esc(p.venue === 'taco' ? p.name.replace(/^Taco /, '') : p.name.replace(/^Alcor /, '#'))}${p.blockedUntil ? `<br><span class="blocked">set aside for ${until(p.blockedUntil)}: failed on chain</span>` : ''}</td><td>${esc(p.pair)}</td><td>${activity}</td><td class="r num">${fmt(p.depthWax, 0)} WAX</td><td class="r num">${fmt(p.feePct, 2)}%</td><td class="num faint">${sinceText(p.readAt)}</td><td class="num faint">${p.venue === 'alcor' ? sinceText(p.ticksAt) : 'not needed'}</td><td class="num faint">${sinceText(p.checkedAt)}</td></tr>`
+                })
+                .join('')
+            : `<tr><td class="empty">${d.total ? 'No pool matches.' : 'No scan yet.'}</td></tr>`
+        } catch {
+          // The state poll already says when the bot is unreachable.
+        }
+      }
+
+      let searchTimer = null
+      $('poolSearch').addEventListener('input', (e) => {
+        clearTimeout(searchTimer)
+        searchTimer = setTimeout(() => {
+          poolQuery = e.target.value
+          loadPools()
+        }, 250)
+      })
+      $('poolVenue').addEventListener('click', (e) => {
+        const b = e.target.closest('button')
+        if (!b) return
+        poolVenue = b.dataset.venue
+        for (const x of $('poolVenue').querySelectorAll('button')) x.classList.toggle('is-on', x === b)
+        loadPools()
+      })
+      loadPools()
+      setInterval(loadPools, 5000)
     </script>
   </body>
 </html>

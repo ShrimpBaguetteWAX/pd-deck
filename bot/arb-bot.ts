@@ -25,7 +25,7 @@ import { PackedTransaction, PrivateKey, SignedTransaction } from '@wharfkit/ante
 import {
   buildTransaction,
   chainError,
-  loopAction,
+  loopActions,
   loopFlows,
   QUOTE_HOLDERS,
   verifyLoop,
@@ -34,21 +34,35 @@ import {
 import {
   bestSize,
   clmmFromRow,
+  tacoFromRow,
   findLoops,
   liquidPools,
+  otherToken,
+  spotRate,
   TLM_TOKEN_ID,
   WAX_TOKEN_ID,
   waxPrices,
   type ClmmPool,
   type ClmmTick,
   type Loop,
-  type PoolRow
+  type PoolRow,
+  type TacoRow
 } from '../src/lib/clmm.ts'
 
 const HERE = dirname(fileURLToPath(import.meta.url))
 const PORT = 5199
 const SETTINGS_FILE = join(HERE, 'settings.json')
 const TRADES_FILE = join(HERE, 'trades.jsonl')
+/** Whether the bot was running, so a restart picks up where it was (only Stop keeps it stopped). */
+const RUN_FILE = join(HERE, 'run-state.json')
+const rememberRunning = (running: boolean) => writeFileSync(RUN_FILE, JSON.stringify({ running }))
+const wasRunning = () => {
+  try {
+    return JSON.parse(readFileSync(RUN_FILE, 'utf8')).running === true
+  } catch {
+    return false
+  }
+}
 
 // ---- Configuration -----------------------------------------------------------------------------
 
@@ -144,7 +158,10 @@ const NODES = (
 interface Settings {
   /** Smallest profit worth signing, in WAX (TLM loops are converted at the pool price). */
   minProfitWax: number
-  intervalSec: number
+  /** How often the swap logs are polled. */
+  pollSec: number
+  /** How often every pool is read in full. */
+  fullRefreshMin: number
   /** Largest input, in WAX worth, on top of the wallet limit. */
   maxTradeWax: number
   starts: ('WAX' | 'TLM')[]
@@ -156,7 +173,8 @@ interface Settings {
 
 const DEFAULTS: Settings = {
   minProfitWax: 0.1,
-  intervalSec: 15,
+  pollSec: 5,
+  fullRefreshMin: 5,
   maxTradeWax: 500,
   starts: ['WAX', 'TLM'],
   watchOnly: false,
@@ -165,7 +183,10 @@ const DEFAULTS: Settings = {
 
 function loadSettings(): Settings {
   try {
-    return { ...DEFAULTS, ...JSON.parse(readFileSync(SETTINGS_FILE, 'utf8')) }
+    const saved = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8')) as Partial<Settings> & { intervalSec?: number }
+    // Older settings had one scan interval; the log polling replaces it.
+    delete saved.intervalSec
+    return { ...DEFAULTS, ...saved }
   } catch {
     return { ...DEFAULTS }
   }
@@ -180,14 +201,44 @@ const MAX_EXACT = 60
 /** Loops the simulation rates above this share of the minimum get dry-run. */
 const SCREEN_SHARE = 0.5
 const MAX_DRY_RUN_LOOPS = 5
-const TICK_CACHE_MS = 60_000
+/** Price ranges only change when liquidity moves, which the logs report; so they are kept longer. */
+const TICK_CACHE_MS = 10 * 60_000
 
 // ---- Chain access --------------------------------------------------------------------------------
 
 let nodeIndex = 0
 
 /** A node call with failover; a contract error (HTTP 500 with an error body) is returned to the caller. */
+/** Every chain request the bot makes, by kind, for the page's request counter. */
+const requestLog: { at: number; kind: string }[] = []
+function countRequest(path: string) {
+  const kind = path.includes('compute_transaction')
+    ? 'dry runs'
+    : path.includes('push_transaction')
+      ? 'transactions'
+      : path.includes('get_table_rows')
+        ? 'table reads'
+        : path.includes('history')
+          ? 'swap logs'
+          : 'other'
+  const now = Date.now()
+  requestLog.push({ at: now, kind })
+  while (requestLog.length && now - requestLog[0].at > 60_000) requestLog.shift()
+}
+
+/** The chain head, reused for a few seconds: every dry run needs one, none needs it fresher. */
+let infoCache: { at: number; value: unknown } | null = null
+const INFO_CACHE_MS = 5000
+
 const rpc: Rpc = async (path, body) => {
+  if (path === '/v1/chain/get_info' && infoCache && Date.now() - infoCache.at < INFO_CACHE_MS) return infoCache.value
+  const value = await rpcUncached(path, body)
+  if (path === '/v1/chain/get_info') infoCache = { at: Date.now(), value }
+  return value
+}
+
+const rpcUncached: Rpc = async (path, body) => {
+  countRequest(path)
   let last: unknown
   for (let i = 0; i < NODES.length; i++) {
     const url = NODES[(nodeIndex + i) % NODES.length]
@@ -262,6 +313,22 @@ async function readPools(): Promise<PoolRow[]> {
   return rows
 }
 
+/** Every Taco pair. */
+async function readTaco(): Promise<TacoRow[]> {
+  return tableRows<TacoRow>({ code: 'swap.taco', scope: 'swap.taco', table: 'pairs' })
+}
+
+/** Taco pairs as pools, with internal ids that stay the same as long as the pair exists. */
+const tacoIds = new Map<string, number>()
+function tacoPools(rows: TacoRow[]): ClmmPool[] {
+  return rows.map((row) => {
+    if (!tacoIds.has(row.id)) tacoIds.set(row.id, tacoIds.size)
+    return tacoFromRow(row, tacoIds.get(row.id)!)
+  })
+}
+
+const poolName = (p: ClmmPool) => (p.venue === 'taco' ? `Taco ${p.name}` : `Alcor ${p.id}`)
+
 const tickCache = new Map<number, { at: number; ticks: ClmmTick[] }>()
 
 async function ticksOf(poolId: number): Promise<ClmmTick[]> {
@@ -288,7 +355,8 @@ async function balance(contract: string, symbol: string): Promise<number> {
 interface Trade {
   at: number
   route: string[]
-  pools: number[]
+  /** Pool names: Alcor "#10447", Taco pair ids. */
+  pools: string[]
   symbol: string
   input: number
   expected: number
@@ -303,7 +371,7 @@ interface Trade {
 
 interface Candidate {
   route: string[]
-  pools: number[]
+  pools: string[]
   symbol: string
   input: number
   received: number
@@ -318,11 +386,22 @@ const state = {
   scan: null as null | {
     at: number
     ms: number
+    mode: 'full' | 'logs'
     pools: number
     liquid: number
     loops: number
+    /** Loops checked this pass: all on a full read, those through changed pools otherwise. */
+    checked: number
+    swaps: number
+    changedPools: number
+    fullAt: number
+    lagSec: number
+    swapsSeen: number
     simulated: number
     dryRun: number
+    /** Loops and pools set aside after the chain turned them down. */
+    setAside: number
+    blockedPools: number
     confirmed: Candidate[]
   },
   lastError: '',
@@ -363,7 +442,319 @@ function saveTrade(t: Trade) {
   appendFileSync(TRADES_FILE, JSON.stringify(t) + '\n')
 }
 
-// ---- One scan ------------------------------------------------------------------------------------
+// ---- Loops the chain turned down, and the pools being scanned ---------------------------------------
+
+/**
+ * Some pools look mispriced only because they cannot really be traded (a token whose transfers the
+ * exchange never sees, for one). A loop the dry runs turn down is set aside for a while, and a pool
+ * in several turned-down loops for longer, so the dry runs move on to other candidates.
+ */
+const LOOP_SET_ASIDE_MS = 30 * 60_000
+const POOL_BLOCK_MS = 6 * 3600_000
+const POOL_STRIKES = 3
+const rejectedLoops = new Map<string, number>()
+const blockedPools = new Map<string, { strikes: number; until: number }>()
+
+const loopKey = (l: Loop) => `${l.start.id}|${l.pools.map(poolName).join(',')}`
+
+function rejectLoop(l: Loop) {
+  const now = Date.now()
+  rejectedLoops.set(loopKey(l), now + LOOP_SET_ASIDE_MS)
+  for (const p of l.pools) {
+    const b = blockedPools.get(poolName(p)) ?? { strikes: 0, until: 0 }
+    b.strikes++
+    if (b.strikes >= POOL_STRIKES) {
+      b.until = now + POOL_BLOCK_MS
+      b.strikes = 0
+    }
+    blockedPools.set(poolName(p), b)
+  }
+}
+
+interface PoolEntry {
+  name: string
+  venue: 'alcor' | 'taco'
+  pair: string
+  /** Value of the thinner side, in WAX. */
+  depthWax: number
+  feePct: number
+  /** When the pool's row was last read (every scan reads every pool). */
+  readAt: number
+  /** Alcor: when its price ranges were last read. */
+  ticksAt?: number
+  /** When a loop through it was last dry-run. */
+  checkedAt?: number
+  /** The pool's state as of the last scan; a different one means someone traded or moved liquidity. */
+  sig: string
+  /** When a scan last saw the pool change. */
+  movedAt?: number
+  /** Swaps seen in the logs over the last hour. */
+  moves: number[]
+}
+
+const ACTIVITY_WINDOW_MS = 3600_000
+/** When the bot started watching, so the page can say how much of the hour it has seen. */
+const watchingSince = Date.now()
+
+/** What changes when the pool trades: Alcor's price and active liquidity, Taco's reserves. */
+const stateOf = (p: ClmmPool) => (p.venue === 'taco' ? `${p.reserveA}|${p.reserveB}` : `${p.sqrt}|${p.liquidity}|${p.tick}`)
+
+const poolIndex = new Map<string, PoolEntry>()
+
+/** The pools of this scan (those with enough on both sides), keeping what earlier scans noted. */
+function indexPools(pools: ClmmPool[], price: Map<string, number>, at: number) {
+  const seen = new Set<string>()
+  for (const p of pools) {
+    const name = poolName(p)
+    seen.add(name)
+    const pa = price.get(p.a.id) ?? 0
+    const pb = price.get(p.b.id) ?? 0
+    const prev = poolIndex.get(name)
+    const sig = stateOf(p)
+    const moves = (prev?.moves ?? []).filter((t) => at - t < ACTIVITY_WINDOW_MS)
+    poolIndex.set(name, {
+      name,
+      venue: p.venue,
+      pair: `${p.a.symbol}/${p.b.symbol}`,
+      depthWax: Math.min(p.reserveA * pa, p.reserveB * pb),
+      feePct: p.fee * 100,
+      readAt: at,
+      ticksAt: prev?.ticksAt,
+      checkedAt: prev?.checkedAt,
+      sig,
+      movedAt: prev?.movedAt,
+      moves
+    })
+  }
+  for (const name of poolIndex.keys()) if (!seen.has(name)) poolIndex.delete(name)
+}
+
+/** A swap seen in the logs: counted for the pool's activity. */
+function noteSwap(name: string, at: number) {
+  const e = poolIndex.get(name)
+  if (!e) return
+  e.moves = e.moves.filter((t) => Date.now() - t < ACTIVITY_WINDOW_MS)
+  e.moves.push(at)
+  e.movedAt = Math.max(e.movedAt ?? 0, at)
+}
+
+/** The scanned pools for the page: filtered by text and exchange, the most active first. */
+function poolList(q: string, venue: string, limit: number) {
+  const needle = q.trim().toLowerCase()
+  const now = Date.now()
+  const rows = [...poolIndex.values()]
+    .filter((p) => (venue === 'alcor' || venue === 'taco' ? p.venue === venue : true))
+    .filter((p) => !needle || p.name.toLowerCase().includes(needle) || p.pair.toLowerCase().includes(needle))
+    .map((p) => ({ ...p, movesHour: p.moves.filter((t) => now - t < ACTIVITY_WINDOW_MS).length }))
+    .sort((a, b) => b.movesHour - a.movesHour || (b.movedAt ?? 0) - (a.movedAt ?? 0) || b.depthWax - a.depthWax)
+  return {
+    total: poolIndex.size,
+    matching: rows.length,
+    watchingMs: now - watchingSince,
+    pools: rows.slice(0, limit).map(({ sig: _sig, moves: _moves, ...p }) => ({
+      ...p,
+      blockedUntil: (blockedPools.get(p.name)?.until ?? 0) > now ? blockedPools.get(p.name)!.until : null
+    }))
+  }
+}
+
+// ---- The market in memory -------------------------------------------------------------------------
+
+/**
+ * Every pool, read in full at the start and every few minutes; in between, the swap logs of both
+ * exchanges (polled every few seconds) update the pools that traded, and only the loops through
+ * those pools are checked again. Each log carries the pool's state right after the swap.
+ */
+interface Market {
+  at: number
+  /** Pools read in the last full pass (all of both exchanges). */
+  read: number
+  liquid: ClmmPool[]
+  price: Map<string, number>
+  loops: Loop[]
+  loopsByPool: Map<string, Loop[]>
+  alcor: Map<number, ClmmPool>
+  taco: Map<string, ClmmPool>
+}
+
+let market: Market | null = null
+
+/** Where the log polling stands, for the page. */
+const watch = {
+  /** Newest log timestamp handled, per exchange (ms), and the last sequence numbers seen. */
+  alcorTs: 0,
+  tacoTs: 0,
+  seen: new Set<string>(),
+  lastPollAt: 0,
+  /** How far behind the chain the history node was on the last poll, in seconds. */
+  lagSec: 0,
+  swapsSeen: 0,
+  failures: 0
+}
+
+const HISTORY = (env.ARB_HISTORY || 'https://wax.eosusa.io,https://wax-history.eosdac.io')
+  .split(',')
+  .map((s) => s.trim().replace(/\/$/, ''))
+  .filter(Boolean)
+let historyIndex = 0
+
+interface LogAction {
+  '@timestamp': string
+  global_sequence: number | string
+  act: { account: string; name: string; data: Record<string, unknown> }
+}
+
+async function history(params: Record<string, string>): Promise<LogAction[]> {
+  countRequest('/v2/history')
+  let last: unknown
+  for (let i = 0; i < HISTORY.length; i++) {
+    const base = HISTORY[(historyIndex + i) % HISTORY.length]
+    try {
+      const res = await fetch(`${base}/v2/history/get_actions?${new URLSearchParams(params)}`, {
+        signal: AbortSignal.timeout(8000)
+      })
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const json = (await res.json()) as { actions?: LogAction[] }
+      historyIndex = (historyIndex + i) % HISTORY.length
+      return json.actions ?? []
+    } catch (err) {
+      last = err
+    }
+  }
+  historyIndex = (historyIndex + 1) % HISTORY.length
+  throw last instanceof Error ? last : new Error('No history node answered')
+}
+
+const amountOfAsset = (q: unknown) => Number(String(q ?? '').split(' ')[0])
+const symbolOfAsset = (q: unknown) => String(q ?? '').split(' ')[1] ?? ''
+const tsOf = (a: LogAction) => Date.parse(a['@timestamp'] + 'Z')
+
+/** Reads every pool of both exchanges and lays out every loop, indexed by pool. */
+async function buildMarket(): Promise<Market> {
+  const at = Date.now()
+  const [rows, tacoRows] = await Promise.all([readPools(), readTaco()])
+  const pools = [...rows.filter((r) => Number(r.active) && Number(r.liquidity) > 0).map(clmmFromRow), ...tacoPools(tacoRows)]
+  const price = waxPrices(pools)
+  const liquid = liquidPools(pools, price, MIN_POOL_WAX)
+  const starts = settings.starts.map((s) => (s === 'WAX' ? WAX_TOKEN_ID : TLM_TOKEN_ID))
+  const loops = findLoops(liquid, starts)
+  const loopsByPool = new Map<string, Loop[]>()
+  for (const l of loops)
+    for (const p of l.pools) {
+      const list = loopsByPool.get(poolName(p)) ?? []
+      list.push(l)
+      loopsByPool.set(poolName(p), list)
+    }
+  indexPools(liquid, price, at)
+  // Logs from just before this read on are applied next: the read itself may be a few seconds old.
+  watch.alcorTs = watch.tacoTs = at - 10_000
+  return {
+    at,
+    read: rows.length + tacoRows.length,
+    liquid,
+    price,
+    loops,
+    loopsByPool,
+    alcor: new Map(liquid.filter((p) => p.venue === 'alcor').map((p) => [p.id, p])),
+    taco: new Map(liquid.filter((p) => p.venue === 'taco').map((p) => [p.name, p]))
+  }
+}
+
+/** The swap logs since the last poll, applied to the pools in memory; returns the pools that changed. */
+async function pollLogs(m: Market): Promise<{ changed: Set<ClmmPool>; swaps: number }> {
+  const iso = (ms: number) => new Date(ms - 1000).toISOString().slice(0, 19)
+  const [alcorLogs, tacoLogs] = await Promise.all([
+    history({
+      account: 'swap.alcor',
+      filter: 'swap.alcor:logswap,swap.alcor:logmint,swap.alcor:logburn',
+      after: iso(watch.alcorTs),
+      sort: 'asc',
+      limit: '500'
+    }),
+    history({
+      account: 'swap.taco',
+      filter: 'swap.taco:exchangelog,swap.taco:liquiditylog',
+      after: iso(watch.tacoTs),
+      sort: 'asc',
+      limit: '500'
+    })
+  ])
+  watch.lastPollAt = Date.now()
+  const changed = new Set<ClmmPool>()
+  let swaps = 0
+  let newest = 0
+  for (const a of [...alcorLogs, ...tacoLogs]) {
+    const seq = String(a.global_sequence)
+    if (watch.seen.has(seq)) continue
+    watch.seen.add(seq)
+    const at = tsOf(a)
+    newest = Math.max(newest, at)
+    const d = a.act.data
+    let pool: ClmmPool | undefined
+    if (a.act.account === 'swap.alcor') {
+      watch.alcorTs = Math.max(watch.alcorTs, at)
+      pool = m.alcor.get(Number(d.poolId))
+      if (!pool) continue
+      pool.sqrt = Number((BigInt(String(d.sqrtPriceX64)) * 10n ** 12n) / 2n ** 64n) / 1e12
+      pool.tick = Number(d.tick)
+      if (d.liquidity !== undefined && a.act.name === 'logswap') pool.liquidity = Number(d.liquidity)
+      pool.reserveA = amountOfAsset(d.reserveA)
+      pool.reserveB = amountOfAsset(d.reserveB)
+      if (a.act.name !== 'logswap') {
+        // Liquidity was added or taken out: the active liquidity and price ranges are read again.
+        tickCache.delete(pool.id)
+        stalePools.add(poolName(pool))
+      }
+    } else {
+      watch.tacoTs = Math.max(watch.tacoTs, at)
+      pool = m.taco.get(String(d.id ?? symbolOfAsset(d.lp_token)))
+      if (!pool) continue
+      for (const q of [d.pool1, d.pool2]) {
+        if (symbolOfAsset(q) === pool.a.symbol) pool.reserveA = amountOfAsset(q)
+        else if (symbolOfAsset(q) === pool.b.symbol) pool.reserveB = amountOfAsset(q)
+      }
+    }
+    changed.add(pool)
+    if (a.act.name === 'logswap' || a.act.name === 'exchangelog') {
+      swaps++
+      noteSwap(poolName(pool), at)
+    }
+  }
+  if (newest) watch.lagSec = Math.max(0, (Date.now() - newest) / 1000)
+  // Keep the memory of seen logs small.
+  if (watch.seen.size > 20_000) watch.seen = new Set([...watch.seen].slice(-5_000))
+  watch.swapsSeen += swaps
+  return { changed, swaps }
+}
+
+/** Pools whose liquidity changed since they were read: read again before their loops are sized. */
+const stalePools = new Set<string>()
+
+async function rereadStale(m: Market, pools: ClmmPool[]) {
+  await Promise.all(
+    pools
+      .filter((p) => stalePools.has(poolName(p)))
+      .map(async (p) => {
+        const fresh = (await refreshRoute({ start: p.a, pools: [p], path: [], marginal: 0 })).pools[0]
+        Object.assign(p, { ...fresh, id: p.id })
+        stalePools.delete(poolName(p))
+        if (p.venue === 'alcor') m.alcor.set(p.id, p)
+      })
+  )
+}
+
+/** Recomputes a loop's marginal rate from its pools as they are now. */
+function remargin(l: Loop) {
+  let marginal = 1
+  let id = l.start.id
+  for (const p of l.pools) {
+    marginal *= spotRate(p, id) * (1 - p.fee)
+    id = otherToken(p, id).id
+  }
+  l.marginal = marginal
+}
+
+// ---- One pass ------------------------------------------------------------------------------------
 
 const routeOf = (loop: Loop) => loop.path.map((t) => t.symbol)
 
@@ -372,27 +763,69 @@ async function refreshBalances() {
   state.balances = { wax, tlm, at: Date.now() }
 }
 
+let lastBalanceAt = 0
+
+/**
+ * One pass: a full read when it is due (or the logs cannot be read), otherwise the logs since the
+ * last pass; then the loops through whatever changed are checked.
+ */
 async function scanOnce() {
   const started = Date.now()
-  await refreshBalances()
+  if (Date.now() - lastBalanceAt > 30_000) {
+    await refreshBalances()
+    lastBalanceAt = Date.now()
+  }
 
-  const rows = await readPools()
-  const pools = rows.filter((r) => Number(r.active) && Number(r.liquidity) > 0).map(clmmFromRow)
-  const price = waxPrices(pools)
-  const liquid = liquidPools(pools, price, MIN_POOL_WAX)
-  const starts = settings.starts.map((s) => (s === 'WAX' ? WAX_TOKEN_ID : TLM_TOKEN_ID))
-  const loops = findLoops(liquid, starts)
-  const promising = loops
-    .filter((l) => l.marginal > MIN_MARGINAL)
+  let mode: 'full' | 'logs' = 'logs'
+  let candidates: Loop[]
+  let swaps = 0
+  let changedCount = 0
+  const due = !market || Date.now() - market.at > settings.fullRefreshMin * 60_000 || watch.failures >= 3
+  if (due) {
+    mode = 'full'
+    market = await buildMarket()
+    watch.failures = 0
+    candidates = market.loops
+  } else {
+    try {
+      const { changed, swaps: n } = await pollLogs(market!)
+      watch.failures = 0
+      swaps = n
+      changedCount = changed.size
+      const set = new Set<Loop>()
+      for (const p of changed) for (const l of market!.loopsByPool.get(poolName(p)) ?? []) set.add(l)
+      candidates = [...set]
+      candidates.forEach(remargin)
+    } catch (err) {
+      watch.failures++
+      throw new Error(`Could not read the swap logs (${chainError(err)}); a full read follows if this repeats`)
+    }
+  }
+  const m = market!
+
+  const scanNow = Date.now()
+  const setAside = (l: Loop) =>
+    (rejectedLoops.get(loopKey(l)) ?? 0) > scanNow || l.pools.some((p) => (blockedPools.get(poolName(p))?.until ?? 0) > scanNow)
+  const promising = candidates
+    .filter((l) => l.marginal > MIN_MARGINAL && !setAside(l))
     .sort((a, b) => b.marginal - a.marginal)
     .slice(0, MAX_EXACT)
 
-  const needTicks = [...new Set(promising.flatMap((l) => l.pools))]
-  await Promise.all(needTicks.map(async (p: ClmmPool) => (p.ticks = await ticksOf(p.id))))
+  const involved = [...new Set(promising.flatMap((l) => l.pools))]
+  await rereadStale(m, involved)
+  await Promise.all(
+    involved
+      .filter((p) => p.venue === 'alcor')
+      .map(async (p: ClmmPool) => {
+        p.ticks = await ticksOf(p.id)
+        const entry = poolIndex.get(poolName(p))
+        if (entry) entry.ticksAt = tickCache.get(p.id)?.at ?? Date.now()
+      })
+  )
 
   // Size each loop to what the wallet holds (never more) and the trade limit.
   const capOf = (loop: Loop) => {
-    const startWax = price.get(loop.start.id) ?? 0
+    const startWax = m.price.get(loop.start.id) ?? 0
     // Without an account (watching only) there is no wallet to limit the size.
     const held = !ACCOUNT ? Infinity : loop.start.id === WAX_TOKEN_ID ? state.balances.wax : state.balances.tlm
     return { startWax, cap: Math.min(held, startWax > 0 ? settings.maxTradeWax / startWax : 0) }
@@ -413,12 +846,19 @@ async function scanOnce() {
     const holder = ACCOUNT || QUOTE_HOLDERS[c.loop.start.id]
     if (!holder) continue
     const { best } = await verifyLoop(rpc, holder, c.loop, c.sim!.amount, c.cap)
-    if (!best) continue
+    for (const p of c.loop.pools) {
+      const entry = poolIndex.get(poolName(p))
+      if (entry) entry.checkedAt = Date.now()
+    }
+    if (!best) {
+      rejectLoop(c.loop)
+      continue
+    }
     confirmed.push({
       loop: c.loop,
       startWax: c.startWax,
       route: routeOf(c.loop),
-      pools: c.loop.pools.map((p) => p.id),
+      pools: c.loop.pools.map(poolName),
       symbol: c.loop.start.symbol,
       input: best.amount,
       received: best.received,
@@ -431,13 +871,30 @@ async function scanOnce() {
   state.scan = {
     at: Date.now(),
     ms: Date.now() - started,
-    pools: rows.length,
-    liquid: liquid.length,
-    loops: loops.length,
+    mode,
+    pools: m.read,
+    liquid: m.liquid.length,
+    loops: m.loops.length,
+    checked: candidates.length,
+    swaps,
+    changedPools: changedCount,
+    fullAt: m.at,
+    lagSec: watch.lagSec,
+    swapsSeen: watch.swapsSeen,
     simulated: promising.length,
     dryRun: screened.length,
-    confirmed: confirmed.map(({ loop: _loop, startWax: _w, ...rest }) => rest)
+    setAside: [...rejectedLoops.values()].filter((t) => t > Date.now()).length,
+    blockedPools: [...blockedPools.values()].filter((b) => b.until > Date.now()).length,
+    // Keep the last confirmed list on a quiet pass, so the page does not flicker.
+    confirmed:
+      screened.length || mode === 'full'
+        ? confirmed.map(({ loop: _loop, startWax: _w, ...rest }) => rest)
+        : (state.scan?.confirmed ?? [])
   }
+  if (mode === 'full')
+    log(
+      `Full read: ${m.read.toLocaleString()} pools, ${m.liquid.length.toLocaleString()} liquid, ${m.loops.length.toLocaleString()} loops`
+    )
 
   const best = confirmed[0]
   if (!best || best.profitWax < settings.minProfitWax) return
@@ -456,6 +913,7 @@ async function scanOnce() {
   // let the contract confirm it once more. Only a route that still clears the minimum is signed.
   const fresh = await refreshRoute(best.loop)
   await refreshBalances()
+  lastBalanceAt = Date.now()
   const held = fresh.start.id === WAX_TOKEN_ID ? state.balances.wax : state.balances.tlm
   const cap = Math.min(held, best.startWax > 0 ? settings.maxTradeWax / best.startWax : 0)
   if (!(cap > 0)) return
@@ -472,6 +930,17 @@ async function scanOnce() {
 async function refreshRoute(loop: Loop): Promise<Loop> {
   const pools = await Promise.all(
     loop.pools.map(async (p) => {
+      if (p.venue === 'taco') {
+        const [row] = await tableRows<TacoRow>({
+          code: 'swap.taco',
+          scope: 'swap.taco',
+          table: 'pairs',
+          lower_bound: p.name,
+          upper_bound: p.name
+        })
+        if (!row) throw new Error(`Taco pair ${p.name} could not be read`)
+        return { ...tacoFromRow(row, 0), id: p.id }
+      }
       const [row] = await tableRows<PoolRow>({
         code: 'swap.alcor',
         scope: 'swap.alcor',
@@ -500,7 +969,7 @@ async function execute(loop: Loop, input: number, expectedOut: number, startWax:
   const trade: Trade = {
     at: Date.now(),
     route: routeOf(loop),
-    pools: loop.pools.map((p) => p.id),
+    pools: loop.pools.map(poolName),
     symbol: t.symbol,
     input,
     expected: expectedOut - input,
@@ -511,7 +980,7 @@ async function execute(loop: Loop, input: number, expectedOut: number, startWax:
     status: 'failed'
   }
   try {
-    const { tx, chainId } = await buildTransaction(rpc, [loopAction(ACCOUNT, PERMISSION, loop, input, minOut)])
+    const { tx, chainId } = await buildTransaction(rpc, loopActions(ACCOUNT, PERMISSION, loop, input, minOut))
     const signature = signer!.signDigest(tx.signingDigest(chainId))
     const packed = PackedTransaction.fromSigned(SignedTransaction.from({ ...tx, signatures: [signature] }))
     const res = (await rpc('/v1/chain/push_transaction', packed)) as { transaction_id: string; processed: unknown }
@@ -550,7 +1019,7 @@ async function tick() {
   } finally {
     state.busy = false
     // Start to start: the next scan begins one interval after this one began (at once if it overran).
-    const wait = Math.max(0, settings.intervalSec * 1000 - (Date.now() - startedAt))
+    const wait = Math.max(0, settings.pollSec * 1000 - (Date.now() - startedAt))
     if (state.running) timer = setTimeout(() => void tick(), wait)
   }
 }
@@ -558,12 +1027,14 @@ async function tick() {
 function start() {
   if (state.running) return
   state.running = true
+  rememberRunning(true)
   log(signer && !settings.watchOnly ? `Started: trading for ${ACCOUNT}@${PERMISSION}` : 'Started in watch-only mode')
   void tick()
 }
 
 function stop() {
   state.running = false
+  rememberRunning(false)
   if (timer) clearTimeout(timer)
   timer = null
   log('Stopped')
@@ -589,7 +1060,11 @@ function snapshot() {
     lastError: state.lastError,
     log: state.log,
     trades,
-    totalProfitWax: total
+    totalProfitWax: total,
+    /** Chain requests in the last minute, by kind. */
+    requests: requestLog
+      .filter((r) => Date.now() - r.at <= 60_000)
+      .reduce<Record<string, number>>((m, r) => ((m[r.kind] = (m[r.kind] ?? 0) + 1), m), {})
   }
 }
 
@@ -614,7 +1089,8 @@ function applySettings(input: Partial<Settings>) {
   }
   settings = {
     minProfitWax: num(input.minProfitWax, 0.001, 1e6, settings.minProfitWax),
-    intervalSec: num(input.intervalSec, 5, 3600, settings.intervalSec),
+    pollSec: num(input.pollSec, 2, 600, settings.pollSec),
+    fullRefreshMin: num(input.fullRefreshMin, 1, 120, settings.fullRefreshMin),
     maxTradeWax: num(input.maxTradeWax, 1, 1e7, settings.maxTradeWax),
     starts: Array.isArray(input.starts)
       ? (input.starts.filter((s) => s === 'WAX' || s === 'TLM') as Settings['starts'])
@@ -635,6 +1111,15 @@ const server = createServer(async (req, res) => {
   if (req.method === 'GET' && url.pathname === '/')
     return send(200, readFileSync(join(HERE, 'ui.html'), 'utf8'), 'text/html; charset=utf-8')
   if (req.method === 'GET' && url.pathname === '/api/state') return send(200, snapshot())
+  if (req.method === 'GET' && url.pathname === '/api/pools')
+    return send(
+      200,
+      poolList(
+        url.searchParams.get('q') ?? '',
+        url.searchParams.get('venue') ?? '',
+        Math.min(500, Number(url.searchParams.get('limit')) || 200)
+      )
+    )
   // Changes need a custom header, so another website cannot drive the bot from your browser.
   if (req.method === 'POST' && req.headers['x-arb-bot'] === '1') {
     if (url.pathname === '/api/start') {
@@ -675,4 +1160,8 @@ server.listen(PORT, '127.0.0.1', () => {
   if (keyProblem) console.log(keyProblem)
   else console.log(`Account ${ACCOUNT}@${PERMISSION}, key loaded.`)
   refreshBalances().catch((err) => log(`Could not read balances: ${chainError(err)}`))
+  if (wasRunning()) {
+    log('Was running before the restart: starting again')
+    start()
+  }
 })

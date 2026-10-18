@@ -1,6 +1,16 @@
 import { describe, expect, it } from 'vitest'
 
-import { bestSize, findLoops, loopOut, spotRate, swapOut, type ClmmPool, type ClmmToken } from './clmm'
+import {
+  bestSize,
+  findLoops,
+  loopOut,
+  planSegments,
+  spotRate,
+  swapOut,
+  tacoFromRow,
+  type ClmmPool,
+  type ClmmToken
+} from './clmm'
 
 const token = (symbol: string, decimals = 4): ClmmToken => ({ id: `${symbol}@c`, symbol, contract: 'c', decimals })
 const X = token('X')
@@ -21,6 +31,8 @@ function pool(
   const sqrt = Math.sqrt(raw)
   return {
     id,
+    venue: 'alcor',
+    name: `#${id}`,
     a,
     b,
     sqrt,
@@ -121,5 +133,48 @@ describe('fee rounding', () => {
     const q = pool(11, whole, X, 1000, 1e12, 0.003)
     const free = pool(11, whole, X, 1000, 1e12, 0)
     expect(swapOut(q, whole.id, 5)).toBeCloseTo(swapOut(free, whole.id, 4), 4)
+  })
+})
+
+describe('taco', () => {
+  const tacoRow = {
+    id: 'TACWAX',
+    pool1: { quantity: '1712310.7656 TACO', contract: 't.taco' },
+    pool2: { quantity: '654373.99825950 WAX', contract: 'eosio.token' }
+  }
+
+  it('matches what the Taco contract returned in a dry run', () => {
+    const p = tacoFromRow(tacoRow, 0)
+    // compute_transaction gave 26.0881 TACO for 10 WAX on this pair.
+    expect(swapOut(p, 'WAX@eosio.token', 10)).toBeCloseTo(26.0881, 3)
+    expect(p.venue).toBe('taco')
+    expect(spotRate(p, 'WAX@eosio.token')).toBeCloseTo(1712310.7656 / 654373.9982595, 6)
+  })
+
+  it('finds an Alcor and Taco price gap and plans it as two transfers', () => {
+    const wax: ClmmToken = { id: 'WAX@eosio.token', symbol: 'WAX', contract: 'eosio.token', decimals: 8 }
+    const taco: ClmmToken = { id: 'TACO@t.taco', symbol: 'TACO', contract: 't.taco', decimals: 4 }
+    // Alcor sells TACO cheaper (3 TACO per WAX) than Taco buys it back (2.616 TACO per WAX).
+    const alcor = pool(1, wax, taco, 3, 1e12)
+    const tacoPool = tacoFromRow(tacoRow, 5)
+    const loop = findLoops([alcor, tacoPool], [wax.id]).find((l) => l.marginal > 1)!
+    expect(loop.pools.map((p) => p.venue)).toEqual(['alcor', 'taco'])
+    const best = bestSize(loop, 1000)
+    expect(best.profit).toBeGreaterThan(0)
+    const segs = planSegments(loop, best.amount, best.amount + best.profit / 2)
+    expect(segs).toHaveLength(2)
+    expect(segs[0].outToken.id).toBe(taco.id)
+    // The second transfer spends exactly what the first must return.
+    expect(segs[1].inAmount).toBe(segs[0].minOut)
+    expect(segs[1].outToken.id).toBe(wax.id)
+  })
+
+  it('keeps consecutive Alcor pools in one transfer', () => {
+    const pools = [pool(1, X, Y, 2, 1e9), pool(2, Y, Z, 3, 1e9), pool(3, Z, X, 0.2, 1e9)]
+    const tri = findLoops(pools, [X.id]).find((l) => l.pools.length === 3 && l.marginal > 1)!
+    const segs = planSegments(tri, 1, 1.01)
+    expect(segs).toHaveLength(1)
+    expect(segs[0].pools).toHaveLength(3)
+    expect(segs[0].minOut).toBe(1.01)
   })
 })
