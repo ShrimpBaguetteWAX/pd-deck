@@ -16,21 +16,31 @@ From a terminal the same works with `node bot/arb-bot.ts`.
 
 ## What it does
 
-Every 15 seconds (start to start) it:
+1. At the start and every 5 minutes it reads every pool of Alcor and Taco and lays out every loop of
+   two or three pools that starts and ends in WAX or TLM (loops may mix both exchanges).
+2. Every 5 seconds it reads the swap logs of both exchanges. Each logged swap carries the pool's new
+   state, so only the pools that traded are updated and only the loops through them are checked,
+   a few seconds after the trade.
+3. Promising loops are simulated across their price ranges, sized to what the wallet holds, and the
+   best five are dry-run on a node from your account (`compute_transaction`: the real contracts, no
+   signature, no effect). Loops the dry runs turn down are set aside for 30 minutes.
+4. If one earns at least the minimum profit (0.1 WAX by default) and the last trade is at least 60
+   seconds ago, it reads that route's pools again, sizes it again and dry-runs it once more.
+5. Only then it signs one transaction: consecutive Alcor pools in one swap, every Taco pair its own
+   transfer, the last one asking for at least the input plus the minimum profit back.
 
-1. reads every Alcor pool and keeps those with at least 20 WAX on both sides;
-2. checks every loop of two or three pools that starts and ends in WAX or TLM;
-3. simulates the promising ones across their price ranges, sized to what the wallet holds;
-4. dry-runs the best five on a node from your account (`compute_transaction`: Alcor's real contract, no signature, no effect) at several sizes;
-5. if one earns at least the minimum profit (0.1 WAX by default) and the last trade is at least 60 seconds ago, it reads that route's pools again, sizes it again and dry-runs it once more;
-6. only then signs one swap through every pool.
+If the pools moved and less would come back, the whole transaction fails and only uses CPU. The
+input is never more than the wallet holds, and never more than the "Largest input" setting.
 
-The swap asks Alcor for at least the input plus the minimum profit back. If the pools moved and less
-would come back, the whole transaction fails and only uses CPU. The input is never more than the
-wallet holds, and never more than the "Largest input" setting.
+Requests rotate across about 17 public WAX nodes (5 of them with the history API for the swap logs);
+a node that fails or rate-limits sits out for a minute or two, and all are tested again every ten
+minutes. The page shows each node's speed and load, and how many chain requests the bot makes.
 
-Each trade is logged in `bot/trades.jsonl` with the route, input, output and the profit read from the
-transaction itself; the page shows them under **Transactions**.
+The page also shows every swap the bot sees on Alcor and Taco as a ticker on the right (kept in
+`bot/swaps.jsonl` too), and every pool being scanned, sorted by how many swaps it had in the last hour.
+
+Each trade of the bot is logged in `bot/trades.jsonl` with the route, input, output and the profit
+read from the transaction itself; the page shows them under **Transactions**.
 
 ## The key
 
@@ -52,7 +62,8 @@ transaction itself; the page shows them under **Transactions**.
 | Setting                | Default | Meaning                                                                                                               |
 | ---------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
 | Minimum profit         | 0.1 WAX | Smallest profit worth signing; TLM loops are converted at the pool price. Also the minimum the swap demands on chain. |
-| Scan every             | 15 s    | Time from the start of one scan to the start of the next.                                                             |
+| Check new swaps every  | 5 s     | How often the swap logs are read.                                                                                     |
+| Read every pool every  | 5 min   | How often every pool of both exchanges is read in full.                                                               |
 | Largest input          | 500 WAX | Upper limit per trade, on top of the wallet limit.                                                                    |
 | Seconds between trades | 60 s    | At most one trade per this time; scans go on in between.                                                              |
 | From WAX / From TLM    | both    | Which start tokens to use.                                                                                            |

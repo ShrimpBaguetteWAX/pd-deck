@@ -17,3 +17,5 @@ node-health.md
 bot/settings.json
 bot/trades.jsonl
 bot/run-state.json
+bot/swaps.jsonl
+bot/_*.ts

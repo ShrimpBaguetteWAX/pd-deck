@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["arb-bot.ts"]
+  "include": ["arb-bot.ts", "endpoints.ts"]
 }

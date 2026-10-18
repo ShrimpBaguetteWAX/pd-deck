@@ -22,6 +22,8 @@ import { fileURLToPath } from 'node:url'
 
 import { PackedTransaction, PrivateKey, SignedTransaction } from '@wharfkit/antelope'
 
+import { EndpointPool, poolCall, poolHistory } from './endpoints.ts'
+
 import {
   buildTransaction,
   chainError,
@@ -148,12 +150,10 @@ function clearCredentials() {
   log('Key removed')
 }
 
-const NODES = (
-  env.ARB_NODES || 'https://wax.greymass.com,https://wax.eosusa.io,https://api.wax.alohaeos.com,https://wax.eosphere.io'
+/** Many WAX nodes, probed and used in turn (extra ones can be added in bot/.env as ARB_NODES). */
+const endpointPool = new EndpointPool(
+  [...(env.ARB_NODES ?? '').split(','), ...(env.ARB_HISTORY ?? '').split(',')].filter(Boolean)
 )
-  .split(',')
-  .map((s) => s.trim().replace(/\/$/, ''))
-  .filter(Boolean)
 
 interface Settings {
   /** Smallest profit worth signing, in WAX (TLM loops are converted at the pool price). */
@@ -206,8 +206,6 @@ const TICK_CACHE_MS = 10 * 60_000
 
 // ---- Chain access --------------------------------------------------------------------------------
 
-let nodeIndex = 0
-
 /** A node call with failover; a contract error (HTTP 500 with an error body) is returned to the caller. */
 /** Every chain request the bot makes, by kind, for the page's request counter. */
 const requestLog: { at: number; kind: string }[] = []
@@ -239,29 +237,7 @@ const rpc: Rpc = async (path, body) => {
 
 const rpcUncached: Rpc = async (path, body) => {
   countRequest(path)
-  let last: unknown
-  for (let i = 0; i < NODES.length; i++) {
-    const url = NODES[(nodeIndex + i) % NODES.length]
-    try {
-      const res = await fetch(url + path, { method: 'POST', body: JSON.stringify(body), signal: AbortSignal.timeout(15_000) })
-      const json = (await res.json().catch(() => null)) as { error?: { what?: string; details?: { message?: string }[] } } | null
-      if (res.ok) {
-        nodeIndex = (nodeIndex + i) % NODES.length
-        return json
-      }
-      const err = Object.assign(new Error(json?.error?.details?.[0]?.message ?? json?.error?.what ?? `HTTP ${res.status}`), {
-        json
-      })
-      // The contract refused: every node would say the same.
-      if (json?.error) throw Object.assign(err, { contract: true })
-      last = err
-    } catch (err) {
-      if ((err as { contract?: boolean }).contract) throw err
-      last = err
-    }
-  }
-  nodeIndex = (nodeIndex + 1) % NODES.length
-  throw last instanceof Error ? last : new Error('No node answered')
+  return poolCall(endpointPool, path, body)
 }
 
 async function tableRows<T>(body: Record<string, unknown>): Promise<T[]> {
@@ -592,37 +568,93 @@ const watch = {
   failures: 0
 }
 
-const HISTORY = (env.ARB_HISTORY || 'https://wax.eosusa.io,https://wax-history.eosdac.io')
-  .split(',')
-  .map((s) => s.trim().replace(/\/$/, ''))
-  .filter(Boolean)
-let historyIndex = 0
-
 interface LogAction {
   '@timestamp': string
   global_sequence: number | string
+  trx_id?: string
   act: { account: string; name: string; data: Record<string, unknown> }
+}
+
+/** A swap someone made on Alcor or Taco, as the logs reported it. */
+interface SeenSwap {
+  at: number
+  venue: 'alcor' | 'taco'
+  /** Alcor pool id or Taco pair id. */
+  pool: string
+  inAmount: number
+  inSymbol: string
+  outAmount: number
+  outSymbol: string
+  who: string
+  trxId?: string
+  /** True when the swap was one of this bot's own. */
+  mine: boolean
+}
+
+const SWAPS_FILE = join(HERE, 'swaps.jsonl')
+const TICKER_SIZE = 300
+/** The latest swaps, newest first, for the page's ticker; every one is also appended to bot/swaps.jsonl. */
+const ticker: SeenSwap[] = []
+
+/** A logged swap in plain terms: what went in and what came out. */
+function swapOfLog(a: LogAction): SeenSwap | null {
+  const d = a.act.data
+  const at = tsOf(a)
+  if (a.act.name === 'logswap') {
+    // Alcor logs the pool's side: positive is what the pool received, negative what it paid out.
+    const sides = [String(d.tokenA ?? ''), String(d.tokenB ?? '')].map((q) => ({
+      amount: Number(q.split(' ')[0]),
+      symbol: q.split(' ')[1] ?? ''
+    }))
+    const into = sides.find((x) => x.amount > 0)
+    const out = sides.find((x) => x.amount < 0)
+    if (!into || !out) return null
+    const who = String(d.recipient ?? d.sender ?? '')
+    return {
+      at,
+      venue: 'alcor',
+      pool: `#${d.poolId}`,
+      inAmount: into.amount,
+      inSymbol: into.symbol,
+      outAmount: -out.amount,
+      outSymbol: out.symbol,
+      who,
+      trxId: a.trx_id,
+      mine: who === ACCOUNT
+    }
+  }
+  if (a.act.name === 'exchangelog') {
+    const who = String(d.maker ?? '')
+    return {
+      at,
+      venue: 'taco',
+      pool: String(d.id ?? ''),
+      inAmount: amountOfAsset(d.quantity_in),
+      inSymbol: symbolOfAsset(d.quantity_in),
+      outAmount: amountOfAsset(d.quantity_out),
+      outSymbol: symbolOfAsset(d.quantity_out),
+      who,
+      trxId: a.trx_id,
+      mine: who === ACCOUNT
+    }
+  }
+  return null
+}
+
+function recordSwap(sw: SeenSwap) {
+  ticker.unshift(sw)
+  if (ticker.length > TICKER_SIZE) ticker.length = TICKER_SIZE
+  try {
+    appendFileSync(SWAPS_FILE, JSON.stringify(sw) + String.fromCharCode(10))
+  } catch {
+    // The log file is a convenience; the ticker works without it.
+  }
 }
 
 async function history(params: Record<string, string>): Promise<LogAction[]> {
   countRequest('/v2/history')
-  let last: unknown
-  for (let i = 0; i < HISTORY.length; i++) {
-    const base = HISTORY[(historyIndex + i) % HISTORY.length]
-    try {
-      const res = await fetch(`${base}/v2/history/get_actions?${new URLSearchParams(params)}`, {
-        signal: AbortSignal.timeout(8000)
-      })
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = (await res.json()) as { actions?: LogAction[] }
-      historyIndex = (historyIndex + i) % HISTORY.length
-      return json.actions ?? []
-    } catch (err) {
-      last = err
-    }
-  }
-  historyIndex = (historyIndex + 1) % HISTORY.length
-  throw last instanceof Error ? last : new Error('No history node answered')
+  const json = await poolHistory<{ actions?: LogAction[] }>(endpointPool, new URLSearchParams(params).toString())
+  return json.actions ?? []
 }
 
 const amountOfAsset = (q: unknown) => Number(String(q ?? '').split(' ')[0])
@@ -687,6 +719,9 @@ async function pollLogs(m: Market): Promise<{ changed: Set<ClmmPool>; swaps: num
     const seq = String(a.global_sequence)
     if (watch.seen.has(seq)) continue
     watch.seen.add(seq)
+    // Every swap goes in the ticker, also in pools the bot does not trade.
+    const seenSwap = swapOfLog(a)
+    if (seenSwap) recordSwap(seenSwap)
     const at = tsOf(a)
     newest = Math.max(newest, at)
     const d = a.act.data
@@ -1061,6 +1096,10 @@ function snapshot() {
     log: state.log,
     trades,
     totalProfitWax: total,
+    /** The WAX nodes in use, with speed and load. */
+    endpoints: endpointPool.report(),
+    /** The latest swaps on both exchanges, newest first. */
+    ticker: ticker.slice(0, 120),
     /** Chain requests in the last minute, by kind. */
     requests: requestLog
       .filter((r) => Date.now() - r.at <= 60_000)
@@ -1155,7 +1194,11 @@ server.on('error', (err: NodeJS.ErrnoException) => {
   throw err
 })
 
-server.listen(PORT, '127.0.0.1', () => {
+server.listen(PORT, '127.0.0.1', async () => {
+  await endpointPool.probe().catch(() => undefined)
+  const ok = endpointPool.endpoints.filter((e) => e.chain).length
+  const hist = endpointPool.endpoints.filter((e) => e.history).length
+  console.log(`WAX nodes: ${ok} answer chain requests, ${hist} have the history API (of ${endpointPool.endpoints.length} tried).`)
   console.log(`Alcor loop bot: open http://127.0.0.1:${PORT}`)
   if (keyProblem) console.log(keyProblem)
   else console.log(`Account ${ACCOUNT}@${PERMISSION}, key loaded.`)

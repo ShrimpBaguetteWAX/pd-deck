@@ -38,13 +38,112 @@
           system-ui,
           sans-serif;
       }
-      main {
-        max-width: 1180px;
+      .layout {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 360px;
+        gap: 18px;
+        max-width: 1600px;
         margin: 0 auto;
         padding: 28px 16px 60px;
+        align-items: start;
+      }
+      main {
         display: flex;
         flex-direction: column;
         gap: 16px;
+        min-width: 0;
+      }
+      /* The ticker: every swap the bot saw on Alcor and Taco, newest on top. */
+      .ticker {
+        position: sticky;
+        top: 16px;
+        display: flex;
+        flex-direction: column;
+        max-height: calc(100vh - 32px);
+        border: 1px solid var(--border);
+        border-radius: var(--radius);
+        background: var(--panel);
+      }
+      .ticker-head {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 8px;
+        padding: 12px 14px 10px;
+        border-bottom: 1px solid var(--border);
+      }
+      .ticker-head h2 {
+        margin: 0;
+        font-size: 15px;
+      }
+      .ticker-list {
+        margin: 0;
+        padding: 0;
+        overflow-y: auto;
+        list-style: none;
+      }
+      .ticker-list li {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 2px 8px;
+        padding: 8px 14px;
+        border-bottom: 1px solid var(--border);
+        font-size: 12.5px;
+      }
+      .ticker-list li.is-new {
+        animation: tick-in 1.6s ease-out;
+      }
+      .ticker-list li.is-mine {
+        background: rgba(255, 215, 94, 0.07);
+      }
+      @keyframes tick-in {
+        from {
+          background: rgba(0, 212, 255, 0.16);
+        }
+      }
+      .tk-flow b {
+        font-weight: 600;
+      }
+      .tk-flow i {
+        margin: 0 4px;
+        color: var(--faint);
+        font-style: normal;
+      }
+      .tk-time {
+        color: var(--faint);
+        text-align: right;
+      }
+      .tk-meta {
+        grid-column: 1 / -1;
+        color: var(--faint);
+        font-size: 11px;
+      }
+      .tk-venue {
+        display: inline-block;
+        margin-right: 6px;
+        padding: 0 5px;
+        border-radius: 4px;
+        background: var(--surface);
+        color: var(--dim);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.06em;
+        text-transform: uppercase;
+      }
+      .tk-venue.is-taco {
+        color: var(--gold);
+      }
+      .tk-venue.is-alcor {
+        color: var(--cyan);
+      }
+      @media (max-width: 1100px) {
+        .layout {
+          grid-template-columns: minmax(0, 1fr);
+        }
+        .ticker {
+          position: static;
+          max-height: 480px;
+        }
       }
       h1 {
         margin: 2px 0 0;
@@ -429,119 +528,143 @@
     </style>
   </head>
   <body>
-    <main>
-      <header>
-        <div>
-          <div class="eyebrow">Alcor loops</div>
-          <h1>Loop bot</h1>
-          <div class="who" id="who">Connecting…</div>
-        </div>
-        <div class="controls">
-          <span class="pill" id="status"><i></i><span>Stopped</span></span>
-          <button class="btn btn-start" id="toggle">Start</button>
-        </div>
-      </header>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Wallet key</h2>
-          <span class="faint"
-            >Saved in bot/.env on this computer only. It is never shown again or sent anywhere but as a signature.</span
-          >
-        </div>
-        <div class="keyline" id="keyLoaded" hidden>
-          <span><b id="keyWho"></b> <span class="faint num" id="keyPub"></span></span>
-          <span class="keyline__actions">
-            <button type="button" class="btn-ghost" id="keyChange">Change</button>
-            <button type="button" class="btn-ghost" id="keyRemove">Remove key</button>
-          </span>
-        </div>
-        <form class="settings" id="keyForm" autocomplete="off" hidden>
-          <label>Account<input type="text" name="account" placeholder="youraccount.wam" spellcheck="false" /></label>
-          <label>Permission<input type="text" name="permission" placeholder="active" spellcheck="false" /></label>
-          <label class="wide"
-            >Private key<input
-              type="password"
-              name="key"
-              placeholder="PVT_K1_… or 5…"
-              autocomplete="new-password"
-              spellcheck="false"
-          /></label>
-          <button type="submit" class="btn-ghost">Save key</button>
-          <button type="button" class="btn-ghost" id="keyCancel" hidden>Cancel</button>
-        </form>
-        <div class="banner is-error" id="keyError" hidden></div>
-      </section>
-
-      <div class="banner" id="keyProblem" hidden></div>
-      <div class="banner is-error" id="lastError" hidden></div>
-
-      <section class="cards">
-        <div class="card"><small>WAX in wallet</small><b class="num" id="wax">–</b></div>
-        <div class="card"><small>TLM in wallet</small><b class="num" id="tlm">–</b></div>
-        <div class="card"><small>Profit so far</small><b class="num gold" id="profit">–</b></div>
-        <div class="card"><small>Trades</small><b class="num" id="count">–</b></div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Settings</h2>
-          <span class="faint" id="saved"></span>
-        </div>
-        <form class="settings" id="settings">
-          <label>Minimum profit (WAX)<input type="number" step="0.01" min="0.001" name="minProfitWax" /></label>
-          <label>Check new swaps every (seconds)<input type="number" step="1" min="2" name="pollSec" /></label>
-          <label>Read every pool every (minutes)<input type="number" step="1" min="1" name="fullRefreshMin" /></label>
-          <label>Largest input (WAX worth)<input type="number" step="1" min="1" name="maxTradeWax" /></label>
-          <label>Seconds between trades<input type="number" step="1" min="0" name="tradeGapSec" /></label>
-          <div class="checks">
-            <label><input type="checkbox" name="startWAX" /> From WAX</label>
-            <label><input type="checkbox" name="startTLM" /> From TLM</label>
-            <label><input type="checkbox" name="watchOnly" /> Watch only</label>
+    <div class="layout">
+      <main>
+        <header>
+          <div>
+            <div class="eyebrow">Alcor loops</div>
+            <h1>Loop bot</h1>
+            <div class="who" id="who">Connecting…</div>
           </div>
-          <button type="submit" class="btn-ghost">Save</button>
-        </form>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Last scan</h2>
-          <span class="faint num" id="scanMeta">No scan yet</span>
-        </div>
-        <p class="faint num reqs" id="requests"></p>
-        <div class="scroll"><table id="confirmed"></table></div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Transactions</h2>
-          <span class="faint">Read from each transaction's actions after it went through</span>
-        </div>
-        <div class="scroll"><table id="trades"></table></div>
-      </section>
-
-      <section class="panel">
-        <div class="panel-head">
-          <h2>Pools being scanned</h2>
-          <span class="faint num" id="poolMeta"></span>
-        </div>
-        <div class="pool-tools">
-          <input type="search" id="poolSearch" placeholder="Search a token or pool, e.g. TLM or TACWAX" spellcheck="false" />
-          <div class="seg" id="poolVenue">
-            <button type="button" data-venue="" class="is-on">All</button>
-            <button type="button" data-venue="alcor">Alcor</button>
-            <button type="button" data-venue="taco">Taco</button>
+          <div class="controls">
+            <span class="pill" id="status"><i></i><span>Stopped</span></span>
+            <button class="btn btn-start" id="toggle">Start</button>
           </div>
-        </div>
-        <div class="scroll pool-scroll"><table id="pools"></table></div>
-        <p class="faint pool-note" id="poolNote"></p>
-      </section>
+        </header>
 
-      <section class="panel">
-        <h2>Activity log</h2>
-        <pre class="log" id="log"></pre>
-      </section>
-    </main>
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Wallet key</h2>
+            <span class="faint"
+              >Saved in bot/.env on this computer only. It is never shown again or sent anywhere but as a signature.</span
+            >
+          </div>
+          <div class="keyline" id="keyLoaded" hidden>
+            <span><b id="keyWho"></b> <span class="faint num" id="keyPub"></span></span>
+            <span class="keyline__actions">
+              <button type="button" class="btn-ghost" id="keyChange">Change</button>
+              <button type="button" class="btn-ghost" id="keyRemove">Remove key</button>
+            </span>
+          </div>
+          <form class="settings" id="keyForm" autocomplete="off" hidden>
+            <label>Account<input type="text" name="account" placeholder="youraccount.wam" spellcheck="false" /></label>
+            <label>Permission<input type="text" name="permission" placeholder="active" spellcheck="false" /></label>
+            <label class="wide"
+              >Private key<input
+                type="password"
+                name="key"
+                placeholder="PVT_K1_… or 5…"
+                autocomplete="new-password"
+                spellcheck="false"
+            /></label>
+            <button type="submit" class="btn-ghost">Save key</button>
+            <button type="button" class="btn-ghost" id="keyCancel" hidden>Cancel</button>
+          </form>
+          <div class="banner is-error" id="keyError" hidden></div>
+        </section>
+
+        <div class="banner" id="keyProblem" hidden></div>
+        <div class="banner is-error" id="lastError" hidden></div>
+
+        <section class="cards">
+          <div class="card"><small>WAX in wallet</small><b class="num" id="wax">–</b></div>
+          <div class="card"><small>TLM in wallet</small><b class="num" id="tlm">–</b></div>
+          <div class="card"><small>Profit so far</small><b class="num gold" id="profit">–</b></div>
+          <div class="card"><small>Trades</small><b class="num" id="count">–</b></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Settings</h2>
+            <span class="faint" id="saved"></span>
+          </div>
+          <form class="settings" id="settings">
+            <label>Minimum profit (WAX)<input type="number" step="0.01" min="0.001" name="minProfitWax" /></label>
+            <label>Check new swaps every (seconds)<input type="number" step="1" min="2" name="pollSec" /></label>
+            <label>Read every pool every (minutes)<input type="number" step="1" min="1" name="fullRefreshMin" /></label>
+            <label>Largest input (WAX worth)<input type="number" step="1" min="1" name="maxTradeWax" /></label>
+            <label>Seconds between trades<input type="number" step="1" min="0" name="tradeGapSec" /></label>
+            <div class="checks">
+              <label><input type="checkbox" name="startWAX" /> From WAX</label>
+              <label><input type="checkbox" name="startTLM" /> From TLM</label>
+              <label><input type="checkbox" name="watchOnly" /> Watch only</label>
+            </div>
+            <button type="submit" class="btn-ghost">Save</button>
+          </form>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Last scan</h2>
+            <span class="faint num" id="scanMeta">No scan yet</span>
+          </div>
+          <p class="faint num reqs" id="requests"></p>
+          <div class="scroll"><table id="confirmed"></table></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Transactions</h2>
+            <span class="faint">Read from each transaction's actions after it went through</span>
+          </div>
+          <div class="scroll"><table id="trades"></table></div>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>Pools being scanned</h2>
+            <span class="faint num" id="poolMeta"></span>
+          </div>
+          <div class="pool-tools">
+            <input type="search" id="poolSearch" placeholder="Search a token or pool, e.g. TLM or TACWAX" spellcheck="false" />
+            <div class="seg" id="poolVenue">
+              <button type="button" data-venue="" class="is-on">All</button>
+              <button type="button" data-venue="alcor">Alcor</button>
+              <button type="button" data-venue="taco">Taco</button>
+            </div>
+          </div>
+          <div class="scroll pool-scroll"><table id="pools"></table></div>
+          <p class="faint pool-note" id="poolNote"></p>
+        </section>
+
+        <section class="panel">
+          <div class="panel-head">
+            <h2>WAX nodes</h2>
+            <span class="faint num" id="nodeMeta"></span>
+          </div>
+          <div class="scroll"><table id="nodes"></table></div>
+          <p class="faint pool-note">
+            Requests rotate across every node that answers; a node that fails or rate-limits sits out for a minute or two. All
+            nodes are tested again every ten minutes. More can be added in bot/.env as ARB_NODES (comma separated).
+          </p>
+        </section>
+
+        <section class="panel">
+          <h2>Activity log</h2>
+          <pre class="log" id="log"></pre>
+        </section>
+      </main>
+
+      <aside class="ticker">
+        <div class="ticker-head">
+          <h2>Swaps on Alcor and Taco</h2>
+          <span class="faint num" id="tickerMeta"></span>
+        </div>
+        <ul class="ticker-list" id="ticker">
+          <li class="faint">Waiting for the first swap logs…</li>
+        </ul>
+      </aside>
+    </div>
 
     <script>
       const $ = (id) => document.getElementById(id)
@@ -684,6 +807,9 @@
               .join(' · ')
           : 'No chain requests in the last minute.'
 
+        renderTicker(s.ticker || [])
+        renderNodes(s.endpoints)
+
         $('log').textContent = s.log.join('\n')
       }
 
@@ -750,6 +876,46 @@
         $('saved').textContent = 'Saved'
         setTimeout(() => ($('saved').textContent = ''), 2000)
       })
+
+      // ---- WAX nodes ----
+      function renderNodes(r) {
+        if (!r) return
+        const usable = r.endpoints.filter((e) => e.chain || e.history)
+        $('nodeMeta').textContent = r.probedAt
+          ? `${r.endpoints.filter((e) => e.chain).length} for chain requests · ${r.endpoints.filter((e) => e.history).length} with swap logs · ${r.endpoints.length} tried · tested ${ago(r.probedAt)}`
+          : 'Testing the nodes…'
+        const yes = (v) => (v ? '<span class="gain">yes</span>' : '<span class="faint">no</span>')
+        $('nodes').innerHTML =
+          '<tr><th>Node</th><th>Chain</th><th>Dry runs</th><th>Swap logs</th><th class="r">Speed</th><th class="r">Requests / min</th><th>Status</th></tr>' +
+          r.endpoints
+            .map(
+              (e) =>
+                `<tr><td>${esc(e.url)}</td><td>${yes(e.chain)}</td><td>${yes(e.chain && e.compute)}</td><td>${yes(e.history)}</td><td class="r num">${e.chain ? e.latency + ' ms' : '–'}</td><td class="r num">${e.perMinute}</td><td class="faint">${e.benched ? '<span class="blocked">resting: ' + esc(e.lastError) + '</span>' : e.chain || e.history ? 'in rotation' : esc(e.lastError || 'not answering')}</td></tr>`
+            )
+            .join('')
+        void usable
+      }
+
+      // ---- Ticker ----
+      const shown = new Set()
+      const amt = (n) => n.toLocaleString('en-US', { maximumFractionDigits: n >= 1000 ? 0 : n >= 1 ? 4 : 8 })
+      function renderTicker(list) {
+        const first = shown.size === 0
+        $('tickerMeta').textContent = list.length ? `${list.length} latest` : ''
+        if (!list.length) return
+        $('ticker').innerHTML = list
+          .map((t) => {
+            const key = t.trxId + t.pool + t.at + t.inAmount
+            const isNew = !first && !shown.has(key)
+            shown.add(key)
+            const link = t.trxId
+              ? ` · <a href="https://waxblock.io/transaction/${esc(t.trxId)}" target="_blank" rel="noreferrer">tx</a>`
+              : ''
+            return `<li class="${isNew ? 'is-new' : ''}${t.mine ? ' is-mine' : ''}"><span class="tk-flow"><span class="tk-venue is-${esc(t.venue)}">${esc(t.venue)}</span><b class="num">${amt(t.inAmount)}</b> ${esc(t.inSymbol)}<i>›</i><b class="num">${amt(t.outAmount)}</b> ${esc(t.outSymbol)}</span><span class="tk-time num">${new Date(t.at).toLocaleTimeString()}</span><span class="tk-meta">${esc(t.venue === 'alcor' ? 'pool ' + t.pool : t.pool)} · ${esc(t.who)}${t.mine ? ' · this bot' : ''}${link}</span></li>`
+          })
+          .join('')
+        if (shown.size > 2000) shown.clear()
+      }
 
       async function poll() {
         try {
