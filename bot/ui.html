@@ -743,8 +743,10 @@
         $('lastError').hidden = !s.lastError
         $('lastError').textContent = 'Last scan failed: ' + s.lastError
 
-        $('wax').textContent = s.balances.at ? fmt(s.balances.wax, 4) : '–'
-        $('tlm').textContent = s.balances.at ? fmt(s.balances.tlm, 4) : '–'
+        // Always four decimals, so small gains from the loops are visible.
+        const four = (n) => n.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 })
+        $('wax').textContent = s.balances.at ? four(s.balances.wax) : '–'
+        $('tlm').textContent = s.balances.at ? four(s.balances.tlm) : '–'
         const done = s.trades.filter((t) => t.status === 'done')
         $('profit').textContent = signed(s.totalProfitWax, 4) + ' WAX'
         $('count').textContent =
