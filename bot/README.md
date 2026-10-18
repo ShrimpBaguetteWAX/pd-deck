@@ -24,10 +24,10 @@ From a terminal the same works with `node bot/arb-bot.ts`.
 3. Promising loops are simulated across their price ranges, sized to what the wallet holds, and the
    best five are dry-run on a node from your account (`compute_transaction`: the real contracts, no
    signature, no effect). Loops the dry runs turn down are set aside for 30 minutes.
-4. If one earns at least the minimum profit (0.1 WAX by default) and the last trade is at least 60
-   seconds ago, it reads that route's pools again, sizes it again and dry-runs it once more.
+4. If one makes any profit and the last trade is at least 60 seconds ago (the "Seconds between
+   trades" setting), it reads that route's pools again, sizes it again and dry-runs it once more.
 5. Only then it signs one transaction: consecutive Alcor pools in one swap, every Taco pair its own
-   transfer, the last one asking for at least the input plus the minimum profit back.
+   transfer, the last one asking for at least the input plus one smallest unit back.
 
 If the pools moved and less would come back, the whole transaction fails and only uses CPU. The
 input is never more than the wallet holds, and never more than the "Largest input" setting.
@@ -59,14 +59,13 @@ read from the transaction itself; the page shows them under **Transactions**.
 
 ## Settings
 
-| Setting                | Default | Meaning                                                                                                               |
-| ---------------------- | ------- | --------------------------------------------------------------------------------------------------------------------- |
-| Minimum profit         | 0.1 WAX | Smallest profit worth signing; TLM loops are converted at the pool price. Also the minimum the swap demands on chain. |
-| Check new swaps every  | 5 s     | How often the swap logs are read.                                                                                     |
-| Read every pool every  | 5 min   | How often every pool of both exchanges is read in full.                                                               |
-| Largest input          | 500 WAX | Upper limit per trade, on top of the wallet limit.                                                                    |
-| Seconds between trades | 60 s    | At most one trade per this time; scans go on in between.                                                              |
-| From WAX / From TLM    | both    | Which start tokens to use.                                                                                            |
-| Watch only             | off     | Scan and confirm, but never sign.                                                                                     |
+| Setting                | Default | Meaning                                                  |
+| ---------------------- | ------- | -------------------------------------------------------- |
+| Check new swaps every  | 5 s     | How often the swap logs are read.                        |
+| Read every pool every  | 5 min   | How often every pool of both exchanges is read in full.  |
+| Largest input          | 500 WAX | Upper limit per trade, on top of the wallet limit.       |
+| Seconds between trades | 60 s    | At most one trade per this time; scans go on in between. |
+| From WAX / From TLM    | both    | Which start tokens to use.                               |
+| Watch only             | off     | Scan and confirm, but never sign.                        |
 
 Settings are kept in `bot/settings.json`.

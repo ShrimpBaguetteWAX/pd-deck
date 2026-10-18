@@ -589,7 +589,6 @@
             <span class="faint" id="saved"></span>
           </div>
           <form class="settings" id="settings">
-            <label>Minimum profit (WAX)<input type="number" step="0.01" min="0.001" name="minProfitWax" /></label>
             <label>Check new swaps every (seconds)<input type="number" step="1" min="2" name="pollSec" /></label>
             <label>Read every pool every (minutes)<input type="number" step="1" min="1" name="fullRefreshMin" /></label>
             <label>Largest input (WAX worth)<input type="number" step="1" min="1" name="maxTradeWax" /></label>
@@ -753,7 +752,6 @@
 
         if (!formTouched) {
           const f = $('settings')
-          f.minProfitWax.value = s.settings.minProfitWax
           f.pollSec.value = s.settings.pollSec
           f.fullRefreshMin.value = s.settings.fullRefreshMin
           f.maxTradeWax.value = s.settings.maxTradeWax
@@ -775,7 +773,7 @@
               sc.confirmed
                 .map(
                   (c) =>
-                    `<tr><td>${route(c.route, c.pools)}</td><td class="r num">${fmt(c.input)} ${esc(c.symbol)}</td><td class="r num">${fmt(c.received)} ${esc(c.symbol)}</td><td class="r num"><span class="${c.profitWax >= s.settings.minProfitWax ? 'gain' : 'dim'}">${signed(c.profit)} ${esc(c.symbol)}</span><br><small class="faint">≈ ${fmt(c.profitWax, 4)} WAX</small></td></tr>`
+                    `<tr><td>${route(c.route, c.pools)}</td><td class="r num">${fmt(c.input)} ${esc(c.symbol)}</td><td class="r num">${fmt(c.received)} ${esc(c.symbol)}</td><td class="r num"><span class="${c.profit > 0 ? 'gain' : 'dim'}">${signed(c.profit)} ${esc(c.symbol)}</span><br><small class="faint">≈ ${fmt(c.profitWax, 4)} WAX</small></td></tr>`
                 )
                 .join('')
             : `<tr><td class="empty">No loop confirmed a profit with what the wallet holds. ${sc.dryRun ? sc.dryRun + ' looked promising in the simulation but not on the contract.' : ''}</td></tr>`
@@ -864,7 +862,6 @@
         const f = e.target
         const starts = [f.startWAX.checked && 'WAX', f.startTLM.checked && 'TLM'].filter(Boolean)
         await call('/api/settings', {
-          minProfitWax: Number(f.minProfitWax.value),
           pollSec: Number(f.pollSec.value),
           fullRefreshMin: Number(f.fullRefreshMin.value),
           maxTradeWax: Number(f.maxTradeWax.value),

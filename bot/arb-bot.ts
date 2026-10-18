@@ -156,8 +156,6 @@ const endpointPool = new EndpointPool(
 )
 
 interface Settings {
-  /** Smallest profit worth signing, in WAX (TLM loops are converted at the pool price). */
-  minProfitWax: number
   /** How often the swap logs are polled. */
   pollSec: number
   /** How often every pool is read in full. */
@@ -172,7 +170,6 @@ interface Settings {
 }
 
 const DEFAULTS: Settings = {
-  minProfitWax: 0.1,
   pollSec: 5,
   fullRefreshMin: 5,
   maxTradeWax: 500,
@@ -183,7 +180,12 @@ const DEFAULTS: Settings = {
 
 function loadSettings(): Settings {
   try {
-    const saved = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8')) as Partial<Settings> & { intervalSec?: number }
+    const saved = JSON.parse(readFileSync(SETTINGS_FILE, 'utf8')) as Partial<Settings> & {
+      intervalSec?: number
+      minProfitWax?: number
+    }
+    // There is no minimum profit any more: any profit counts.
+    delete saved.minProfitWax
     // Older settings had one scan interval; the log polling replaces it.
     delete saved.intervalSec
     return { ...DEFAULTS, ...saved }
@@ -198,8 +200,6 @@ let settings = loadSettings()
 const MIN_POOL_WAX = 20
 const MIN_MARGINAL = 1.001
 const MAX_EXACT = 60
-/** Loops the simulation rates above this share of the minimum get dry-run. */
-const SCREEN_SHARE = 0.5
 const MAX_DRY_RUN_LOOPS = 5
 /** Price ranges only change when liquidity moves, which the logs report; so they are kept longer. */
 const TICK_CACHE_MS = 10 * 60_000
@@ -870,7 +870,7 @@ async function scanOnce() {
       const { startWax, cap } = capOf(loop)
       return { loop, startWax, cap, sim: cap > 0 ? bestSize(loop, cap) : null }
     })
-    .filter((c) => c.sim && c.sim.profit * c.startWax >= settings.minProfitWax * SCREEN_SHARE)
+    .filter((c) => c.sim && c.sim.profit > 0)
     .sort((a, b) => b.sim!.profit * b.startWax - a.sim!.profit * a.startWax)
     .slice(0, MAX_DRY_RUN_LOOPS)
 
@@ -932,7 +932,7 @@ async function scanOnce() {
     )
 
   const best = confirmed[0]
-  if (!best || best.profitWax < settings.minProfitWax) return
+  if (!best || !(best.profit > 0)) return
   if (settings.watchOnly || !signer) {
     log(`Would run ${best.route.join(' > ')}: ${best.input} ${best.symbol} for +${best.profit.toFixed(6)} (watch only)`)
     return
@@ -954,7 +954,7 @@ async function scanOnce() {
   if (!(cap > 0)) return
   const guess = Math.min(cap, Math.max(bestSize(fresh, cap).amount, best.input))
   const { best: now, error } = await verifyLoop(rpc, ACCOUNT, fresh, guess, cap)
-  if (!now || now.profit * best.startWax < settings.minProfitWax) {
+  if (!now || !(now.profit > 0)) {
     log(`Skipped ${best.route.join(' > ')}: gone on the final check${error ? ` (${error})` : ''}`)
     return
   }
@@ -999,7 +999,10 @@ async function execute(loop: Loop, input: number, expectedOut: number, startWax:
   const t = loop.start
   const unit = 10 ** -t.decimals
   // At least the minimum profit back, or the transaction fails as a whole.
-  const minProfit = Math.max(unit, startWax > 0 ? settings.minProfitWax / startWax : expectedOut - input)
+  // Any profit counts: the swap only has to return one smallest unit more than went in.
+  const minProfit = unit
+  void expectedOut
+  void startWax
   const minOut = input + minProfit
   const trade: Trade = {
     at: Date.now(),
@@ -1127,7 +1130,6 @@ function applySettings(input: Partial<Settings>) {
     return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : fallback
   }
   settings = {
-    minProfitWax: num(input.minProfitWax, 0.001, 1e6, settings.minProfitWax),
     pollSec: num(input.pollSec, 2, 600, settings.pollSec),
     fullRefreshMin: num(input.fullRefreshMin, 1, 120, settings.fullRefreshMin),
     maxTradeWax: num(input.maxTradeWax, 1, 1e7, settings.maxTradeWax),
