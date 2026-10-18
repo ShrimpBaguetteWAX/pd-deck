@@ -810,8 +810,8 @@
           $('scanMeta').textContent =
             (sc.mode === 'full'
               ? `Full read ${ago(sc.at)}: ${sc.pools.toLocaleString()} pools, ${sc.liquid.toLocaleString()} liquid, ${sc.loops.toLocaleString()} loops`
-              : `Logs ${ago(sc.at)}: ${sc.swaps} new swap${sc.swaps === 1 ? '' : 's'} in ${sc.changedPools} pool${sc.changedPools === 1 ? '' : 's'}, ${sc.checked.toLocaleString()} loops checked`) +
-            ` · ${sc.simulated} simulated · ${sc.dryRun} dry-run${sc.setAside ? ' · ' + sc.setAside + ' set aside' : ''} · logs ${fmt(sc.lagSec, 1)} s behind the chain · ${sc.swapsSeen.toLocaleString()} swaps seen · full read ${ago(sc.fullAt)}`
+              : `Update ${ago(sc.at)}: ${sc.swaps} new swap${sc.swaps === 1 ? '' : 's'} in ${sc.changedPools} pool${sc.changedPools === 1 ? '' : 's'}, ${sc.checked.toLocaleString()} loops checked`) +
+            ` · ${sc.simulated} simulated · ${sc.dryRun} dry-run${sc.setAside ? ' · ' + sc.setAside + ' set aside' : ''} · ${sc.feed === 'blocks' ? 'following blocks (block ' + (sc.block || 0).toLocaleString() + ')' : 'reading history logs (blocks stalled)'}, ${fmt(sc.lagSec, 1)} s behind the chain · ${sc.swapsSeen.toLocaleString()} swaps seen · full read ${ago(sc.fullAt)}`
           $('confirmed').innerHTML = sc.confirmed.length
             ? '<tr><th>Confirmed by the contract</th><th class="r">Input</th><th class="r">Comes back</th><th class="r">Profit</th></tr>' +
               sc.confirmed
@@ -829,7 +829,7 @@
               .map((t) => {
                 const ok = t.status === 'done'
                 const profit = ok
-                  ? `<span class="${t.profit > 0 ? 'gain' : 'loss'}">${signed(t.profit)} ${esc(t.symbol)}</span><br><small class="faint">≈ ${fmt(t.profitWax, 4)} WAX · expected ${signed(t.expected)}</small>`
+                  ? `<span class="${t.profit > 0 ? 'gain' : 'loss'}">${signed(t.profit)} ${esc(t.symbol)}</span><br><small class="faint">≈ ${fmt(t.profitWax, 4)} WAX · expected ${signed(t.expected)}${t.reactionMs ? ' · ' + (t.reactionMs / 1000).toFixed(1) + ' s after the block' : ''}</small>`
                   : `<span class="faint">expected ${signed(t.expected)}</span>`
                 const result = ok
                   ? `<a href="https://waxblock.io/transaction/${esc(t.trxId)}" target="_blank" rel="noreferrer">Transaction ↗</a>`
@@ -848,6 +848,10 @@
               .map(([k, v]) => `${v} ${k}`)
               .join(' · ')
           : 'No chain requests in the last minute.'
+        const st = s.stats
+        if (st)
+          $('requests').textContent +=
+            ` · Since start (${Math.round((Date.now() - st.since) / 60000)} min): ${st.passes.toLocaleString()} passes, ${st.loopsChecked.toLocaleString()} loops checked, ${st.dryRunLoops} dry-run, ${st.confirmed} confirmed, ${st.finalFails} gone at the final check, ${st.sent} sent${st.failedTx ? ' (' + st.failedTx + ' failed)' : ''}`
 
         renderTicker(s.ticker || [])
         renderNodes(s.endpoints)

@@ -18,15 +18,16 @@ From a terminal the same works with `node bot/arb-bot.ts`.
 
 1. At the start and every 5 minutes it reads every pool of Alcor and Taco and lays out every loop of
    two or three pools that starts and ends in WAX, TLM or DEF (loops may mix both exchanges).
-2. Every 5 seconds it reads the swap logs of both exchanges. Each logged swap carries the pool's new
-   state, so only the pools that traded are updated and only the loops through them are checked,
-   a few seconds after the trade.
+2. It follows the chain block by block through the trace API of the nodes that offer it (Alcor's own
+   node among them): every block, about a second after it is made, is fetched and the swap logs in it
+   update the pools that traded. Only the loops through those pools are checked, at once. If the
+   blocks stall, the history nodes' swap logs fill in every 5 seconds.
 3. Promising loops are simulated across their price ranges, sized to what the wallet holds, and the
    best five are dry-run on a node from your account (`compute_transaction`: the real contracts, no
    signature, no effect). Loops the dry runs turn down are set aside for 30 minutes.
-4. If one makes any profit and the last trade is at least 60 seconds ago (the "Seconds between
-   trades" setting), it reads that route's pools again, sizes it again and dry-runs it once more.
-5. Only then it signs one transaction: consecutive Alcor pools in one swap, every Taco pair its own
+4. If one makes any profit and the last trade is long enough ago (the "Seconds between trades"
+   setting), that exact trade is dry-run once more against the chain as it is now.
+5. Only then it signs one transaction and sends it to the two fastest nodes at once: consecutive Alcor pools in one swap, every Taco pair its own
    transfer, the last one asking for at least the input plus one smallest unit back.
 
 If the pools moved and less would come back, the whole transaction fails and only uses CPU. The

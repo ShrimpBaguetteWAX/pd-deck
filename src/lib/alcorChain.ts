@@ -165,8 +165,9 @@ export async function verifyLoop(
   )
   let best: Verified | null = null
   let error: string | undefined
-  for (const amount of sizes) {
-    const run = await dryRunLoop(rpc, account, loop, amount)
+  // All sizes at once: each is its own request, and speed matters more than a few extra calls.
+  const runs = await Promise.all(sizes.map((amount) => dryRunLoop(rpc, account, loop, amount)))
+  for (const run of runs) {
     if (!run.ok) {
       error = run.error
       continue

@@ -22,11 +22,13 @@ import { fileURLToPath } from 'node:url'
 
 import { PackedTransaction, PrivateKey, SignedTransaction } from '@wharfkit/antelope'
 
-import { EndpointPool, poolCall, poolHistory } from './endpoints.ts'
+import { BlockFollower } from './blocks.ts'
+import { EndpointPool, poolCall, poolHistory, poolPushFastest } from './endpoints.ts'
 
 import {
   buildTransaction,
   chainError,
+  dryRunLoop,
   loopActions,
   loopFlows,
   QUOTE_HOLDERS,
@@ -232,13 +234,15 @@ const requestLog: { at: number; kind: string }[] = []
 function countRequest(path: string) {
   const kind = path.includes('compute_transaction')
     ? 'dry runs'
-    : path.includes('push_transaction')
-      ? 'transactions'
-      : path.includes('get_table_rows')
-        ? 'table reads'
-        : path.includes('history')
-          ? 'swap logs'
-          : 'other'
+    : path.includes('trace_api')
+      ? 'blocks'
+      : path.includes('push_transaction')
+        ? 'transactions'
+        : path.includes('get_table_rows')
+          ? 'table reads'
+          : path.includes('history')
+            ? 'swap logs'
+            : 'other'
   const now = Date.now()
   requestLog.push({ at: now, kind })
   while (requestLog.length && now - requestLog[0].at > 60_000) requestLog.shift()
@@ -363,6 +367,8 @@ interface Trade {
   status: 'done' | 'failed'
   trxId?: string
   error?: string
+  /** From the block that opened the gap being made to this transaction being accepted, in ms. */
+  reactionMs?: number
 }
 
 interface Candidate {
@@ -381,6 +387,8 @@ const state = {
   balances: { wax: 0, tlm: 0, def: 0, at: 0 },
   /** The account's CPU over the chain's 24-hour window: used and available, in microseconds. */
   cpu: { used: 0, max: 0, pct: 0, at: 0 },
+  /** What the bot did since it started: from loops looked at to trades sent. */
+  stats: { since: Date.now(), passes: 0, loopsChecked: 0, dryRunLoops: 0, confirmed: 0, finalFails: 0, sent: 0, failedTx: 0 },
   scan: null as null | {
     at: number
     ms: number
@@ -393,6 +401,8 @@ const state = {
     swaps: number
     changedPools: number
     fullAt: number
+    feed: 'blocks' | 'logs'
+    block: number
     lagSec: number
     swapsSeen: number
     simulated: number
@@ -577,6 +587,24 @@ interface Market {
 
 let market: Market | null = null
 
+/** Pools that blocks changed since the last pass, and the swaps among those changes. */
+const pendingChanged = new Set<ClmmPool>()
+let pendingSwaps = 0
+
+/** The main feed: every block, about a second after it is made, through the trace API. */
+const follower = new BlockFollower(
+  endpointPool,
+  (path, body) => rpc(path, body),
+  (actions) => {
+    if (!market) return
+    const { changed, swaps } = applyLogs(market, actions as LogAction[])
+    for (const p of changed) pendingChanged.add(p)
+    pendingSwaps += swaps
+    if (changed.size) requestPass()
+  }
+)
+follower.onRequest = (kind) => countRequest(kind === 'block' ? '/v1/trace_api/get_block' : '/v1/chain/get_info')
+
 /** Where the log polling stands, for the page. */
 const watch = {
   /** Newest log timestamp handled, per exchange (ms), and the last sequence numbers seen. */
@@ -714,8 +742,8 @@ async function buildMarket(): Promise<Market> {
   }
 }
 
-/** The swap logs since the last poll, applied to the pools in memory; returns the pools that changed. */
-async function pollLogs(m: Market): Promise<{ changed: Set<ClmmPool>; swaps: number }> {
+/** The swap logs since the last poll, from the history nodes (the fallback feed). */
+async function fetchLogs(): Promise<LogAction[]> {
   const iso = (ms: number) => new Date(ms - 1000).toISOString().slice(0, 19)
   const [alcorLogs, tacoLogs] = await Promise.all([
     history({
@@ -734,10 +762,15 @@ async function pollLogs(m: Market): Promise<{ changed: Set<ClmmPool>; swaps: num
     })
   ])
   watch.lastPollAt = Date.now()
+  return [...alcorLogs, ...tacoLogs]
+}
+
+/** Swap logs, from either feed, applied to the pools in memory; returns the pools that changed. */
+function applyLogs(m: Market, logs: LogAction[]): { changed: Set<ClmmPool>; swaps: number } {
   const changed = new Set<ClmmPool>()
   let swaps = 0
   let newest = 0
-  for (const a of [...alcorLogs, ...tacoLogs]) {
+  for (const a of logs) {
     const seq = String(a.global_sequence)
     if (watch.seen.has(seq)) continue
     watch.seen.add(seq)
@@ -844,6 +877,9 @@ let lastBalanceAt = 0
  */
 async function scanOnce() {
   const started = Date.now()
+  // When the newest block behind this pass was made: the clock for the reaction time of a trade.
+  const triggerAt = follower.healthy ? follower.blockTime : 0
+  state.stats.passes++
   if (Date.now() - lastBalanceAt > 30_000) {
     await refreshBalances()
     lastBalanceAt = Date.now()
@@ -858,21 +894,31 @@ async function scanOnce() {
     mode = 'full'
     market = await buildMarket()
     watch.failures = 0
+    pendingChanged.clear()
+    pendingSwaps = 0
     candidates = market.loops
   } else {
-    try {
-      const { changed, swaps: n } = await pollLogs(market!)
-      watch.failures = 0
-      swaps = n
-      changedCount = changed.size
-      const set = new Set<Loop>()
-      for (const p of changed) for (const l of market!.loopsByPool.get(poolName(p)) ?? []) set.add(l)
-      candidates = [...set]
-      candidates.forEach(remargin)
-    } catch (err) {
-      watch.failures++
-      throw new Error(`Could not read the swap logs (${chainError(err)}); a full read follows if this repeats`)
+    // The blocks feed the pools as they come; the history logs only fill in while the blocks stall.
+    if (!follower.healthy) {
+      try {
+        const r = applyLogs(market!, await fetchLogs())
+        for (const p of r.changed) pendingChanged.add(p)
+        pendingSwaps += r.swaps
+        watch.failures = 0
+      } catch (err) {
+        watch.failures++
+        throw new Error(`Could not read the swap logs (${chainError(err)}); a full read follows if this repeats`)
+      }
     }
+    const changed = [...pendingChanged]
+    pendingChanged.clear()
+    swaps = pendingSwaps
+    pendingSwaps = 0
+    changedCount = changed.length
+    const set = new Set<Loop>()
+    for (const p of changed) for (const l of market!.loopsByPool.get(poolName(p)) ?? []) set.add(l)
+    candidates = [...set]
+    candidates.forEach(remargin)
   }
   const m = market!
 
@@ -940,6 +986,9 @@ async function scanOnce() {
     })
   }
   confirmed.sort((a, b) => b.profitWax - a.profitWax)
+  state.stats.loopsChecked += candidates.length
+  state.stats.dryRunLoops += screened.length
+  state.stats.confirmed += confirmed.length
 
   state.scan = {
     at: Date.now(),
@@ -952,7 +1001,9 @@ async function scanOnce() {
     swaps,
     changedPools: changedCount,
     fullAt: m.at,
-    lagSec: watch.lagSec,
+    feed: follower.healthy ? 'blocks' : 'logs',
+    block: follower.block,
+    lagSec: follower.healthy ? follower.lagSec : watch.lagSec,
     swapsSeen: watch.swapsSeen,
     simulated: promising.length,
     dryRun: screened.length,
@@ -982,21 +1033,15 @@ async function scanOnce() {
     )
     return
   }
-  // Right before signing: read this route's pools and ticks again, size it again to the wallet, and
-  // let the contract confirm it once more. Only a route that still clears the minimum is signed.
-  const fresh = await refreshRoute(best.loop)
-  await refreshBalances()
-  lastBalanceAt = Date.now()
-  const held = heldOf(fresh.start.id)
-  const cap = Math.min(held, best.startWax > 0 ? settings.maxTradeWax / best.startWax : 0)
-  if (!(cap > 0)) return
-  const guess = Math.min(cap, Math.max(bestSize(fresh, cap).amount, best.input))
-  const { best: now, error } = await verifyLoop(rpc, ACCOUNT, fresh, guess, cap)
-  if (!now || !(now.profit > 0)) {
-    log(`Skipped ${best.route.join(' > ')}: gone on the final check${error ? ` (${error})` : ''}`)
+  // Right before signing: one more dry run of exactly this trade against the chain as it is now
+  // (a dry run runs on the node's newest state). Only if it still pays is it signed.
+  const check = await dryRunLoop(rpc, ACCOUNT, best.loop, best.input)
+  if (!check.ok || !(check.received - check.paid > 0)) {
+    state.stats.finalFails++
+    log(`Skipped ${best.route.join(' > ')}: gone on the final check${!check.ok ? ` (${check.error})` : ''}`)
     return
   }
-  await execute(fresh, now.amount, now.received, best.startWax)
+  await execute(best.loop, check.paid, check.received, best.startWax, triggerAt)
 }
 
 /** The loop with its pools and ticks read straight from the chain, bypassing every cache. */
@@ -1033,7 +1078,7 @@ async function refreshRoute(loop: Loop): Promise<Loop> {
 
 // ---- Signing ---------------------------------------------------------------------------------------
 
-async function execute(loop: Loop, input: number, expectedOut: number, startWax: number) {
+async function execute(loop: Loop, input: number, expectedOut: number, startWax: number, triggerAt = 0) {
   const t = loop.start
   const unit = 10 ** -t.decimals
   // At least the minimum profit back, or the transaction fails as a whole.
@@ -1059,7 +1104,9 @@ async function execute(loop: Loop, input: number, expectedOut: number, startWax:
     const { tx, chainId } = await buildTransaction(rpc, loopActions(ACCOUNT, PERMISSION, loop, input, minOut))
     const signature = signer!.signDigest(tx.signingDigest(chainId))
     const packed = PackedTransaction.fromSigned(SignedTransaction.from({ ...tx, signatures: [signature] }))
-    const res = (await rpc('/v1/chain/push_transaction', packed)) as { transaction_id: string; processed: unknown }
+    countRequest('/v1/chain/push_transaction')
+    state.stats.sent++
+    const res = (await poolPushFastest(endpointPool, packed)) as { transaction_id: string; processed: unknown }
     const flows = loopFlows(res.processed, ACCOUNT, t)
     trade.trxId = res.transaction_id
     trade.output = flows.received
@@ -1067,11 +1114,13 @@ async function execute(loop: Loop, input: number, expectedOut: number, startWax:
     trade.profitWax = trade.profit * startWax
     trade.input = flows.paid || input
     trade.status = 'done'
+    if (triggerAt) trade.reactionMs = Date.now() - triggerAt
     log(
       `Ran ${trade.route.join(' > ')}: ${trade.input} ${t.symbol} in, ${trade.output} back, ${trade.profit >= 0 ? '+' : ''}${trade.profit.toFixed(t.decimals)} ${t.symbol}`
     )
   } catch (err) {
     trade.error = chainError(err)
+    state.stats.failedTx++
     log(`Failed ${trade.route.join(' > ')}: ${trade.error}`)
   }
   saveTrade(trade)
@@ -1081,6 +1130,19 @@ async function execute(loop: Loop, input: number, expectedOut: number, startWax:
 // ---- The loop ----------------------------------------------------------------------------------------
 
 let timer: NodeJS.Timeout | null = null
+/** A block changed pools while a pass ran: run another right after it. */
+let passQueued = false
+
+/** Runs a pass now, or right after the current one. */
+function requestPass() {
+  if (!state.running) return
+  if (state.busy) {
+    passQueued = true
+    return
+  }
+  if (timer) clearTimeout(timer)
+  void tick()
+}
 
 async function tick() {
   if (!state.running || state.busy) return
@@ -1096,7 +1158,12 @@ async function tick() {
     state.busy = false
     // Start to start: the next scan begins one interval after this one began (at once if it overran).
     const wait = Math.max(0, settings.pollSec * 1000 - (Date.now() - startedAt))
-    if (state.running) timer = setTimeout(() => void tick(), wait)
+    if (state.running) {
+      if (passQueued) {
+        passQueued = false
+        timer = setTimeout(() => void tick(), 0)
+      } else timer = setTimeout(() => void tick(), wait)
+    }
   }
 }
 
@@ -1105,12 +1172,14 @@ function start() {
   state.running = true
   rememberRunning(true)
   log(signer && !settings.watchOnly ? `Started: trading for ${ACCOUNT}@${PERMISSION}` : 'Started in watch-only mode')
+  follower.start()
   void tick()
 }
 
 function stop() {
   state.running = false
   rememberRunning(false)
+  follower.stop()
   if (timer) clearTimeout(timer)
   timer = null
   log('Stopped')
@@ -1139,6 +1208,7 @@ function snapshot() {
     settings,
     balances: state.balances,
     cpu: state.cpu,
+    stats: state.stats,
     scan: state.scan,
     lastError: state.lastError,
     log: state.log,

@@ -4,7 +4,7 @@
  * without dry runs (compute_transaction) or without the history API is only used for what it has.
  */
 
-export type Capability = 'chain' | 'compute' | 'history'
+export type Capability = 'chain' | 'compute' | 'history' | 'trace'
 
 /** Public WAX nodes; the list the web app uses, plus history nodes. */
 const DEFAULT_NODES = [
@@ -32,6 +32,8 @@ export interface Endpoint {
   url: string
   chain: boolean
   history: boolean
+  /** Serves /v1/trace_api/get_block: every action of a block, as soon as the block is made. */
+  trace: boolean
   /** False once the node refused a dry run as unsupported. */
   compute: boolean
   /** Round trip of the last probe, in ms. */
@@ -47,6 +49,8 @@ export interface Endpoint {
 
 const PROBE_TIMEOUT_MS = 3500
 const REPROBE_MS = 10 * 60_000
+/** With no usable node at all, the nodes are tested again this soon. */
+const RETEST_WHEN_NONE_MS = 15_000
 const BENCH_MS = 60_000
 const BENCH_RATE_LIMIT_MS = 120_000
 const MAX_HEAD_LAG_S = 60
@@ -54,7 +58,7 @@ const MAX_HEAD_LAG_S = 60
 export class EndpointPool {
   endpoints: Endpoint[]
   probedAt = 0
-  private turn: Record<Capability, number> = { chain: 0, compute: 0, history: 0 }
+  private turn: Record<Capability, number> = { chain: 0, compute: 0, history: 0, trace: 0 }
 
   constructor(extra: string[] = []) {
     const urls = [...new Set([...extra, ...DEFAULT_NODES].map((u) => u.trim().replace(/\/$/, '')).filter(Boolean))]
@@ -62,6 +66,7 @@ export class EndpointPool {
       url,
       chain: false,
       history: false,
+      trace: false,
       compute: true,
       latency: 0,
       lag: 0,
@@ -88,6 +93,18 @@ export class EndpointPool {
           e.lag = info.head_block_time ? (Date.now() - Date.parse(info.head_block_time + 'Z')) / 1000 : Infinity
           e.chain = res.ok && !!info.chain_id && e.lag < MAX_HEAD_LAG_S
           if (!e.chain) e.lastError = res.ok ? `head block ${Math.round(e.lag)} s behind` : `HTTP ${res.status}`
+          // A node that answers the test is back in the rotation, whatever rest it was given before.
+          else e.benchedUntil = 0
+          // The trace API, asked for a block just behind the head.
+          e.trace = false
+          if (e.chain && typeof (info as { head_block_num?: number }).head_block_num === 'number') {
+            const t = await fetch(`${e.url}/v1/trace_api/get_block`, {
+              method: 'POST',
+              body: JSON.stringify({ block_num: (info as { head_block_num: number }).head_block_num - 2 }),
+              signal: AbortSignal.timeout(PROBE_TIMEOUT_MS)
+            })
+            e.trace = t.ok && Array.isArray(((await t.json()) as { transactions?: unknown[] }).transactions)
+          }
         } catch (err) {
           e.chain = false
           e.lastError = err instanceof Error ? err.message : String(err)
@@ -107,13 +124,20 @@ export class EndpointPool {
     this.probedAt = Date.now()
   }
 
+  /**
+   * Tests the nodes when the last test is old, and much sooner when no node is usable right now:
+   * after the computer slept, or the network dropped, every node may have failed the last test.
+   */
   async ensureProbed() {
-    if (Date.now() - this.probedAt > REPROBE_MS) await this.probe()
+    const now = Date.now()
+    const none = !this.endpoints.some((e) => e.chain && e.benchedUntil <= now)
+    if (now - this.probedAt > REPROBE_MS || (none && now - this.probedAt > RETEST_WHEN_NONE_MS)) await this.probe()
   }
 
   private usable(e: Endpoint, cap: Capability, now: number) {
     if (e.benchedUntil > now) return false
     if (cap === 'history') return e.history
+    if (cap === 'trace') return e.trace
     if (cap === 'compute') return e.chain && e.compute
     return e.chain
   }
@@ -148,6 +172,7 @@ export class EndpointPool {
           url: e.url.replace(/^https:\/\//, ''),
           chain: e.chain,
           history: e.history,
+          trace: e.trace,
           compute: e.compute,
           latency: e.latency,
           benched: e.benchedUntil > now,
@@ -224,4 +249,90 @@ export async function poolHistory<T>(pool: EndpointPool, query: string, attempts
     }
   }
   throw last instanceof Error ? last : new Error(String(last))
+}
+
+export interface TraceBlock {
+  number: number
+  id: string
+  status: string
+  /** ISO time with a trailing Z. */
+  timestamp: string
+  transactions: {
+    id: string
+    actions: { global_sequence: string; receiver: string; account: string; action: string; data: string }[]
+  }[]
+}
+
+/**
+ * One block's traces from a trace node, or null when no node has it yet (it is newer than their
+ * head). Nodes are tried in turn; a node that errors rests like any other.
+ */
+export async function poolTraceBlock(pool: EndpointPool, blockNum: number, attempts = 2): Promise<TraceBlock | null> {
+  await pool.ensureProbed()
+  const tried = new Set<string>()
+  for (let i = 0; i < attempts; i++) {
+    const e = pool.pick('trace', tried)
+    if (!e) return null
+    tried.add(e.url)
+    try {
+      const res = await fetch(`${e.url}/v1/trace_api/get_block`, {
+        method: 'POST',
+        body: JSON.stringify({ block_num: blockNum }),
+        signal: AbortSignal.timeout(4000)
+      })
+      if (res.ok) return (await res.json()) as TraceBlock
+      // Not produced yet on this node: not an error, just too early.
+      if (res.status === 400 || res.status === 404) continue
+      pool.fail(e, `trace HTTP ${res.status}`, res.status === 429)
+    } catch (err) {
+      pool.fail(e, err instanceof Error ? err.message : String(err))
+    }
+  }
+  return null
+}
+
+/** The newest block number, from the fastest trace node. */
+export async function poolHead(pool: EndpointPool): Promise<number> {
+  await pool.ensureProbed()
+  const e = pool.pick('trace') ?? pool.pick('chain')
+  if (!e) throw new Error('No WAX node is available right now')
+  const res = await fetch(`${e.url}/v1/chain/get_info`, { method: 'POST', body: '{}', signal: AbortSignal.timeout(4000) })
+  const info = (await res.json()) as { head_block_num: number }
+  return info.head_block_num
+}
+
+/**
+ * Sends a signed transaction to the fastest nodes at once and returns the first acceptance. The
+ * others then refuse it as a duplicate, which changes nothing. A refusal of the transaction itself
+ * (an assertion, CPU) is returned if no node accepts it.
+ */
+export async function poolPushFastest(pool: EndpointPool, packed: unknown, fanout = 2): Promise<unknown> {
+  await pool.ensureProbed()
+  const now = Date.now()
+  const nodes = pool.endpoints
+    .filter((e) => e.chain && e.benchedUntil <= now)
+    .sort((a, b) => a.latency - b.latency)
+    .slice(0, fanout)
+  if (!nodes.length) return poolCall(pool, '/v1/chain/push_transaction', packed)
+  const attempts = nodes.map(async (e) => {
+    e.recent.push(Date.now())
+    const res = await fetch(e.url + '/v1/chain/push_transaction', {
+      method: 'POST',
+      body: JSON.stringify(packed),
+      signal: AbortSignal.timeout(15_000)
+    })
+    const json = (await res.json().catch(() => null)) as {
+      error?: { name?: string; what?: string; details?: { message?: string }[] }
+    } | null
+    if (res.ok) return json
+    const message = json?.error?.details?.[0]?.message ?? json?.error?.what ?? `HTTP ${res.status}`
+    throw Object.assign(new Error(message), { json })
+  })
+  try {
+    return await Promise.any(attempts)
+  } catch (err) {
+    // Every node refused: report the most telling refusal (not a duplicate).
+    const errors = (err as AggregateError).errors ?? [err]
+    throw errors.find((x: Error) => !/duplicate/i.test(x.message)) ?? errors[0]
+  }
 }
