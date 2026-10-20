@@ -8,6 +8,7 @@ import {
   type SaleToReprice
 } from '@/chain/actions/market'
 import { ZoomImg, rarityColor } from '@/components/Art'
+import { StarRail } from '@/components/Stars'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Tooltip } from '@/components/Tooltip'
@@ -214,6 +215,7 @@ export function Inventory({ account, listings }: { account: string | null; listi
                     <small style={{ color: rarityColor(g.rarity) }}>
                       {titleCase(g.rarity)} {SINGULAR[g.kind]}
                     </small>
+                    <StarRail templateId={g.templateId} rarity={g.rarity} size="sm" />
                   </span>
                 </span>
                 <span className="num">

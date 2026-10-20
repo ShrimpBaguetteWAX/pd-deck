@@ -6,6 +6,7 @@ import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Modal } from '@/components/Modal'
 import { StatTrio } from '@/components/Stat'
+import { StarRail } from '@/components/Stars'
 import { toast } from '@/components/toast'
 import type { AssetRef } from '@/data/assets'
 import { useArmy, useMissionConfig, type Division } from '@/data/game'
@@ -420,6 +421,7 @@ export function MissionDivisionModal({
                           <span className="mdiv__unit-name" style={{ color: rarityColor(merc.rarity) }}>
                             {merc.name}
                           </span>
+                          <StarRail asset={merc} size="sm" />
                           <span className="mdiv__unit-gear">
                             {GEAR_KINDS.filter((k) => u.gear[k]).map((k) => {
                               const g = plan.assets.get(u.gear[k]!.key)!
@@ -427,6 +429,7 @@ export function MissionDivisionModal({
                                 <span key={k} className="mdiv__gear" title={g.name}>
                                   <CardArt asset={g} shape="square" className="mdiv__gear-art" />
                                   <small>{g.name}</small>
+                                  <StarRail asset={g} size="sm" />
                                 </span>
                               )
                             })}

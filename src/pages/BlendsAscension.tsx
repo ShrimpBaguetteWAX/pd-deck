@@ -6,6 +6,7 @@ import { CardArt, rarityColor, ZoomImg } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure } from '@/components/Stat'
+import { StarRail } from '@/components/Stars'
 import { Tooltip } from '@/components/Tooltip'
 import type { AssetRef } from '@/data/assets'
 import { costKey, expectedYield, useAscensionConfig, usePendingBurns } from '@/data/ascension'
@@ -156,7 +157,8 @@ function AscendList({
         <p className="faint bl-explain">
           A card goes up one star at a time, for Fragments; the card and the Fragments are burned and the next tier of the same
           card is minted to you at once. Each star adds stats; a card with N stars needs Forge level N to be equipped. Common,
-          Uncommon and Rare cards go to 3 stars, Epic and above to 5. Only creatures and supplies can ascend so far.
+          Uncommon and Rare cards go to 3 stars, Epic and above to 5. Warlords, creatures, supplies and Lava Lux can ascend;
+          mercenaries and weapons cannot yet.
         </p>
       </div>
       {rows.length === 0 ? (
@@ -177,8 +179,9 @@ function AscendList({
                   <div className="bl-result__text">
                     <b>{r.sample.name}</b>
                     <small style={{ color: rarityColor(r.sample.rarity) }}>
-                      {r.sample.rarity} {KIND_LABEL[kindOf(st)!] ?? ''} · {starText(r.from)} · you have {r.cards.length}
+                      {r.sample.rarity} {KIND_LABEL[kindOf(st)!] ?? ''} · you have {r.cards.length}
                     </small>
+                    <StarRail asset={r.sample} size="sm" />
                   </div>
                 </div>
                 <div className="asc__change num">
@@ -331,8 +334,9 @@ function SacrificeList({
                   <span>
                     <b>{r.sample.name}</b>
                     <small style={{ color: rarityColor(r.sample.rarity) }}>
-                      {r.sample.rarity} · {starText(stars(r.sample))} · you have {r.cards.length}
+                      {r.sample.rarity} · you have {r.cards.length}
                     </small>
+                    <StarRail asset={r.sample} size="sm" />
                   </span>
                 </span>
                 <Tooltip

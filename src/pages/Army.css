@@ -1207,3 +1207,24 @@
   border-color: var(--cyan);
   outline: 0;
 }
+
+/* Ascension stars on a gear slot: the slot only has room for the art, so a small capsule at its foot. */
+.gear__stars {
+  position: absolute;
+  left: 50%;
+  bottom: 2px;
+  transform: translateX(-50%);
+  padding: 1px 3px;
+  border-radius: 999px;
+  background: rgba(6, 10, 20, 0.82);
+  pointer-events: none;
+}
+
+.gear__stars .stars__star {
+  width: 8px;
+  height: 8px;
+}
+
+.gear__stars .stars__count {
+  display: none;
+}

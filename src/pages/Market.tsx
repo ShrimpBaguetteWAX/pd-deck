@@ -12,6 +12,7 @@ import { CardArt, PlanetIcon, rarityColor, TokenIcon } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure, StatTrio } from '@/components/Stat'
+import { StarRail } from '@/components/Stars'
 import { toast } from '@/components/toast'
 import { Tooltip } from '@/components/Tooltip'
 import { makeAssetRef, type AssetRef } from '@/data/assets'
@@ -1406,6 +1407,7 @@ function BundleCard({ source, role, small = false }: { source: Source; role: str
         <b className="mk-card__name" title={a.name}>
           {a.name}
         </b>
+        <StarRail asset={a} size="sm" />
         {st && !small && st.category !== 0 && <StatTrio atk={st.attack} def={st.defense} move={st.movecost} size="sm" />}
         {st && small && (
           <span className="mk-card__gain num">
@@ -1593,9 +1595,9 @@ function ListingBrowser({
                 <b>{l.asset.name}</b>
                 <small style={{ color: rarityColor(l.asset.rarity) }}>
                   {titleCase(l.asset.rarity || '')} {KIND_LABEL[l.kind].toLowerCase()}
-                  {l.asset.info?.stars ? ` ${'★'.repeat(l.asset.info.stars)}` : ''}
                   {locked ? ` · needs forge Lv ${st?.min_forge_level}` : ''}
                 </small>
+                <StarRail asset={l.asset} size="sm" />
               </span>
               <span className="mk-row__stats">
                 {l.kind === 'warlord' ? (

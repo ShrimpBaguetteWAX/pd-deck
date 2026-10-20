@@ -1,0 +1,44 @@
+/* Ascension stars under a card's name: filled gold for the stars it has, outlined for those it can still earn. */
+
+.stars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.stars__star {
+  flex: none;
+  width: 13px;
+  height: 13px;
+}
+
+.stars--sm .stars__star {
+  width: 11px;
+  height: 11px;
+}
+
+.stars__star.is-on {
+  fill: var(--tlm);
+  filter: drop-shadow(0 0 3px color-mix(in srgb, var(--tlm) 55%, transparent));
+}
+
+.stars__star.is-off {
+  fill: none;
+  stroke: color-mix(in srgb, var(--tlm) 45%, transparent);
+  stroke-width: 1.6;
+}
+
+.stars__count {
+  margin-left: 4px;
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.stars--sm .stars__count {
+  font-size: 10px;
+}

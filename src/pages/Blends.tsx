@@ -8,6 +8,7 @@ import { rarityColor, ZoomImg } from '@/components/Art'
 import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Figure, StatTrio } from '@/components/Stat'
+import { StarRail } from '@/components/Stars'
 import { Tooltip } from '@/components/Tooltip'
 import {
   QUANTUM_CHEST,
@@ -322,6 +323,7 @@ function Recipes({
                   <small style={{ color: rarityColor(r.template?.rarity) }}>
                     {r.template?.rarity} {SINGULAR[r.schema] ?? r.schema}
                   </small>
+                  <StarRail templateId={String(r.result)} rarity={r.template?.rarity} size="sm" />
                   {st && <StatTrio atk={st.attack} def={st.defense} move={st.movecost} size="sm" />}
                   <small className="faint">
                     {r.left === Infinity ? 'unlimited' : r.left <= 0 ? 'minted out' : `${formatNumber(r.left, 0)} left to mint`}
@@ -417,6 +419,7 @@ function IngredientChip({ ing, market, line }: { ing: Ingredient; market: Market
       >
         {t?.img && <ZoomImg hash={t.img} alt="" className="bl-ing__art" name={t.name} rarity={t.rarity} />}
         <span className="bl-ing__name">{label}</span>
+        {ing.type === 'template' && <StarRail templateId={ing.templateId} rarity={t?.rarity} size="sm" />}
         <b className="num">
           {have}/{ing.amount}
         </b>
@@ -463,6 +466,7 @@ function Materials({ materials }: { materials: MaterialValue[] }) {
                     {m.rarity}
                     {m.owned ? ` · you own ${m.owned}` : ''}
                   </small>
+                  <StarRail templateId={m.templateId} rarity={m.rarity} size="sm" />
                 </span>
               </span>
               <span className="num">
@@ -616,6 +620,7 @@ function Chests({
                         <small className="faint num">
                           {percent(out.chance, 0)} · {m?.worth != null ? `worth ${wax(m.worth)}` : 'no price yet'}
                         </small>
+                        <StarRail templateId={out.templateId} rarity={m?.rarity} size="sm" />
                       </span>
                     </span>
                   )
@@ -911,6 +916,7 @@ function RevealPanel({
               {i.tpl?.rarity}
               {i.mv?.value != null ? ` · ${wax(i.mv.value)} each` : ''}
             </small>
+            <StarRail templateId={String(i.t)} rarity={i.tpl?.rarity} size="sm" />
           </div>
         ))}
       </div>

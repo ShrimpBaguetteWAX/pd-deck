@@ -7,6 +7,7 @@ import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Modal } from '@/components/Modal'
 import { Figure, StatTrio } from '@/components/Stat'
+import { StarRail } from '@/components/Stars'
 import { Ticking } from '@/components/Ticking'
 import { Tooltip } from '@/components/Tooltip'
 import type { AssetRef } from '@/data/assets'
@@ -335,8 +336,8 @@ export default function Army() {
                     )}
                     {' · '}
                     {selected.slotsMax} mercenary slots
-                    {selected.leader?.info?.stars ? ` · ${'★'.repeat(selected.leader.info.stars)}` : ''}
                   </p>
+                  <StarRail asset={selected.leader} />
                   <div className="board__stats">
                     <StatTrio atk={selected.atk} def={selected.def} move={selected.move} size="lg" help />
                     {!selected.fresh && (
@@ -726,8 +727,8 @@ function AutoPreview({
                   <b>{l.asset.name}</b>
                   <small style={{ color: rarityColor(l.asset.rarity) }}>
                     {titleCase(l.asset.rarity || '')} {l.kind ? KIND_LABEL[l.kind].toLowerCase() : 'mercenary'}
-                    {l.asset.info?.stars ? ` ${'★'.repeat(l.asset.info.stars)}` : ''}
                   </small>
+                  <StarRail asset={l.asset} size="sm" />
                 </span>
                 {l.unit && (
                   <span className="autoprev__onto">
@@ -812,6 +813,7 @@ function UnitCard({ unit, budget, onPick, onUnassign, onRemove, pending }: UnitC
             <span style={{ color: rarityColor(unit.asset.rarity) }}>{titleCase(unit.asset.rarity || 'unit')}</span>
             {unit.asset.info?.type ? ` · ${unit.asset.info.type}` : ''}
           </span>
+          <StarRail asset={unit.asset} size="sm" />
           <Tooltip
             text={
               <>
@@ -853,6 +855,7 @@ function UnitCard({ unit, budget, onPick, onUnassign, onRemove, pending }: UnitC
                 onClick={() => void onUnassign(g)}
               >
                 <CardArt asset={g} shape="square" />
+                <StarRail asset={g} size="sm" className="gear__stars" />
                 <span className="gear__x">
                   <XIcon width={12} height={12} />
                 </span>
@@ -951,8 +954,8 @@ function PickerModal({ kind, unit, division, pool, budget, forgeLevel, pending, 
                   </span>
                   <span className="pick__meta" style={{ color: rarityColor(a.rarity) }}>
                     {titleCase(a.rarity || '')}
-                    {a.info?.stars ? ` ${'★'.repeat(a.info.stars)}` : ''}
                   </span>
+                  <StarRail asset={a} size="sm" />
                   {a.stats && kind !== 'lavalux' && (
                     <StatTrio
                       atk={a.stats.attack}
@@ -1161,6 +1164,7 @@ function StakeModal({ account, mode, onClose }: { account: string | null; mode: 
                   <span className="pick__meta" style={{ color: rarityColor(a.rarity) }}>
                     {titleCase(a.rarity || '')}
                   </span>
+                  <StarRail asset={a} size="sm" />
                 </span>
                 {!excluded.has(a.assetId) && (
                   <span className="stake__check">
@@ -1279,8 +1283,8 @@ function CreateDivisionModal({
                   <span className="pick__name">{asset.name}</span>
                   <span className="pick__meta" style={{ color: rarityColor(asset.rarity) }}>
                     {titleCase(asset.rarity || '')}
-                    {asset.info?.stars ? ` ${'★'.repeat(asset.info.stars)}` : ''}
                   </span>
+                  <StarRail asset={asset} size="sm" />
                   <span className="pick__mult">
                     {asset.stats?.slots_max ?? '?'} slots
                     {staked ? '' : ' · in wallet'}
