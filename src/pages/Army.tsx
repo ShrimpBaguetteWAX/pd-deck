@@ -21,7 +21,7 @@ import {
   type Division,
   type Unit
 } from '@/data/game'
-import { CheckIcon, ChevronIcon, GiftIcon, LockIcon, PlusIcon, SparkIcon, TimerIcon, XIcon } from '@/icons'
+import { CheckIcon, ChevronIcon, GiftIcon, LockIcon, PlusIcon, SparkIcon, SwapIcon, TimerIcon, XIcon } from '@/icons'
 import { bestLoop } from '@/lib/armyOptimizer'
 import { formatDuration, formatNumber } from '@/lib/format'
 import { missionEconomics } from '@/lib/loop'
@@ -68,6 +68,9 @@ export default function Army() {
   const [disbandAllOpen, setDisbandAllOpen] = useState(false)
   const [missionOpen, setMissionOpen] = useState(false)
   const [optimizeOpen, setOptimizeOpen] = useState(false)
+  /** A mercenary on its way to another division: being dragged, or picked with its Move button. */
+  const [moving, setMoving] = useState<{ unit: Unit; from: Division } | null>(null)
+  const [dropId, setDropId] = useState<number | null>(null)
   const config = useMissionConfig()
   const market = useMarket()
 
@@ -77,6 +80,18 @@ export default function Army() {
   useEffect(() => {
     if (selected && selected.id !== selectedId) setSelectedId(selected.id)
   }, [selected, selectedId])
+
+  useEffect(() => {
+    if (!moving) return
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setMoving(null)
+        setDropId(null)
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [moving])
 
   const readyByDivision = useMemo(() => {
     const m = new Map<number, number>()
@@ -190,6 +205,56 @@ export default function Army() {
     if (ok) setSelectedId(null)
   }
 
+  /**
+   * Moves a mercenary with all its gear to another division in one transaction: each piece of gear
+   * off, out of its division, into the other one, each piece back on. The gear stays equipped, so the
+   * Forge slot budget does not change.
+   */
+  async function moveUnit(target: Division) {
+    if (!moving) return
+    const { unit, from } = moving
+    setMoving(null)
+    setDropId(null)
+    if (!canReceive(target)) return
+    const gear = GEAR_KINDS.flatMap((k) => (unit.gear[k] ? [[k, unit.gear[k]!] as const] : []))
+    const ok = await run(
+      (a, p) => [
+        ...gear.map(([, g]) => unassignGear(a, p, from.id, unit.asset.assetId, g.assetId)),
+        removeUnit(a, p, unit.asset.assetId),
+        addUnit(a, p, target.id, unit.asset.assetId),
+        ...gear.map(([k, g]) => assignGear(a, p, target.id, unit.asset.assetId, k, g.assetId))
+      ],
+      `${unit.asset.name} moved to division #${target.id}${gear.length ? ` with ${gear.length} gear` : ''}`,
+      `move-${unit.asset.assetId}`
+    )
+    if (ok) setSelectedId(target.id)
+  }
+
+  /** Whether a division can take the mercenary being moved: another one, at home, with a free slot. */
+  const canReceive = (d: Division) => {
+    if (!moving || d.id === moving.from.id) return false
+    const tone = stateOf(d).tone
+    return (tone === 'is-idle' || tone === 'is-empty') && d.units.length < d.slotsMax
+  }
+  /** Why a division cannot take it, for the rail. */
+  const refuseReason = (d: Division) => {
+    if (!moving || d.id === moving.from.id) return ''
+    const tone = stateOf(d).tone
+    if (tone === 'is-away') return 'on a mission'
+    if (tone === 'is-ready') return 'reward to claim'
+    return d.units.length >= d.slotsMax ? 'full' : ''
+  }
+  /** What the mercenary brings with its gear, for the preview on the rail. */
+  const movingTotals = moving
+    ? unitTotals({
+        unit: moving.unit.asset.stats,
+        weapon: moving.unit.gear.weapon?.stats,
+        supply: moving.unit.gear.supply?.stats,
+        creature: moving.unit.gear.creature?.stats,
+        lavalux: moving.unit.gear.lavalux?.stats
+      })
+    : null
+
   // The contract refuses changes while a division is out or its last reward is unclaimed.
   const selectedState = selected ? stateOf(selected) : null
   const editable = !!selectedState && (selectedState.tone === 'is-idle' || selectedState.tone === 'is-empty')
@@ -281,12 +346,27 @@ export default function Army() {
           <aside className="rail">
             {divisions.map((d) => {
               const st = stateOf(d)
+              const ok = canReceive(d)
+              const refused = moving ? refuseReason(d) : ''
+              const dropState = !moving || d.id === moving.from.id ? '' : ok ? 'is-drop-ok' : 'is-drop-no'
               return (
                 <button
                   key={d.id}
                   type="button"
-                  className={`rail__item ${selected?.id === d.id ? 'is-selected' : ''} ${st.tone}`}
-                  onClick={() => setSelectedId(d.id)}
+                  className={`rail__item ${selected?.id === d.id ? 'is-selected' : ''} ${st.tone} ${dropState} ${dropId === d.id && ok ? 'is-drop-hover' : ''}`}
+                  title={ok ? `Move ${moving!.unit.asset.name} here` : refused ? `Cannot take it: ${refused}` : undefined}
+                  onClick={() => (moving ? (ok ? void moveUnit(d) : undefined) : setSelectedId(d.id))}
+                  onDragOver={(e) => {
+                    if (!ok) return
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    if (dropId !== d.id) setDropId(d.id)
+                  }}
+                  onDragLeave={() => dropId === d.id && setDropId(null)}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    if (ok) void moveUnit(d)
+                  }}
                 >
                   {d.leader ? (
                     <CardArt asset={d.leader} shape="square" className="rail__art" />
@@ -300,7 +380,17 @@ export default function Army() {
                         {st.until ? <Ticking render={(t) => shortDuration(st.until! - t)} /> : st.label}
                       </span>
                     </span>
-                    <StatTrio atk={d.atk} def={d.def} move={d.move} size="sm" />
+                    {ok && movingTotals ? (
+                      <span className="rail__gain num" aria-label="After the move">
+                        <span className="c-atk">{(d.atk + movingTotals.atk).toLocaleString('en-US')}</span>
+                        <span className="c-def">{(d.def + movingTotals.def).toLocaleString('en-US')}</span>
+                        <span className="c-mov">{(d.move + movingTotals.move).toLocaleString('en-US')}</span>
+                        <small>after</small>
+                      </span>
+                    ) : (
+                      <StatTrio atk={d.atk} def={d.def} move={d.move} size="sm" />
+                    )}
+                    {refused && <small className="rail__refuse">{refused}</small>}
                     <span className="rail__slots">
                       <span className="progress">
                         <span
@@ -427,6 +517,19 @@ export default function Army() {
                 </p>
               )}
 
+              {moving && moving.from.id === selected.id && (
+                <p className="board__moving">
+                  <SwapIcon width={14} height={14} />
+                  <span>
+                    Drop <b>{moving.unit.asset.name}</b> on one of the lit divisions, or click one, to move it there with its
+                    gear. Esc cancels.
+                  </span>
+                  <button type="button" className="mk-link" onClick={() => setMoving(null)}>
+                    Cancel
+                  </button>
+                </p>
+              )}
+
               <div className={`slots ${editable ? '' : 'is-frozen'}`}>
                 {selected.units.map((unit) => (
                   <UnitCard
@@ -434,6 +537,14 @@ export default function Army() {
                     unit={unit}
                     division={selected}
                     budget={gearBudget}
+                    movable={editable && divisions.length > 1}
+                    isMoving={moving?.unit.asset.assetId === unit.asset.assetId}
+                    onMoveStart={() => setMoving({ unit, from: selected })}
+                    onMoveEnd={() => {
+                      setDropId(null)
+                      // A drop finishes the move itself; a drag let go elsewhere just ends it.
+                      setTimeout(() => setMoving((m) => (m?.unit.asset.assetId === unit.asset.assetId ? null : m)), 0)
+                    }}
                     onPick={(kind) => setPicker({ kind, unit })}
                     onUnassign={(gear) =>
                       run(
@@ -790,9 +901,25 @@ interface UnitCardProps {
   onUnassign: (gear: AssetRef) => Promise<boolean>
   onRemove: () => Promise<boolean>
   pending: string | null
+  /** Whether it can be moved to another division now (its own is at home, and there is another). */
+  movable: boolean
+  isMoving: boolean
+  onMoveStart: () => void
+  onMoveEnd: () => void
 }
 
-function UnitCard({ unit, budget, onPick, onUnassign, onRemove, pending }: UnitCardProps) {
+function UnitCard({
+  unit,
+  budget,
+  onPick,
+  onUnassign,
+  onRemove,
+  pending,
+  movable,
+  isMoving,
+  onMoveStart,
+  onMoveEnd
+}: UnitCardProps) {
   const t = unitTotals({
     unit: unit.asset.stats,
     weapon: unit.gear.weapon?.stats,
@@ -802,7 +929,17 @@ function UnitCard({ unit, budget, onPick, onUnassign, onRemove, pending }: UnitC
   })
   const boosted = t.atk > (unit.asset.stats?.attack ?? 0) || t.def > (unit.asset.stats?.defense ?? 0)
   return (
-    <article className="slot unit" style={{ '--rarity': rarityColor(unit.asset.rarity) } as CSSProperties}>
+    <article
+      className={`slot unit ${movable ? 'is-movable' : ''} ${isMoving ? 'is-moving' : ''}`}
+      style={{ '--rarity': rarityColor(unit.asset.rarity) } as CSSProperties}
+      draggable={movable && pending === null}
+      onDragStart={(e) => {
+        e.dataTransfer.effectAllowed = 'move'
+        e.dataTransfer.setData('text/plain', unit.asset.assetId)
+        onMoveStart()
+      }}
+      onDragEnd={onMoveEnd}
+    >
       <div className="unit__top">
         <CardArt asset={unit.asset} shape="square" className="unit__art" />
         <div className="unit__info">
@@ -831,6 +968,18 @@ function UnitCard({ unit, budget, onPick, onUnassign, onRemove, pending }: UnitC
             </span>
           </Tooltip>
         </div>
+        {movable && (
+          <button
+            type="button"
+            className={`unit__move icon-btn ${isMoving ? 'is-on' : ''}`}
+            title="Move to another division with its gear (or drag the card onto one)"
+            aria-pressed={isMoving}
+            disabled={pending !== null}
+            onClick={() => (isMoving ? onMoveEnd() : onMoveStart())}
+          >
+            <SwapIcon width={14} height={14} />
+          </button>
+        )}
         <button
           type="button"
           className="unit__remove icon-btn"

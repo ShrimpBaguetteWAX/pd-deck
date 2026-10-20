@@ -1228,3 +1228,104 @@
 .gear__stars .stars__count {
   display: none;
 }
+
+/* ---- Moving a mercenary to another division: drag it onto the rail, or use its Move button ---- */
+
+.unit.is-movable .unit__top {
+  grid-template-columns: 64px minmax(0, 1fr) 28px 28px;
+}
+
+.unit[draggable='true'] {
+  cursor: grab;
+}
+
+.unit[draggable='true']:active {
+  cursor: grabbing;
+}
+
+.unit.is-moving {
+  border-style: dashed;
+  border-color: var(--cyan);
+  opacity: 0.55;
+}
+
+.unit__move.is-on {
+  border-color: var(--cyan);
+  background: rgba(0, 212, 255, 0.12);
+  color: var(--cyan);
+}
+
+.board__moving {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 10px 14px;
+  border: 1px solid rgba(0, 212, 255, 0.45);
+  border-radius: 12px;
+  background: rgba(0, 212, 255, 0.07);
+  color: var(--text-dim);
+  font-size: 13px;
+}
+
+.board__moving > span {
+  flex: 1;
+  min-width: 0;
+}
+
+.board__moving b {
+  color: var(--text);
+}
+
+.board__moving .mk-link {
+  flex: none;
+}
+
+/* The rail while a mercenary is on the move: divisions that can take it light up, the rest fade. */
+.rail__item.is-drop-ok {
+  border-style: dashed;
+  border-color: rgba(46, 229, 157, 0.55);
+}
+
+.rail__item.is-drop-hover {
+  border-style: solid;
+  border-color: var(--green);
+  background: rgba(46, 229, 157, 0.1);
+  box-shadow: 0 0 0 1px rgba(46, 229, 157, 0.35);
+}
+
+.rail__item.is-drop-no {
+  opacity: 0.4;
+}
+
+.rail__gain {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rail__gain small {
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.rail__refuse {
+  color: var(--text-faint);
+  font-size: 10.5px;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .rail__item.is-drop-ok,
+  .rail__item.is-drop-no {
+    transition:
+      opacity 0.15s ease,
+      background 0.15s ease,
+      border-color 0.15s ease;
+  }
+}
