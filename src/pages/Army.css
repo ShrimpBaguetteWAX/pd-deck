@@ -1329,3 +1329,9 @@
       border-color 0.15s ease;
   }
 }
+
+/* The card moves as a whole: its pictures are not dragged on their own. */
+.unit.is-movable img {
+  -webkit-user-drag: none;
+  user-select: none;
+}

@@ -70,6 +70,11 @@ export default function Army() {
   const [optimizeOpen, setOptimizeOpen] = useState(false)
   /** A mercenary on its way to another division: being dragged, or picked with its Move button. */
   const [moving, setMoving] = useState<{ unit: Unit; from: Division } | null>(null)
+  /**
+   * The same, set the instant a drag starts: the visible state follows a moment later (Chrome ends a
+   * drag when the page changes as it starts), and a quick drag must still find its drop targets.
+   */
+  const dragRef = useRef<{ unit: Unit; from: Division } | null>(null)
   const [dropId, setDropId] = useState<number | null>(null)
   const config = useMissionConfig()
   const market = useMarket()
@@ -211,11 +216,14 @@ export default function Army() {
    * Forge slot budget does not change.
    */
   async function moveUnit(target: Division) {
-    if (!moving) return
-    const { unit, from } = moving
+    const m = moving ?? dragRef.current
+    if (!m) return
+    const ok0 = canReceive(target)
+    const { unit, from } = m
+    dragRef.current = null
     setMoving(null)
     setDropId(null)
-    if (!canReceive(target)) return
+    if (!ok0) return
     const gear = GEAR_KINDS.flatMap((k) => (unit.gear[k] ? [[k, unit.gear[k]!] as const] : []))
     const ok = await run(
       (a, p) => [
@@ -232,13 +240,15 @@ export default function Army() {
 
   /** Whether a division can take the mercenary being moved: another one, at home, with a free slot. */
   const canReceive = (d: Division) => {
-    if (!moving || d.id === moving.from.id) return false
+    const m = moving ?? dragRef.current
+    if (!m || d.id === m.from.id) return false
     const tone = stateOf(d).tone
     return (tone === 'is-idle' || tone === 'is-empty') && d.units.length < d.slotsMax
   }
   /** Why a division cannot take it, for the rail. */
   const refuseReason = (d: Division) => {
-    if (!moving || d.id === moving.from.id) return ''
+    const m = moving ?? dragRef.current
+    if (!m || d.id === m.from.id) return ''
     const tone = stateOf(d).tone
     if (tone === 'is-away') return 'on a mission'
     if (tone === 'is-ready') return 'reward to claim'
@@ -356,16 +366,27 @@ export default function Army() {
                   className={`rail__item ${selected?.id === d.id ? 'is-selected' : ''} ${st.tone} ${dropState} ${dropId === d.id && ok ? 'is-drop-hover' : ''}`}
                   title={ok ? `Move ${moving!.unit.asset.name} here` : refused ? `Cannot take it: ${refused}` : undefined}
                   onClick={() => (moving ? (ok ? void moveUnit(d) : undefined) : setSelectedId(d.id))}
+                  onDragEnter={(e) => {
+                    // A drop target accepts on entering as well as while over it.
+                    if (!canReceive(d)) return
+                    e.preventDefault()
+                    e.dataTransfer.dropEffect = 'move'
+                    setDropId(d.id)
+                  }}
                   onDragOver={(e) => {
-                    if (!ok) return
+                    if (!canReceive(d)) return
                     e.preventDefault()
                     e.dataTransfer.dropEffect = 'move'
                     if (dropId !== d.id) setDropId(d.id)
                   }}
-                  onDragLeave={() => dropId === d.id && setDropId(null)}
+                  onDragLeave={(e) => {
+                    // Leaving the button for one of its own children is not leaving it.
+                    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+                    if (dropId === d.id) setDropId(null)
+                  }}
                   onDrop={(e) => {
                     e.preventDefault()
-                    if (ok) void moveUnit(d)
+                    if (canReceive(d)) void moveUnit(d)
                   }}
                 >
                   {d.leader ? (
@@ -539,11 +560,18 @@ export default function Army() {
                     budget={gearBudget}
                     movable={editable && divisions.length > 1}
                     isMoving={moving?.unit.asset.assetId === unit.asset.assetId}
-                    onMoveStart={() => setMoving({ unit, from: selected })}
+                    onMoveStart={() => {
+                      const m = { unit, from: selected }
+                      dragRef.current = m
+                      setTimeout(() => setMoving(m), 0)
+                    }}
                     onMoveEnd={() => {
                       setDropId(null)
                       // A drop finishes the move itself; a drag let go elsewhere just ends it.
-                      setTimeout(() => setMoving((m) => (m?.unit.asset.assetId === unit.asset.assetId ? null : m)), 0)
+                      setTimeout(() => {
+                        if (dragRef.current?.unit.asset.assetId === unit.asset.assetId) dragRef.current = null
+                        setMoving((m) => (m?.unit.asset.assetId === unit.asset.assetId ? null : m))
+                      }, 0)
                     }}
                     onPick={(kind) => setPicker({ kind, unit })}
                     onUnassign={(gear) =>
@@ -936,6 +964,7 @@ function UnitCard({
       onDragStart={(e) => {
         e.dataTransfer.effectAllowed = 'move'
         e.dataTransfer.setData('text/plain', unit.asset.assetId)
+        // The page shows the move a moment later (see dragRef): changing it now would end the drag.
         onMoveStart()
       }}
       onDragEnd={onMoveEnd}
