@@ -52,6 +52,8 @@ export interface WarlordOption {
   slots: number
   minLevel: number
   cost: number
+  /** Move the warlord takes off the whole division (some warlords, e.g. Warmasters). */
+  moveReduction?: number
 }
 
 /** One Forge shop slot, in purchase order. */
@@ -156,7 +158,8 @@ export function evaluate(p: Parts): { units: UnitPlan[]; atk: number; def: numbe
     move += m
     return { merc, gear, atk: a, def: d, move: m }
   })
-  return { units: plans, atk, def, move }
+  // The warlord's move reduction comes off the division's total, as the contract counts it.
+  return { units: plans, atk, def, move: Math.max(0, move - (p.warlord.moveReduction ?? 0)) }
 }
 
 /** Prices a bundle: NFTs, the slots it needs beyond the free ones, and the Forge level all of that needs. */

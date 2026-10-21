@@ -4,7 +4,7 @@ import { CATEGORY } from '@/chain/config'
 import type { AssetRef } from '@/data/assets'
 import type { MissionRow } from '@/data/types'
 
-import { bestLoop, candidateMissions, optimizeArmy } from './armyOptimizer'
+import { bestLoop, candidateMissions, optimizeArmy, packDivisions, tightestSubset, tightestWithinCut } from './armyOptimizer'
 import { tlmPerHour, type MissionEconomics } from './loop'
 import { fallbackMarket } from './market'
 import type { Kind } from './stats'
@@ -280,5 +280,43 @@ describe('replanning a group', () => {
     const moves = plan.divisions.map((d) => d.plan.bundle.move)
     expect(moves).toEqual([60, 60])
     for (const d of plan.divisions) expect(d.plan.bundle.atk).toBeGreaterThanOrEqual(200)
+  })
+})
+
+describe('packing divisions of one mission', () => {
+  it('finds the set that clears a target with the least to spare', () => {
+    const picked = tightestSubset([900, 600, 450, 300, 120], 1000, 5)!
+    expect(picked.reduce((n, i) => n + [900, 600, 450, 300, 120][i], 0)).toBe(1020)
+    expect(tightestSubset([100, 100], 1000, 5)).toBeNull()
+    expect(tightestSubset([600, 600], 1000, 1)).toBeNull()
+  })
+
+  it('takes as much move as the warlord cancels, within a little spare strength', () => {
+    const values = [1000, 500, 500, 30, 30]
+    const moves = [40, 10, 10, 15, 15]
+    const picked = tightestWithinCut(values, moves, 1000, 40, 60)!
+    // 1000 alone moves 40; 500 + 500 moves 20, so the warlord's cut is used by the first.
+    expect(picked.reduce((n, i) => n + moves[i], 0)).toBe(40)
+    expect(picked.reduce((n, i) => n + values[i], 0)).toBeGreaterThanOrEqual(1000)
+    // Nothing clears the target without going over the cut.
+    expect(tightestWithinCut([1000], [50], 1000, 40, 10)).toBeNull()
+  })
+
+  it("counts the warlord's move reduction and spreads slow units so no division keeps any move", () => {
+    const pool = empty()
+    for (let i = 0; i < 2; i++) {
+      const w = nft(CATEGORY.WARLORD, { slots: 10 })
+      w.stats!.movecost_reduction = 30
+      pool.warlord.push(w)
+    }
+    // Two strong units with no move, and six weak ones that move 10 each.
+    pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 90 }), nft(CATEGORY.MERCENARY, { atk: 90 }))
+    for (let i = 0; i < 6; i++) pool.mercenary.push(nft(CATEGORY.MERCENARY, { atk: 10, move: 10 }))
+    const plans = packDivisions(pool, mission(1, 120, 10), 2, noSlots, 0)!
+    expect(plans).toHaveLength(2)
+    for (const p of plans) {
+      expect(p.bundle.atk).toBeGreaterThanOrEqual(120)
+      expect(p.bundle.move).toBe(0)
+    }
   })
 })

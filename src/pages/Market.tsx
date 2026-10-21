@@ -342,7 +342,7 @@ export default function Market() {
       if (kind === 'warlord') {
         if (st.slots_max > 0) {
           sources.set(key, source)
-          warlords.push({ key, slots: Number(st.slots_max), minLevel, cost })
+          warlords.push({ key, slots: Number(st.slots_max), minLevel, cost, moveReduction: Number(st.movecost_reduction || 0) })
         }
         return
       }

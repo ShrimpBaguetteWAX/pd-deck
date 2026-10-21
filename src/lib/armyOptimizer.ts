@@ -1,7 +1,7 @@
 import type { AssetRef } from '@/data/assets'
 import type { Division } from '@/data/game'
 
-import { evaluate, type Bundle, type Candidate, type SlotKind } from './bundle'
+import { evaluate, type Bundle, type Candidate, type SlotKind, type WarlordOption } from './bundle'
 import { isTokenLoop, meetsRequirements, tlmPerHour, type MissionEconomics } from './loop'
 import type { Market } from './market'
 import {
@@ -12,7 +12,7 @@ import {
   planMissionDivision,
   type MissionPlan
 } from './missionDivision'
-import { GEAR_KINDS, type Kind } from './stats'
+import { GEAR_KINDS, type GearKind, type Kind } from './stats'
 
 /*
  * The army that earns the most TLM per hour from the missions on offer, built only from what is
@@ -631,6 +631,502 @@ export function balanceMoves(divisions: OptimizedDivision[], input: OptimizeInpu
   return out
 }
 
+// ---- Packing one more division of a mission ---------------------------------------------------
+
+/**
+ * The search fields divisions one at a time, each just strong enough when it is made. When several
+ * divisions go on the same mission that can leave the last one short, because the early ones took
+ * boosters (Lava Lux multiplies a mercenary's whole total, so it is worth most on the strongest)
+ * without regard for the divisions still to come. This step takes the NFTs of the divisions on one
+ * mission, plus what the army leaves unused (and, if it helps, the NFTs of one weaker division), and
+ * packs them again into one more division of that mission: gear paired the way the contract pairs
+ * it, then the strongest units shared out so each division just clears the mission. The army is
+ * only replaced when it earns more.
+ */
+
+/** A mercenary with the gear it would carry, and what it adds to a division. */
+interface PackUnit {
+  merc: Candidate
+  gear: Partial<Record<GearKind, Candidate>>
+  atk: number
+  def: number
+  move: number
+}
+
+/** A unit's totals the way the contract adds them: merc and gear summed, times its Lava Lux. */
+function unitOf(merc: Candidate, gear: PackUnit['gear']): PackUnit {
+  const add = [merc, gear.weapon, gear.supply, gear.creature].filter((x): x is Candidate => !!x)
+  const l = gear.lavalux
+  return {
+    merc,
+    gear,
+    atk: Math.floor(add.reduce((n, x) => n + x.atk, 0) * (l?.atkMult ?? 1)),
+    def: Math.floor(add.reduce((n, x) => n + x.def, 0) * (l?.defMult ?? 1)),
+    move: Math.round(Math.max(0, merc.move - (gear.supply?.moveReduction ?? 0)) * (l?.moveMult ?? 1))
+  }
+}
+
+/**
+ * A division plan from a warlord and units with their gear as given. The pairing is part of the
+ * plan (the units are what gets assigned on chain), so it is kept as packed rather than paired again.
+ */
+function planOf(warlord: AssetRef, units: PackUnit[], assets: Map<string, AssetRef>): MissionPlan {
+  const w: WarlordOption = {
+    key: warlord.assetId,
+    slots: Number(warlord.stats?.slots_max ?? 0),
+    minLevel: Number(warlord.stats?.min_forge_level || 0),
+    cost: 0,
+    moveReduction: Number(warlord.stats?.movecost_reduction || 0)
+  }
+  const gearOf = (k: GearKind) => units.flatMap((u) => (u.gear[k] ? [u.gear[k]!] : []))
+  const bundle: Bundle = {
+    warlord: w,
+    mercs: units.map((u) => u.merc),
+    gear: { weapon: gearOf('weapon'), supply: gearOf('supply'), creature: gearOf('creature'), lavalux: gearOf('lavalux') },
+    units: units.map((u) => ({ merc: u.merc, gear: u.gear, atk: u.atk, def: u.def, move: u.move })),
+    atk: units.reduce((n, u) => n + u.atk, 0),
+    def: units.reduce((n, u) => n + u.def, 0),
+    // The warlord takes its reduction off the whole division.
+    move: Math.max(0, units.reduce((n, u) => n + u.move, 0) - (w.moveReduction ?? 0)),
+    cost: 0,
+    nftCost: 0,
+    slotCost: 0,
+    forgeCost: 0,
+    level: 0,
+    slotsBought: { weapon: [], supply: [], lavalux: [] }
+  }
+  return { bundle, assets }
+}
+
+/**
+ * The indexes of the items whose values add up to at least `target` with the least to spare, using
+ * at most `maxItems` of them (and, among equally tight sets, the fewest); null when none reach it.
+ * A subset sum over the reachable totals: fine for the few dozen units a division is chosen from.
+ */
+export function tightestSubset(values: number[], target: number, maxItems: number): number[] | null {
+  const items = values.map((v, i) => ({ v: Math.max(0, Math.floor(v)), i })).filter((x) => x.v > 0)
+  if (!items.length || maxItems <= 0) return null
+  const top = Math.max(...items.map((x) => x.v))
+  // Totals beyond target + the largest item never make the tightest set.
+  const limit = Math.min(
+    target + top,
+    items.reduce((n, x) => n + x.v, 0)
+  )
+  if (limit < target) return null
+  const INF = 0x7fff
+  const n = items.length
+  // fewest[k][s]: the fewest of the first k items that make exactly s.
+  const fewest: Int16Array[] = [new Int16Array(limit + 1).fill(INF)]
+  fewest[0][0] = 0
+  for (let k = 1; k <= n; k++) {
+    const prev = fewest[k - 1]
+    const row = prev.slice()
+    const v = items[k - 1].v
+    for (let s = v; s <= limit; s++) if (prev[s - v] + 1 < row[s]) row[s] = prev[s - v] + 1
+    fewest.push(row)
+  }
+  let best = -1
+  for (let s = target; s <= limit; s++)
+    if (fewest[n][s] <= maxItems) {
+      best = s
+      break
+    }
+  if (best < 0) return null
+  // Walk back: an item is in the set when leaving it out cannot make the same total with as few.
+  const chosen: number[] = []
+  let s = best
+  for (let k = n; k >= 1 && s > 0; k--) {
+    if (fewest[k][s] === fewest[k - 1][s]) continue
+    chosen.push(items[k - 1].i)
+    s -= items[k - 1].v
+  }
+  return s === 0 ? chosen : null
+}
+
+/**
+ * Like {@link tightestSubset}, for a division whose warlord takes `cut` off its move: a set that
+ * clears `target` (with at most `slack` to spare over the tightest that can) and whose `moves` add
+ * up to no more than `cut`, taking as much move as fits. A division then carries the slow units its
+ * warlord cancels, so they do not pile up in the divisions still to fill. Null when no set stays
+ * within the cut.
+ */
+export function tightestWithinCut(
+  values: number[],
+  moves: number[],
+  target: number,
+  cut: number,
+  slack: number
+): number[] | null {
+  const items = values
+    .map((v, i) => ({ v: Math.max(0, Math.floor(v)), m: Math.max(0, Math.round(moves[i])), i }))
+    .filter((x) => x.v > 0 && x.m <= cut)
+  if (!items.length || cut < 0) return null
+  const limit = Math.min(
+    target + Math.max(...items.map((x) => x.v)),
+    items.reduce((n, x) => n + x.v, 0)
+  )
+  if (limit < target) return null
+  // reach[k]: for each total s, a bit set per move m (0..cut) some subset of the first k items makes.
+  const words = (cut >> 5) + 1
+  const lastMask = (cut & 31) === 31 ? 0xffffffff : (1 << ((cut & 31) + 1)) - 1
+  const reach: Uint32Array[] = [new Uint32Array((limit + 1) * words)]
+  reach[0][0] = 1
+  for (const { v, m } of items) {
+    const prev = reach[reach.length - 1]
+    const row = prev.slice()
+    const ws = m >> 5
+    const bs = m & 31
+    for (let s = v; s <= limit; s++) {
+      const src = (s - v) * words
+      const dst = s * words
+      // row[s] |= prev[s - v] << m, dropping moves above the cut.
+      for (let w = words - 1; w >= ws; w--) {
+        const lo = prev[src + w - ws]
+        const carry = bs && w - ws - 1 >= 0 ? prev[src + w - ws - 1] >>> (32 - bs) : 0
+        row[dst + w] |= ((lo << bs) | carry) >>> 0
+      }
+      row[dst + words - 1] &= lastMask
+    }
+    reach.push(row)
+  }
+  const final = reach[reach.length - 1]
+  const has = (layer: Uint32Array, s: number, m: number) => (layer[s * words + (m >> 5)] >>> (m & 31)) & 1
+  const maxMove = (s: number) => {
+    for (let m = cut; m >= 0; m--) if (has(final, s, m)) return m
+    return -1
+  }
+  let tight = -1
+  for (let s = target; s <= limit && tight < 0; s++) if (maxMove(s) >= 0) tight = s
+  if (tight < 0) return null
+  let bestS = tight
+  let bestM = maxMove(tight)
+  for (let s = tight + 1; s <= Math.min(limit, tight + slack); s++) {
+    const m = maxMove(s)
+    if (m > bestM) {
+      bestS = s
+      bestM = m
+    }
+  }
+  const chosen: number[] = []
+  let s = bestS
+  let m = bestM
+  for (let k = items.length; k >= 1 && s > 0; k--) {
+    if (has(reach[k - 1], s, m)) continue
+    chosen.push(items[k - 1].i)
+    s -= items[k - 1].v
+    m -= items[k - 1].m
+  }
+  return s === 0 && m === 0 ? chosen : null
+}
+
+/**
+ * `count` divisions of `mission` from `pool`, each meeting it, or null when the pool cannot. Gear
+ * goes where it adds the most strength (weapons, creatures and supplies to the strongest
+ * mercenaries, Lava Lux to the strongest of them with their gear), within the Forge slots `slots`;
+ * then each division takes units until it clears the mission, finishing with the smallest unit that
+ * completes it so little strength is wasted. Supplies left over cut move cost.
+ */
+export function packDivisions(
+  pool: Record<Kind, AssetRef[]>,
+  mission: MissionEconomics,
+  count: number,
+  slots: Record<SlotKind, number>,
+  forgeLevel: number
+): MissionPlan[] | null {
+  const usable = (a: AssetRef) => Number(a.stats?.min_forge_level || 0) <= forgeLevel
+  const assets = new Map<string, AssetRef>()
+  const cands = (kind: Kind) =>
+    pool[kind].filter(usable).flatMap((a) => {
+      const c = candidateOf(a)
+      if (!c) return []
+      assets.set(a.assetId, a)
+      return [c]
+    })
+  const warlords = pool.warlord
+    .filter(usable)
+    .filter((w) => Number(w.stats?.slots_max ?? 0) > 0)
+    .sort(
+      (a, b) =>
+        Number(b.stats?.slots_max ?? 0) - Number(a.stats?.slots_max ?? 0) ||
+        Number(b.stats?.movecost_reduction ?? 0) - Number(a.stats?.movecost_reduction ?? 0)
+    )
+    .slice(0, count)
+  if (warlords.length < count) return null
+  for (const w of warlords) assets.set(w.assetId, w)
+  const capacity = warlords.reduce((n, w) => n + Number(w.stats?.slots_max ?? 0), 0)
+
+  // Which strength the mission asks for decides what "strongest" means.
+  const ta = Math.max(0, mission.minAtk)
+  const td = Math.max(0, mission.minDef)
+  const strength = (c: { atk: number; def: number }) =>
+    ta > 0 && td > 0 ? c.atk / ta + c.def / td : td > 0 ? c.def : ta > 0 ? c.atk : c.atk + c.def
+  const byStrength = (a: Candidate, b: Candidate) => strength(b) - strength(a)
+
+  const mercs = cands('mercenary').sort(byStrength).slice(0, capacity)
+  const gear: Partial<Record<GearKind, Candidate>>[] = mercs.map(() => ({}))
+  const weapons = cands('weapon').sort(byStrength).slice(0, Math.max(0, slots.weapon))
+  const creatures = cands('creature').sort(byStrength)
+  const supplies = cands('supply')
+    .sort((a, b) => byStrength(a, b) || b.moveReduction - a.moveReduction)
+    .slice(0, Math.max(0, slots.supply))
+  weapons.forEach((g, i) => i < gear.length && (gear[i].weapon = g))
+  creatures.forEach((g, i) => i < gear.length && (gear[i].creature = g))
+  // Supplies with strength to the strongest; the rest wait to cut move cost below.
+  const strongSupplies = supplies.filter((s) => strength(s) > 0)
+  const spareSupplies = supplies.filter((s) => strength(s) <= 0)
+  strongSupplies.forEach((g, i) => i < gear.length && (gear[i].supply = g))
+  // Lava Lux multiplies everything else, so it goes to the units strongest with their gear.
+  const lava = cands('lavalux')
+    .sort((a, b) => (b.atkMult ?? 1) + (b.defMult ?? 1) - ((a.atkMult ?? 1) + (a.defMult ?? 1)))
+    .slice(0, Math.max(0, slots.lavalux))
+  const order = mercs.map((m, i) => ({ i, s: strength(unitOf(m, gear[i])) })).sort((x, y) => y.s - x.s)
+  lava.forEach((l, j) => order[j] && (gear[order[j].i].lavalux = l))
+  const units = mercs.map((m, i) => unitOf(m, gear[i]))
+
+  // Share the units out: smaller warlords first (they need the strong units), each division until it clears.
+  const meets = (a: number, d: number) => a >= ta && d >= td && (ta > 0 || td > 0 || a > 0)
+  const left = [...units].sort((a, b) => strength(b) - strength(a))
+  const bins: { warlord: AssetRef; units: PackUnit[] }[] = []
+  for (const warlord of [...warlords].reverse()) {
+    const cap = Number(warlord.stats?.slots_max ?? 0)
+    // A mission that asks for one stat: the exact set of units that clears it with the least to spare.
+    if (ta > 0 !== td > 0) {
+      const stat = ta > 0 ? 'atk' : 'def'
+      const target = ta > 0 ? ta : td
+      const cut = Number(warlord.stats?.movecost_reduction || 0)
+      const within =
+        cut > 0
+          ? tightestWithinCut(
+              left.map((u) => u[stat]),
+              left.map((u) => u.move),
+              target,
+              cut,
+              Math.max(1, Math.floor(target * 0.005))
+            )
+          : null
+      const picked =
+        within && within.length <= cap
+          ? within
+          : tightestSubset(
+              left.map((u) => u[stat]),
+              target,
+              cap
+            )
+      if (!picked) return null
+      const chosen = new Set(picked)
+      bins.push({ warlord, units: left.filter((_, i) => chosen.has(i)) })
+      for (let i = left.length - 1; i >= 0; i--) if (chosen.has(i)) left.splice(i, 1)
+      continue
+    }
+    const bin: PackUnit[] = []
+    let a = 0
+    let d = 0
+    while (!meets(a, d) && bin.length < cap && left.length) {
+      const ra = Math.max(0, ta - a)
+      const rd = Math.max(0, td - d)
+      // The smallest unit that completes the division, if one does; otherwise the one that helps most.
+      let pick = -1
+      let pickSize = Infinity
+      for (let i = 0; i < left.length; i++) {
+        const u = left[i]
+        if (u.atk >= ra && u.def >= rd) {
+          const size = strength(u)
+          if (size < pickSize) {
+            pickSize = size
+            pick = i
+          }
+        }
+      }
+      if (pick < 0) {
+        let gain = -Infinity
+        for (let i = 0; i < left.length; i++) {
+          const u = left[i]
+          const g = (ta ? Math.min(u.atk, ra) / ta : 0) + (td ? Math.min(u.def, rd) / td : 0)
+          if (g > gain) {
+            gain = g
+            pick = i
+          }
+        }
+      }
+      const [u] = left.splice(pick, 1)
+      bin.push(u)
+      a += u.atk
+      d += u.def
+    }
+    if (!meets(a, d)) return null
+    bins.push({ warlord, units: bin })
+  }
+
+  // Supplies not used for strength, and those on units left out, cut the move of the units that have the most.
+  const usedSupply = new Set(bins.flatMap((b) => b.units.flatMap((u) => (u.gear.supply ? [u.gear.supply.key] : []))))
+  const spare = [...spareSupplies, ...strongSupplies.filter((s) => !usedSupply.has(s.key))].sort(
+    (a, b) => b.moveReduction - a.moveReduction
+  )
+  const needy = bins
+    .flatMap((b, bi) => b.units.map((u, ui) => ({ bi, ui, u })))
+    .filter((x) => !x.u.gear.supply && x.u.move > 0)
+    .sort((x, y) => y.u.move - x.u.move)
+  spare.forEach((s, i) => {
+    const x = needy[i]
+    if (!x) return
+    bins[x.bi].units[x.ui] = unitOf(x.u.merc, { ...x.u.gear, supply: s })
+  })
+  // Units left out give up supplies that went to a division, so no supply is in two places.
+  const placed = new Set(bins.flatMap((b) => b.units.flatMap((u) => (u.gear.supply ? [u.gear.supply.key] : []))))
+  left.forEach((u, i) => {
+    if (u.gear.supply && placed.has(u.gear.supply.key)) left[i] = unitOf(u.merc, { ...u.gear, supply: undefined })
+  })
+  trimMove(bins, left, meets)
+
+  const plans = bins.map((b) => planOf(b.warlord, b.units, assets))
+  return plans.every((p) => meets(p.bundle.atk, p.bundle.def)) ? plans : null
+}
+
+/**
+ * Packing by strength alone can leave a division with more move than its warlord takes off. This
+ * lowers what is left over, keeping every division above the mission: units that are not needed
+ * leave, and units swap with unused ones or with another division's where that moves less.
+ */
+function trimMove(bins: { warlord: AssetRef; units: PackUnit[] }[], left: PackUnit[], meets: (a: number, d: number) => boolean) {
+  const cut = (b: (typeof bins)[number]) => Number(b.warlord.stats?.movecost_reduction || 0)
+  const sum = (us: PackUnit[], k: 'atk' | 'def' | 'move') => us.reduce((n, u) => n + u[k], 0)
+  const excess = (b: (typeof bins)[number], us = b.units) => Math.max(0, sum(us, 'move') - cut(b))
+  const ok = (us: PackUnit[]) => meets(sum(us, 'atk'), sum(us, 'def'))
+  for (let round = 0; round < 200; round++) {
+    let done = false
+    for (const b of bins) {
+      const now = excess(b)
+      if (now <= 0) continue
+      // Drop the unit with the most move the division can do without.
+      const drops = b.units.map((_, i) => i).sort((i, j) => b.units[j].move - b.units[i].move)
+      for (const i of drops) {
+        const rest = b.units.filter((_, k) => k !== i)
+        if (b.units[i].move > 0 && ok(rest)) {
+          left.push(b.units[i])
+          b.units = rest
+          done = true
+          break
+        }
+      }
+      if (done) break
+      // Take a supply from where its move cut is wasted (an unused unit, or a division its warlord
+      // already brings to no move) for the unit here that moves most without one.
+      const bare = b.units
+        .map((_, i) => i)
+        .filter((i) => !b.units[i].gear.supply && b.units[i].move > 0)
+        .sort((i, j) => b.units[j].move - b.units[i].move)
+      const holders: { from: PackUnit[]; at: number; bin?: (typeof bins)[number] }[] = [
+        ...left.flatMap((u, at) => (u.gear.supply ? [{ from: left, at }] : [])),
+        ...bins
+          .filter((o) => o !== b)
+          .flatMap((o) => o.units.flatMap((u, at) => (u.gear.supply ? [{ from: o.units, at, bin: o }] : [])))
+      ]
+      for (const i of bare) {
+        for (const h of holders) {
+          const giver = h.from[h.at]
+          const s = giver.gear.supply!
+          const mine = b.units.map((x, k) => (k === i ? unitOf(x.merc, { ...x.gear, supply: s }) : x))
+          if (excess(b, mine) >= now || !ok(mine)) continue
+          const theirs = h.from.map((x, k) => (k === h.at ? unitOf(x.merc, { ...x.gear, supply: undefined }) : x))
+          if (h.bin && (!ok(theirs) || excess(b, mine) + excess(h.bin, theirs) >= now + excess(h.bin))) continue
+          b.units = mine
+          if (h.bin) h.bin.units = theirs
+          else left[h.at] = theirs[h.at]
+          done = true
+          break
+        }
+        if (done) break
+      }
+      if (done) break
+      // Swap with an unused unit, or with another division's, when that lowers the move left over.
+      for (let i = 0; i < b.units.length && !done; i++) {
+        const u = b.units[i]
+        for (let j = 0; j < left.length && !done; j++) {
+          const v = left[j]
+          if (v.move >= u.move) continue
+          const mine = b.units.map((x, k) => (k === i ? v : x))
+          if (ok(mine)) {
+            b.units = mine
+            left[j] = u
+            done = true
+          }
+        }
+        for (const o of bins) {
+          if (o === b || done) continue
+          for (let j = 0; j < o.units.length && !done; j++) {
+            const v = o.units[j]
+            if (v.move >= u.move) continue
+            const mine = b.units.map((x, k) => (k === i ? v : x))
+            const theirs = o.units.map((x, k) => (k === j ? u : x))
+            if (excess(b, mine) + excess(o, theirs) < now + excess(o) && ok(mine) && ok(theirs)) {
+              b.units = mine
+              o.units = theirs
+              done = true
+            }
+          }
+        }
+      }
+      if (done) break
+    }
+    if (!done) return
+  }
+}
+
+const keysOf = (d: OptimizedDivision) => usedKeys(d.plan)
+
+/** The army with one more division of some mission, packed again from its NFTs, when that earns more. */
+export function packMore(divisions: OptimizedDivision[], input: OptimizeInput): OptimizedDivision[] {
+  const total = (ds: OptimizedDivision[]) => valued(ds, input).reduce((n, d) => n + d.perHour, 0)
+  let best = divisions
+  let bestTotal = total(divisions)
+  // A few rounds: each extra division may make room for another.
+  for (let round = 0; round < 4; round++) {
+    let improved = false
+    const usedAll = new Set(best.flatMap((d) => [...keysOf(d)]))
+    const leftover = without(input.pool, usedAll)
+    const missions = [...new Map(best.map((d) => [d.mission.id, d.mission])).values()]
+    for (const mission of missions) {
+      const group = best.filter((d) => d.mission.id === mission.id)
+      const others = best.filter((d) => d.mission.id !== mission.id)
+      // Also try giving up one of the weaker other divisions for its NFTs.
+      const drops: (OptimizedDivision | null)[] = [null, ...[...others].sort((a, b) => a.perHour - b.perHour).slice(0, 3)]
+      for (const drop of drops) {
+        const keep = others.filter((d) => d !== drop)
+        if (keep.length + group.length + 1 > input.maxDivisions) continue
+        const freed = new Set([...group, ...(drop ? [drop] : [])].flatMap((d) => [...keysOf(d)]))
+        const sub: Record<Kind, AssetRef[]> = {
+          warlord: [...leftover.warlord],
+          mercenary: [...leftover.mercenary],
+          weapon: [...leftover.weapon],
+          supply: [...leftover.supply],
+          creature: [...leftover.creature],
+          lavalux: [...leftover.lavalux]
+        }
+        for (const kind of Object.keys(sub) as Kind[])
+          for (const a of input.pool[kind]) if (freed.has(a.assetId)) sub[kind].push(a)
+        // Forge slots: what the input allows less what the divisions that stay already use.
+        const slots = { ...input.slotsFree }
+        for (const d of keep)
+          for (const k of ['weapon', 'supply', 'lavalux'] as SlotKind[]) slots[k] -= d.plan.bundle.gear[k].length
+        const plans = packDivisions(sub, mission, group.length + 1, slots, input.forgeLevel)
+        if (!plans) continue
+        const packed = plans.map((plan) => ({ mission, plan, perHour: tlmPerHour(mission, plan.bundle.move, input.market) }))
+        if (packed.some((d) => d.perHour <= 0)) continue
+        const candidate = [...keep, ...packed]
+        const t = total(candidate)
+        if (t > bestTotal + 1e-9) {
+          best = candidate
+          bestTotal = t
+          improved = true
+        }
+      }
+      if (improved) break
+    }
+    if (!improved) break
+  }
+  return best === divisions ? divisions : valued(best, input)
+}
+
 const earning = (n: Node, input: OptimizeInput) => valued(n.divisions, input).reduce((sum, d) => sum + d.perHour, 0)
 
 /** The army plan that earns the most, over the strategies. */
@@ -653,6 +1149,11 @@ export function optimizeArmy(input: OptimizeInput, onProgress?: (p: Progress) =>
     if (deadline - Date.now() < EXTRA_PASS_MIN_MS && strategy !== 'per-hour') break
     const plan = search(input, strategy, strategy === 'per-hour' ? beamWidth(input) : 1, deadline, onProgress)
     if (plan.perHour > best.perHour + 1e-9) best = plan
+  }
+  // Then one more division of a mission the army already runs, packed again from its NFTs, if that earns more.
+  {
+    const divisions = packMore(best.divisions, input)
+    if (divisions !== best.divisions) best = { ...best, divisions, perHour: divisions.reduce((n, d) => n + d.perHour, 0) }
   }
   if (input.alignMove) {
     // Then trade units between the new divisions of each length until their move costs are close.

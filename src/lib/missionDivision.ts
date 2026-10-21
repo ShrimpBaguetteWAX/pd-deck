@@ -66,7 +66,15 @@ export function planMissionDivision(
       if (kind === 'warlord') {
         if (st.slots_max > 0) {
           assets.set(key, a)
-          warlords.push({ key, slots: Number(st.slots_max), minLevel, cost: Number(st.slots_max) * WARLORD_SLOT_WEIGHT })
+          const moveReduction = Number(st.movecost_reduction || 0)
+          warlords.push({
+            key,
+            slots: Number(st.slots_max),
+            minLevel,
+            moveReduction,
+            // A warlord that takes move off the division is worth that much less: it saves the move elsewhere.
+            cost: Math.max(0.1, Number(st.slots_max) * WARLORD_SLOT_WEIGHT - moveWeight * moveReduction)
+          })
         }
         continue
       }
@@ -179,7 +187,8 @@ export function planFromDivision(d: Division): MissionPlan | null {
     key: d.leader.assetId,
     slots: d.slotsMax,
     minLevel: Number(d.leader.stats?.min_forge_level || 0),
-    cost: 0
+    cost: 0,
+    moveReduction: Number(d.leader.stats?.movecost_reduction || 0)
   }
   const ev = evaluate({ warlord, mercs, gear })
   const bundle: Bundle = {

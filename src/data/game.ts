@@ -238,7 +238,8 @@ export interface Division {
 }
 
 /** A division's stats from its roster, the way the contract sums them; null if any unit is unresolved. */
-function liveStats(units: Unit[], rowCount: number): { atk: number; def: number; move: number } | null {
+/** A division as the contract adds it up; the warlord takes its move reduction off the total. */
+function liveStats(units: Unit[], rowCount: number, leader?: AssetRef | null): { atk: number; def: number; move: number } | null {
   if (units.length !== rowCount || units.some((u) => !u.asset.stats)) return null
   let atk = 0
   let def = 0
@@ -255,7 +256,7 @@ function liveStats(units: Unit[], rowCount: number): { atk: number; def: number;
     def += t.def
     move += t.move
   }
-  return { atk, def, move }
+  return { atk, def, move: Math.max(0, move - Number(leader?.stats?.movecost_reduction || 0)) }
 }
 
 export interface Army {
@@ -339,7 +340,7 @@ async function fetchArmy(account: string, epoch: number): Promise<Army> {
         def: Number(row.def_cached || 0),
         move: Number(row.movecost_cached || 0)
       }
-      const live = liveStats(divUnits, (unitsByDivision.get(Number(row.division_id)) ?? []).length)
+      const live = liveStats(divUnits, (unitsByDivision.get(Number(row.division_id)) ?? []).length, ref(row.leader_asset_id))
       // A stale cache understates (or overstates) what the division really fields after a roster
       // change; the join recalculates it first, so requirements are judged on the live roster.
       const stats = !fresh && live ? live : cached
