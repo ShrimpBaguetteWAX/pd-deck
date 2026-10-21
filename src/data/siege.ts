@@ -343,6 +343,77 @@ export function useContributions(planetId: number | null): UseQueryResult<Contri
   })
 }
 
+export interface PastSeason {
+  season: number
+  closedAt: number
+  /** Entry fee per join and length, as the world was set up for that season. */
+  entryTlm: number
+  durationDays: number
+  /** DEF the community had to send to open it. */
+  thresholdDef: number
+  prizes: RankPrize[]
+}
+
+/**
+ * A world's finished seasons, from the contract's history: the prize table it set for each
+ * (`setranks` after the last `clearranks` before the close; the live table only holds the
+ * current season's), the setup it ran with (`initplanet`) and when it closed.
+ */
+export function usePastSeasons(planetId: number | null): UseQueryResult<PastSeason[]> {
+  return useQuery({
+    queryKey: ['siege-past', planetId],
+    enabled: !!planetId,
+    staleTime: 10 * 60_000,
+    queryFn: async () => {
+      const S = CONTRACTS.SIEGE
+      const actions = await getActions(S, {
+        filter: ['initplanet', 'setranks', 'clearranks', 'closeseason'].map((n) => `${S}:${n}`).join(',')
+      })
+      const mine = actions
+        .filter((a) => Number(a.act.data.planet_id) === planetId)
+        .map((a) => ({ name: a.act.name, at: +chainDate(a['@timestamp']), data: a.act.data }))
+        .sort((a, b) => a.at - b.at)
+      const out: PastSeason[] = []
+      let prizes = new Map<number, RankPrize>()
+      let entryTlm = 0
+      let durationDays = 0
+      let thresholdDef = 0
+      for (const a of mine) {
+        if (a.name === 'initplanet') {
+          entryTlm = parseAsset(String(a.data.entry_cost_tlm ?? '0 TLM')).amount
+          durationDays = Number(a.data.duration_days) || 0
+          thresholdDef = parseAsset(String(a.data.unlock_threshold_def ?? '0 DEF')).amount
+        } else if (a.name === 'clearranks') {
+          prizes = new Map()
+        } else if (a.name === 'setranks') {
+          for (const p of (a.data.prizes ?? []) as {
+            rank: number | string
+            def_amount: string
+            nfts?: { template_id: number | string; schema: string; count: number | string }[]
+          }[]) {
+            const rank = Number(p.rank)
+            prizes.set(rank, {
+              rank,
+              def: parseAsset(p.def_amount).amount,
+              nfts: (p.nfts ?? []).map((n) => ({ templateId: String(n.template_id), schema: n.schema, count: Number(n.count) }))
+            })
+          }
+        } else if (a.name === 'closeseason') {
+          out.push({
+            season: out.length + 1,
+            closedAt: a.at,
+            entryTlm,
+            durationDays,
+            thresholdDef,
+            prizes: [...prizes.values()].filter((p) => p.rank > 0).sort((x, y) => x.rank - y.rank)
+          })
+        }
+      }
+      return out
+    }
+  })
+}
+
 /** The score bonus the three biggest funders of a world's funding phase get when the season closes. */
 export const FUNDER_BONUS = [0.15, 0.1, 0.05]
 
