@@ -1,5 +1,4 @@
-import { useMemo, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { deployActions } from '@/chain/actions/pd'
 import { IpfsImg, PlanetIcon, TokenIcon } from '@/components/Art'
@@ -28,7 +27,6 @@ import {
   isTokenLoop,
   meetsRequirements,
   missionEconomics,
-  planLoops,
   rewardParts,
   tlmPerHour,
   type CycleRoute,
@@ -61,8 +59,18 @@ const FILTERS: { key: Filter; label: string }[] = [
 const MOVE_DEFAULT = 40
 const MOVE_MAX = 100
 /** Shards the player counts as 1 TLM, kept between visits. */
-const SHARD_KEY = 'pd:missions:shardsPerTlm'
-const SHARDS_DEFAULT = 10
+const SHARD_KEY = 'pd:missions:tlmPerShard'
+/** Earlier visits stored it the other way round: shards per 1 TLM. */
+const OLD_SHARD_KEY = 'pd:missions:shardsPerTlm'
+const SHARD_DEFAULT = 0.1
+
+/** The TLM a shard is worth, as the player last set it. */
+function storedShardValue(): string {
+  const now = readStored(SHARD_KEY)
+  if (now !== null) return now
+  const old = Number(readStored(OLD_SHARD_KEY))
+  return old > 0 ? String(Math.round((1 / old) * 100) / 100) : String(SHARD_DEFAULT)
+}
 function readStored(key: string): string | null {
   try {
     return localStorage.getItem(key)
@@ -139,14 +147,29 @@ export default function Missions() {
   const [filter, setFilter] = useState<Filter>('all')
   const [expanded, setExpanded] = useState<number | null>(null)
   const [deploying, setDeploying] = useState<MissionEconomics | null>(null)
-  const [planOpen, setPlanOpen] = useState(false)
   // Move per 100 strength the efficiency score assumes; null follows the connected army.
   const [moveSet, setMoveSet] = useState<number | null>(null)
   // Whether the cycle and TLM/h columns show the slider's estimate or your own divisions.
   const [view, setView] = useState<'est' | 'mine'>('est')
+  // The scoring panel: open from its chip, closed by Escape or a click elsewhere.
+  const [scoreOpen, setScoreOpen] = useState(false)
+  const scoreRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!scoreOpen) return
+    const onDown = (ev: PointerEvent) => {
+      if (!scoreRef.current?.contains(ev.target as Node)) setScoreOpen(false)
+    }
+    const onKey = (ev: KeyboardEvent) => ev.key === 'Escape' && setScoreOpen(false)
+    document.addEventListener('pointerdown', onDown)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('pointerdown', onDown)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [scoreOpen])
   // How many shards the player takes as worth 1 TLM (10 unless they set it); empty leaves shards out of the score.
-  const [shardsPerTlm, setShardsPerTlm] = useState(() => readStored(SHARD_KEY) ?? String(SHARDS_DEFAULT))
-  const shardRate = Number(shardsPerTlm) > 0 ? Number(shardsPerTlm) : 0
+  const [shardValue, setShardValue] = useState(storedShardValue)
+  const tlmPerShard = Number(shardValue) > 0 ? Number(shardValue) : 0
 
   const missions = useMemo(
     () =>
@@ -162,14 +185,12 @@ export default function Missions() {
     () => divisions.filter((d) => !busy.has(d.id) && !(d.lock && +chainDate(d.lock.locked_until) > now)),
     [divisions, busy, now]
   )
-  const plan = useMemo(() => planLoops(idle, missions, market), [idle, missions, market])
   // How much move the army carries for its strength: the default for the efficiency score.
   const armyMove = useMemo(() => {
     const strength = divisions.reduce((n, d) => n + Math.max(d.atk, d.def), 0)
     return strength > 0 ? Math.min(MOVE_MAX, Math.round((divisions.reduce((n, d) => n + d.move, 0) / strength) * 100)) : null
   }, [divisions])
   const movePer100 = moveSet ?? armyMove ?? MOVE_DEFAULT
-  const planPerDay = plan.reduce((n, l) => n + l.perHour * 24, 0)
 
   const rows = useMemo<Row[]>(() => {
     const lootOf = (e: MissionEconomics) => {
@@ -189,11 +210,10 @@ export default function Missions() {
       const perHour = tlmPerHour(e, m, market) + (loot > 0 ? (loot / cycleSeconds(e, m)) * 3600 : 0)
       const need = Math.max(e.minAtk, e.minDef)
       const assumed = Math.round((need * movePer100) / 100)
-      const shards = shardRate > 0 ? e.rewardShards : 0
+      const shards = tlmPerShard > 0 ? e.rewardShards : 0
       const efficiency =
         need > 0 && (isTokenLoop(e) || loot > 0 || shards > 0)
-          ? ((tlmPerHour(e, assumed, market) + ((loot + shards / (shardRate || 1)) / cycleSeconds(e, assumed)) * 3600) / need) *
-            100
+          ? ((tlmPerHour(e, assumed, market) + ((loot + shards * tlmPerShard) / cycleSeconds(e, assumed)) * 3600) / need) * 100
           : null
       return {
         e,
@@ -236,7 +256,7 @@ export default function Missions() {
     }
     const score = (r: Row) => r.efficiency ?? -Infinity
     return filtered.sort((a, b) => tier(b) - tier(a) || score(b) - score(a) || b.perHour - a.perHour)
-  }, [missions, filter, idle, divisions, market, priceByTemplate, pools.data, movePer100, shardRate])
+  }, [missions, filter, idle, divisions, market, priceByTemplate, pools.data, movePer100, tlmPerShard])
 
   // The gauges show each mission's share of the most efficient one in the list.
   const bestEfficiency = rows.reduce((n, r) => Math.max(n, r.efficiency ?? 0), 0)
@@ -253,114 +273,9 @@ export default function Missions() {
   if (!config.data) return <Loading inline label="Scanning the sector" />
 
   const balance = player.data ? { tlm: player.data.tlm, def: player.data.def } : null
-  const planCostTlm = plan.reduce((n, l) => n + l.mission.costTlm, 0)
-  const planCostDef = plan.reduce((n, l) => n + l.mission.costDef, 0)
-  const planFunding = quoteFunding(market, { tlm: planCostTlm, def: planCostDef }, balance)
-
-  /**
-   * One transaction per division (the contract takes one join at a time); the first one also buys
-   * whatever DEF the whole plan's entries need.
-   */
-  async function deployPlan() {
-    if (!plan.length) return
-    const done = await runSequence(
-      plan.map((l, i) => ({
-        build: async (a: string, p: string) => [
-          ...(i === 0
-            ? fundEntries(a, p, await freshMarket(market), { tlm: planCostTlm, def: planCostDef }, balance).actions
-            : []),
-          ...deployActions(a, p, l.mission.id, l.division.id, !l.division.fresh, l.mission.costs)
-        ],
-        success: `#${l.division.id} sent to ${l.mission.title}`
-      })),
-      'plan'
-    )
-    if (done === plan.length) setPlanOpen(false)
-  }
 
   return (
     <div className="page missions">
-      {/* Loop planner */}
-      <section className={`plan panel ${plan.length ? 'is-live' : ''}`}>
-        <div className="plan__text">
-          <p className="eyebrow">Loop plan for your idle divisions</p>
-          {army.isLoading ? (
-            <h2>Reading your divisions…</h2>
-          ) : divisions.length === 0 ? (
-            <>
-              <h2>No divisions yet</h2>
-              <p className="muted">
-                Build one in the <Link to="/army">Army</Link> and this panel will pick its most profitable mission.
-              </p>
-            </>
-          ) : (
-            <>
-              {plan.length === 0 && <h2>No idle division reaches a profitable TLM loop right now</h2>}
-              {plan.length > 0 ? (
-                <>
-                  <p className="plan__sub">
-                    Deploying every idle division to its best loop:{' '}
-                    <b className="c-tlm num">{formatSigned(planPerDay)} TLM/day</b> · {plan.length} division
-                    {plan.length === 1 ? '' : 's'}, one transaction each
-                  </p>
-                  <ul className="plan__lines">
-                    {plan.slice(0, 6).map((l) => (
-                      <li key={l.division.id}>
-                        <b>#{l.division.id}</b>
-                        <span className="plan__arrow">→</span>
-                        <span className="plan__mission">
-                          <PlanetIcon planet={l.mission.planet} size={14} /> {l.mission.title}
-                        </span>
-                        <span className="num c-tlm">{formatSigned(l.perHour)}/h</span>
-                        <span className="faint num">{formatDuration(l.seconds)} per cycle</span>
-                      </li>
-                    ))}
-                    {plan.length > 6 && <li className="faint">…and {plan.length - 6} more</li>}
-                  </ul>
-                </>
-              ) : null}
-            </>
-          )}
-        </div>
-        {plan.length > 0 && (
-          <div className="plan__cta">
-            <div className="plan__cost">
-              <Figure
-                label="TLM in"
-                value={planFunding.tlmTotal > 0 ? formatToken(planFunding.tlmTotal, 'TLM') : 'Free'}
-                help={
-                  planFunding.defBought > 0
-                    ? `Includes buying ${formatToken(planFunding.defBought)} DEF for entry fees on Alcor, in the same transaction.`
-                    : 'Entry fees paid from your wallet in the same transaction.'
-                }
-              />
-              <Figure
-                label="Net per cycle"
-                value={formatSigned(
-                  plan.reduce((n, l) => n + l.net, 0),
-                  'TLM'
-                )}
-                tone="c-tlm"
-              />
-            </div>
-            <Button
-              size="lg"
-              color="gradientYellow"
-              disabled={!planFunding.affordable}
-              isLoading={pending === 'plan'}
-              onClick={() => setPlanOpen(true)}
-            >
-              <RocketIcon /> Deploy plan
-            </Button>
-            {!planFunding.affordable && (
-              <small className="c-red">
-                Needs {formatToken(planFunding.tlmTotal, 'TLM')}; you hold {formatToken(balance?.tlm ?? 0, 'TLM')}.
-              </small>
-            )}
-          </div>
-        )}
-      </section>
-
       {/* Filters */}
       <div className="missions__bar">
         <div className="segmented">
@@ -386,55 +301,102 @@ export default function Missions() {
               My divisions
             </button>
           </div>
-          <label className="effmove">
-            <Tooltip text="Efficiency rates every mission for a division that carries this much move per 100 points of strength, so missions compare even where you have no division for them yet. It starts at what your army carries now.">
-              <span className="effmove__label">Move per 100 strength</span>
-            </Tooltip>
-            <input
-              type="range"
-              min={0}
-              max={MOVE_MAX}
-              step={1}
-              value={movePer100}
-              onChange={(ev) => setMoveSet(Number(ev.target.value))}
-              aria-label="Move per 100 strength"
-            />
-            <b className="num">{movePer100}</b>
-            {moveSet !== null && armyMove !== null && moveSet !== armyMove && (
-              <button type="button" className="effmove__reset" onClick={() => setMoveSet(null)}>
-                Your army: {armyMove}
-              </button>
+          <div className="scorepop" ref={scoreRef}>
+            <button
+              type="button"
+              className="scorepop__chip"
+              aria-expanded={scoreOpen}
+              aria-controls="scorepop"
+              onClick={() => setScoreOpen(!scoreOpen)}
+            >
+              Score: <b className="c-mov num">{movePer100}</b> move ·{' '}
+              {tlmPerShard > 0 ? (
+                <>
+                  <b className="c-tlm num">{formatNumber(tlmPerShard, 2)}</b> per shard
+                </>
+              ) : (
+                'shards not counted'
+              )}
+              <ChevronIcon className="scorepop__chev" />
+            </button>
+            {scoreOpen && (
+              <div id="scorepop" className="scorepop__panel" role="dialog" aria-label="How missions are scored">
+                <h3>How missions are scored</h3>
+                <div className="scorefield">
+                  <label className="scorefield__top" htmlFor="score-move">
+                    <span>Move per 100 strength</span>
+                    <b className="c-mov num">{movePer100}</b>
+                  </label>
+                  <input
+                    id="score-move"
+                    type="range"
+                    min={0}
+                    max={MOVE_MAX}
+                    step={1}
+                    value={movePer100}
+                    onChange={(ev) => setMoveSet(Number(ev.target.value))}
+                  />
+                  <small>
+                    {armyMove === null ? 'No divisions to read it from yet.' : `Your army carries ${armyMove}.`} Lower means a
+                    faster division and a shorter cycle.
+                    {moveSet !== null && armyMove !== null && moveSet !== armyMove && (
+                      <button type="button" className="scorefield__reset" onClick={() => setMoveSet(null)}>
+                        Back to {armyMove}
+                      </button>
+                    )}
+                  </small>
+                </div>
+                <div className="scorefield">
+                  <div className="scorefield__top">
+                    <label htmlFor="score-shard" className="scorefield__unit is-shard">
+                      1 <ShardIcon width={12} height={12} /> shard is worth
+                    </label>
+                    <span className="scorefield__value">
+                      <input
+                        id="score-shard"
+                        type="number"
+                        min={0}
+                        step={0.01}
+                        inputMode="decimal"
+                        placeholder="–"
+                        value={shardValue}
+                        onChange={(ev) => {
+                          setShardValue(ev.target.value)
+                          writeStored(SHARD_KEY, ev.target.value)
+                        }}
+                      />
+                      <span className="scorefield__unit is-tlm">
+                        <TokenIcon symbol="TLM" size={12} /> TLM
+                      </span>
+                    </span>
+                  </div>
+                  <small>Shard rewards count toward the score at this value. Empty it to score TLM only.</small>
+                </div>
+                <div className="scorefield">
+                  <div className="scorefield__top">
+                    <span className="scorefield__unit is-def">
+                      1 <TokenIcon symbol="DEF" size={12} /> DEF is worth
+                    </span>
+                    <span className="scorefield__value">
+                      <output className="num c-tlm">{formatNumber(market.rate, 1)}</output>
+                      <span className="scorefield__unit is-tlm">
+                        <TokenIcon symbol="TLM" size={12} /> TLM
+                      </span>
+                      <span className={`scorefield__live ${market.live ? '' : 'is-off'}`}>
+                        {market.live ? 'live' : 'typical'}
+                      </span>
+                    </span>
+                  </div>
+                  <small>
+                    Read from the Alcor pool, not set by you. DEF for entries is bought and DEF rewards are sold at this rate,
+                    with the pool's {percent(market.fee)} fee.
+                    {market.live ? '' : ' The pool has not been read yet, so a typical rate is used.'}
+                  </small>
+                </div>
+              </div>
             )}
-          </label>
-          <label className="effmove">
-            <Tooltip text="How many shards you count as worth 1 TLM. With a value here, shard rewards add to the efficiency score, so shard missions rank with the TLM ones. Starts at 10; empty it to score TLM only.">
-              <span className="effmove__label">1 TLM =</span>
-            </Tooltip>
-            <input
-              type="number"
-              min={0}
-              step="any"
-              inputMode="decimal"
-              placeholder="–"
-              value={shardsPerTlm}
-              onChange={(ev) => {
-                setShardsPerTlm(ev.target.value)
-                writeStored(SHARD_KEY, ev.target.value)
-              }}
-              aria-label="Shards worth 1 TLM"
-            />
-            <span>
-              <ShardIcon width={12} height={12} /> shards
-            </span>
-          </label>
+          </div>
         </div>
-        <Tooltip
-          text={`Every loop is valued in TLM out minus TLM in: DEF an entry needs is bought with TLM on Alcor, DEF a reward pays is sold for TLM, both at the pool's live quote with its ${percent(market.fee)} fee.${market.live ? '' : ' Pool not read yet: using a typical rate.'}`}
-        >
-          <span className="chip">
-            <TokenIcon symbol="DEF" size={14} /> 1 DEF ≈ {formatNumber(market.rate, 1)} TLM
-          </span>
-        </Tooltip>
       </div>
 
       {/* Table */}
@@ -657,52 +619,6 @@ export default function Missions() {
             if (done === chosen.length) setDeploying(null)
           }}
         />
-      )}
-
-      {planOpen && (
-        <Modal className="picker deploy" onClose={() => setPlanOpen(false)} label="Deploy plan">
-          <header className="picker__head">
-            <div>
-              <p className="eyebrow">{plan.length === 1 ? 'One transaction' : `${plan.length} transactions, one per division`}</p>
-              <h3>Deploy the plan</h3>
-              <p className="muted">
-                Each idle division goes to the mission that pays it the most TLM per hour.
-                {planFunding.defBought > 0
-                  ? ` ${formatToken(planFunding.defBought)} DEF for the entry fees is bought with TLM on Alcor first, in the same transaction.`
-                  : ' Entry fees are paid in the same transaction.'}
-              </p>
-            </div>
-            <button type="button" className="icon-btn" onClick={() => setPlanOpen(false)} aria-label="Close">
-              <XIcon />
-            </button>
-          </header>
-          <ul className="deploy__list">
-            {plan.map((l) => (
-              <li key={l.division.id} className="deploy__line">
-                <b>#{l.division.id}</b>
-                <StatTrio atk={l.division.atk} def={l.division.def} move={l.division.move} size="sm" />
-                <span className="deploy__to">
-                  <PlanetIcon planet={l.mission.planet} size={14} /> {l.mission.title}
-                </span>
-                <span className="num faint">{formatDuration(l.seconds)}</span>
-                <span className="num c-tlm">{formatSigned(l.net, 'TLM')}</span>
-              </li>
-            ))}
-          </ul>
-          <footer className="picker__foot">
-            <span className="muted">
-              TLM in: {formatToken(planFunding.tlmTotal, 'TLM')} · net{' '}
-              {formatSigned(
-                plan.reduce((n, l) => n + l.net, 0),
-                'TLM'
-              )}{' '}
-              per cycle
-            </span>
-            <Button color="gradientYellow" isLoading={pending === 'plan'} disabled={!planFunding.affordable} onClick={deployPlan}>
-              <RocketIcon /> Deploy {plan.length}
-            </Button>
-          </footer>
-        </Modal>
       )}
     </div>
   )

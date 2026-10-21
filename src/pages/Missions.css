@@ -4,91 +4,6 @@
   gap: 14px;
 }
 
-/* ---- Plan ---- */
-
-.plan {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
-  align-items: center;
-  overflow: hidden;
-}
-
-.plan.is-live {
-  border-color: rgba(255, 215, 94, 0.35);
-  background:
-    radial-gradient(700px 240px at 0% 0%, rgba(255, 215, 94, 0.12), transparent 60%),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.015));
-}
-
-.plan h2 {
-  margin-top: 4px;
-  font-size: 22px;
-}
-
-.plan h2 small {
-  font-family: var(--font-body);
-  font-size: 13px;
-  font-weight: 500;
-}
-
-.plan .muted a {
-  color: var(--cyan);
-  text-decoration: underline;
-}
-
-.plan__lines {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-  gap: 4px 20px;
-  margin-top: 10px;
-  list-style: none;
-  font-size: 13px;
-}
-
-.plan__lines li {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.plan__lines b {
-  font-family: var(--font-display);
-  min-width: 28px;
-}
-
-.plan__arrow {
-  color: var(--text-faint);
-}
-
-.plan__mission {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.plan__cta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 10px;
-}
-
-.plan__cost {
-  display: flex;
-  gap: 22px;
-  text-align: right;
-}
-
-.plan__cost .figure {
-  align-items: flex-end;
-}
-
 /* ---- Filter bar ---- */
 
 .missions__bar {
@@ -96,10 +11,6 @@
   align-items: center;
   gap: 12px;
   flex-wrap: wrap;
-}
-
-.missions__bar > .tip {
-  margin-left: auto;
 }
 
 /* ---- Table ---- */
@@ -544,51 +455,9 @@
   .mrow__detail {
     grid-template-columns: 1fr;
   }
-
-  .plan {
-    grid-template-columns: 1fr;
-  }
-
-  .plan__cta {
-    align-items: stretch;
-  }
-
-  .plan__cost {
-    justify-content: space-between;
-    text-align: left;
-  }
-
-  .plan__cost .figure {
-    align-items: flex-start;
-  }
 }
 
 /* ---- Loop route ---- */
-
-.plan__sub {
-  margin-top: 8px;
-  font-size: 13px;
-}
-
-.plan__sub a,
-.plan__target a {
-  color: var(--cyan);
-  text-decoration: underline;
-}
-
-.plan__target {
-  margin-top: 10px;
-  padding: 8px 12px;
-  border: 1px dashed rgba(0, 212, 255, 0.35);
-  border-radius: 10px;
-  background: rgba(0, 212, 255, 0.05);
-  font-size: 13px;
-  color: var(--text-dim);
-}
-
-.plan__route {
-  margin-top: 6px;
-}
 
 .route {
   display: flex;
@@ -742,76 +611,6 @@
   box-shadow: inset 0 0 0 1px rgba(255, 209, 102, 0.6);
 }
 
-/* ---- Efficiency: the move it assumes ---- */
-
-.effmove {
-  display: inline-flex;
-  align-items: center;
-  gap: 10px;
-  min-height: 30px;
-  padding: 0 12px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.effmove__label {
-  white-space: nowrap;
-}
-
-.effmove input[type='range'] {
-  width: 120px;
-  accent-color: var(--mov);
-}
-
-.effmove b {
-  min-width: 2.2em;
-  color: var(--mov);
-  font-family: var(--font-display);
-  font-size: 14px;
-  text-align: right;
-}
-
-.effmove__reset {
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: rgba(245, 200, 76, 0.12);
-  color: var(--mov);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.effmove__reset:hover {
-  background: rgba(245, 200, 76, 0.22);
-}
-
-.effmove input[type='number'] {
-  width: 64px;
-  padding: 2px 6px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: rgba(255, 255, 255, 0.04);
-  color: var(--shard);
-  font-family: var(--font-display);
-  font-size: 13px;
-  font-weight: 700;
-  text-align: right;
-}
-
-.effmove input[type='number']:focus-visible {
-  outline: 2px solid var(--shard);
-  outline-offset: 1px;
-}
-
-.effmove span:has(svg) {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--shard);
-}
-
 /* ---- Score: TLM/h, then the efficiency ring ---- */
 
 .mrow__score {
@@ -938,36 +737,213 @@
   }
 }
 
-/* The view switch, the move slider and the shard value share one row. */
+/* ---- Options: the view switch and the scoring chip, after the filters ---- */
+
 .effctl {
   display: flex;
-  flex-wrap: nowrap;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
-  max-width: 100%;
+  margin-left: auto;
 }
 
-.effctl > * {
-  flex: none;
+.scorepop {
+  position: relative;
 }
 
-/* Too narrow for one row: the controls wrap rather than scroll out of sight. */
+.scorepop__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 12px 0 14px;
+  border: 1px solid rgba(245, 200, 76, 0.4);
+  border-radius: 999px;
+  background: rgba(245, 200, 76, 0.07);
+  color: var(--text-dim);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
+  transition: border-color 0.15s ease;
+}
+
+.scorepop__chip:hover,
+.scorepop__chip[aria-expanded='true'] {
+  border-color: var(--mov);
+}
+
+.scorepop__chip b {
+  font-family: var(--font-display);
+  font-weight: 800;
+}
+
+.scorepop__chev {
+  width: 14px;
+  height: 14px;
+  transform: rotate(90deg);
+  transition: transform 0.2s ease;
+}
+
+.scorepop__chip[aria-expanded='true'] .scorepop__chev {
+  transform: rotate(-90deg);
+}
+
+.scorepop__panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 30;
+  display: grid;
+  gap: 14px;
+  width: min(340px, calc(100vw - 32px));
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #111a2e;
+  box-shadow: var(--shadow);
+}
+
+.scorepop__panel h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 14px;
+}
+
+.scorefield {
+  display: grid;
+  gap: 6px;
+}
+
+.scorefield__top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-dim);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.scorefield__top b {
+  font-family: var(--font-display);
+  font-size: 15px;
+}
+
+.scorefield input[type='range'] {
+  width: 100%;
+  accent-color: var(--mov);
+}
+
+.scorefield small {
+  color: var(--text-faint);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.scorefield__reset {
+  margin-left: 6px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(245, 200, 76, 0.12);
+  color: var(--mov);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.scorefield__reset:hover {
+  background: rgba(245, 200, 76, 0.22);
+}
+
+.scorefield__value {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.scorefield__value input {
+  width: 64px;
+  padding: 3px 6px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--tlm);
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.scorefield__value input:focus-visible {
+  outline: 2px solid var(--tlm);
+  outline-offset: 1px;
+}
+
+.scorefield__value output {
+  font-family: var(--font-display);
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.scorefield__unit {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.scorefield__unit.is-shard {
+  color: var(--shard);
+}
+
+.scorefield__unit.is-def {
+  color: var(--def);
+}
+
+.scorefield__unit.is-tlm {
+  color: var(--tlm);
+}
+
+.scorefield__live {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.scorefield__live::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 6px currentColor;
+}
+
+.scorefield__live.is-off {
+  color: var(--text-faint);
+}
+
 @media (max-width: 720px) {
   .effctl {
-    flex-wrap: wrap;
-    gap: 8px;
+    margin-left: 0;
   }
 
-  .effmove {
-    gap: 6px;
-    padding: 0 10px;
+  /* On a phone the panel spans the bar, wherever the chip wrapped to. */
+  .missions__bar {
+    position: relative;
   }
 
-  .effmove input[type='range'] {
-    width: 72px;
+  .scorepop {
+    position: static;
   }
 
-  .effmove input[type='number'] {
-    width: 44px;
+  .scorepop__panel {
+    left: 0;
+    right: 0;
+    width: auto;
   }
 }
