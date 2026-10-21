@@ -79,6 +79,20 @@ function writeStored(key: string, value: string) {
   }
 }
 
+/** A half dial filled to a mission's share of the best efficiency in the list. */
+function EffGauge({ share }: { share: number }) {
+  const r = Math.max(0, Math.min(1, share))
+  const a = Math.PI * (1 - r)
+  const x = 20 + 15 * Math.cos(a)
+  const y = 20 - 15 * Math.sin(a)
+  return (
+    <svg className="effgauge" viewBox="0 0 40 24" aria-hidden="true">
+      <path d="M5 20 A15 15 0 0 1 35 20" className="effgauge__track" />
+      {r > 0 && <path d={`M5 20 A15 15 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)}`} className="effgauge__fill" />}
+    </svg>
+  )
+}
+
 interface Row {
   e: MissionEconomics
   /** The qualifying division whose time this mission pays best for (lowest move), busy or not. */
@@ -214,6 +228,9 @@ export default function Missions() {
     const score = (r: Row) => r.efficiency ?? -Infinity
     return filtered.sort((a, b) => tier(b) - tier(a) || score(b) - score(a) || b.perHour - a.perHour)
   }, [missions, filter, planet, idle, divisions, market, priceByTemplate, pools.data, movePer100, shardRate])
+
+  // The gauges show each mission's share of the most efficient one in the list.
+  const bestEfficiency = rows.reduce((n, r) => Math.max(n, r.efficiency ?? 0), 0)
 
   const planets = useMemo(() => [...new Set(missions.map((e) => e.planet).filter(Boolean))], [missions])
   // Reward NFTs are loot (Quantum Chests), which the stats templates do not cover: the collection's templates name them.
@@ -505,7 +522,8 @@ export default function Missions() {
                   <small className="faint">{formatDuration(e.cooldownBase)} base</small>
                 </div>
                 {efficiency !== null || isTokenLoop(e) || r.loot > 0 ? (
-                  <>
+                  <div className="mrow__score">
+                    {efficiency !== null && <EffGauge share={bestEfficiency > 0 ? efficiency / bestEfficiency : 0} />}
                     <div
                       className={`mrow__rate num ${(efficiency ?? perHour) > 0 ? 'is-pos' : (efficiency ?? perHour) < 0 ? 'is-neg' : ''}`}
                     >
@@ -524,7 +542,7 @@ export default function Missions() {
                               .join(' · ')}
                       </small>
                     </div>
-                  </>
+                  </div>
                 ) : (
                   <>
                     <div className={`mrow__rate num ${e.rewardShards ? 'is-shards' : 'is-nft'}`}>
