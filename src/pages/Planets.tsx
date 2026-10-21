@@ -53,8 +53,6 @@ const pct = (b: number) => `+${Math.round(b * 100)}%`
 const kfmt = (n: number) =>
   Math.abs(n) >= 1e6 ? `${formatNumber(n / 1e6, 2)}M` : Math.abs(n) >= 1e4 ? `${formatNumber(n / 1e3, 0)}k` : formatNumber(n, 0)
 const day = (t: number) => new Date(t).toLocaleDateString(undefined, { day: 'numeric', month: 'short' })
-const dayTime = (t: number) =>
-  new Date(t).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
 
 type Run = ReturnType<typeof useTransaction>['run']
 type RunSequence = ReturnType<typeof useTransaction>['runSequence']
@@ -184,15 +182,7 @@ function World({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) {
       <header className="pl-world__head">
         <img src={publicUrl(`/img/planets/${s.planet}.png`)} alt="" />
         <h3>{titleCase(s.planet)}</h3>
-        <span className={`pl-state ${view.kind === 'live' ? 'is-live' : ''}`}>
-          {view.kind === 'sealed'
-            ? 'Sealed'
-            : view.kind === 'fund'
-              ? 'Funding'
-              : view.kind === 'live'
-                ? 'Siege · live'
-                : 'Settled'}
-        </span>
+        {view.kind !== 'sealed' && <Steps at={view.kind === 'fund' ? 0 : view.kind === 'live' ? 1 : 3} />}
         {seasons.length > 0 && (
           <span className="pl-switch" role="group" aria-label="Season">
             {[...Array.from({ length: s.season }, (_, i) => i + 1)].reverse().map((n) => (
@@ -215,14 +205,12 @@ function World({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) {
             ))}
           </span>
         )}
-        <span className="pl-world__meta">{metaLine(s, view, pastSeason, now)}</span>
       </header>
 
       {view.kind === 'sealed' ? (
         <p className="pl-note">{lore?.tagline ?? ''} Nothing moves here until the game opens this world.</p>
       ) : (
         <>
-          <Phases siege={s} view={view} past={pastSeason} />
           {view.kind === 'fund' && <FundingView siege={s} now={now} tx={tx} />}
           {view.kind === 'live' && <LiveView siege={s} now={now} tx={tx} />}
           {view.kind === 'settled' && (
@@ -235,63 +223,13 @@ function World({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) {
   )
 }
 
-function metaLine(s: Siege, view: View, past: PastSeason | null, now: number) {
-  const min = `min ${formatNumber(s.minAtk, 0)} ATK / ${formatNumber(s.minDef, 0)} DEF per division`
-  if (view.kind === 'fund')
-    return `Season ${s.season} · ${s.durationDays}-day siege once open · entry ${formatToken(s.entryTlm)} TLM · ${min}`
-  if (view.kind === 'live') {
-    const dayNo = s.startAt ? (now - s.startAt) / 86_400_000 : 0
-    return `Season ${s.season} · day ${formatNumber(dayNo, 1)} of ${s.durationDays} · entry ${formatToken(s.entryTlm)} TLM · cooldown ${formatNumber(s.cooldownBase / 3600, 1)}h + 10 s per move · ${min}`
-  }
-  if (view.kind === 'settled')
-    return past
-      ? `Season ${past.season} · closed ${dayTime(past.closedAt)} · entry ${formatToken(past.entryTlm)} TLM`
-      : `Season ${view.season}`
-  return ''
-}
-
-/** The three phases of a season, the current one marked, with this world's numbers. */
-function Phases({ siege: s, view, past }: { siege: Siege; view: View; past: PastSeason | null }) {
-  const at = view.kind === 'fund' ? 0 : view.kind === 'live' ? 1 : 3
-  const days = view.kind === 'settled' && past ? past.durationDays : s.durationDays
-  const entry = view.kind === 'settled' && past ? past.entryTlm : s.entryTlm
-  const steps: [string, ReactNode][] = [
-    [
-      'Fund',
-      <>
-        The community {at === 0 ? 'sends' : 'sent'}{' '}
-        {formatNumber(view.kind === 'settled' && past ? past.thresholdDef : s.thresholdDef, 0)} DEF to open the world. The three
-        biggest funders get <b>{FUNDER_BONUS.map(pct).join(' / ')}</b> on their score in the siege.
-      </>
-    ],
-    [
-      'Siege',
-      <>
-        For {days} days, divisions join for {formatToken(entry)} TLM each. Every join adds the division's ATK and DEF to your
-        score.
-      </>
-    ],
-    [
-      'Prizes',
-      view.kind === 'settled' && past ? (
-        <>Paid on {day(past.closedAt)} in DEF, Quantum Chests and NFTs.</>
-      ) : (
-        <>When the season closes, leaderboard ranks are paid in DEF, Quantum Chests and NFTs.</>
-      )
-    ]
-  ]
+/** The season's three phases as words, the current one marked. */
+function Steps({ at }: { at: number }) {
   return (
-    <ol className="pl-phases">
-      {steps.map(([title, body], i) => (
-        <li key={title} className={i === at ? 'is-now' : i < at ? 'is-done' : ''}>
-          <span className="pl-phases__n">{i < at ? '✓' : i + 1}</span>
-          <div>
-            <b>
-              {title}
-              {i === at && <em>Now</em>}
-            </b>
-            <p>{body}</p>
-          </div>
+    <ol className="pl-steps">
+      {['Fund', 'Siege', 'Prizes'].map((t, i) => (
+        <li key={t} className={i === at ? 'is-now' : i < at ? 'is-done' : ''}>
+          {t}
         </li>
       ))}
     </ol>
@@ -303,43 +241,52 @@ function Phases({ siege: s, view, past }: { siege: Siege; view: View; past: Past
 interface Mark {
   at: number
   label: string
-  sub: string
-  tone?: 'now' | 'proj'
+  tone?: 'now' | 'met'
 }
 
-/** A line from `from` to `to` with labelled marks; the part up to now is drawn solid. */
+/** One bar from `from` to `to`, filled up to now, with the dates at its ends and a few marks on it. */
 function Timeline({
   from,
   to,
   now,
   marks,
-  band
+  start,
+  end
 }: {
   from: number
   to: number
   now: number
   marks: Mark[]
-  band?: [number, number]
+  start: string
+  end: string
 }) {
   const x = (t: number) => Math.min(100, Math.max(0, ((t - from) / (to - from || 1)) * 100))
   return (
     <div className="pl-tl">
-      <div className="pl-tl__axis" />
-      <div className="pl-tl__past" style={{ width: `${x(now)}%` }} />
-      {band && (
-        <div className="pl-tl__band" style={{ left: `${x(band[0])}%`, width: `${Math.max(0.6, x(band[1]) - x(band[0]))}%` }} />
-      )}
-      {marks.map((m, i) => {
-        const pos = x(m.at)
-        const edge = pos < 6 ? 'is-l' : pos > 94 ? 'is-r' : ''
-        return (
-          <div key={i} className={`pl-tl__m ${m.tone ? `is-${m.tone}` : ''} ${edge}`} style={{ left: `${pos}%` }}>
-            <span>{m.label}</span>
-            <i />
-            <small>{m.sub}</small>
-          </div>
-        )
-      })}
+      <div className="pl-tl__marks">
+        {marks.map((m) => {
+          const pos = x(m.at)
+          return (
+            <span
+              key={m.label}
+              className={`pl-tl__m is-${m.tone ?? 'now'} ${pos < 8 ? 'is-l' : pos > 92 ? 'is-r' : ''}`}
+              style={{ left: `${pos}%` }}
+            >
+              {m.label}
+            </span>
+          )
+        })}
+      </div>
+      <div className="pl-tl__track">
+        <i style={{ width: `${x(now)}%` }} />
+        {marks.map((m) => (
+          <b key={m.label} className={`is-${m.tone ?? 'now'}`} style={{ left: `${x(m.at)}%` }} />
+        ))}
+      </div>
+      <div className="pl-tl__ends">
+        <span>{start}</span>
+        <span>{end}</span>
+      </div>
     </div>
   )
 }
@@ -357,29 +304,16 @@ function Figures({ items }: { items: { label: string; value: ReactNode; tone?: s
   )
 }
 
-function Bar({
-  label,
-  tone,
-  value,
-  target,
-  note
-}: {
-  label: string
-  tone: string
-  value: number
-  target: number
-  note: ReactNode
-}) {
+/** A target as a thin bar and its share; the numbers on hover. */
+function Bar({ label, tone, value, target }: { label: string; tone: string; value: number; target: number }) {
   const share = target > 0 ? Math.min(1, value / target) : 0
   return (
-    <div className={`pl-bar is-${tone}`}>
+    <div className={`pl-bar is-${tone}`} title={`${formatNumber(value, 0)} of ${formatNumber(target, 0)}`}>
       <span className="pl-bar__label">{label}</span>
       <span className="pl-bar__track">
         <i style={{ width: `${Math.max(share > 0 ? 0.5 : 0, share * 100)}%` }} />
       </span>
-      <span className="num">
-        {formatNumber(value, 0)} / {kfmt(target)} <span className="faint">{note}</span>
-      </span>
+      <span className="num">{formatNumber((value / (target || 1)) * 100, 1)}%</span>
     </div>
   )
 }
@@ -422,16 +356,17 @@ function RankTable({
         <td className="num faint">{rank}</td>
         <td>
           {line ? line.account : emptyLabel}
-          {line?.me && <span className="pl-tag is-me">you, deploying constantly</span>}
+          {line?.me && <span className="pl-tag is-me">you</span>}
           {line?.bonus ? <span className="pl-tag is-bonus">{pct(line.bonus)} funder</span> : null}
         </td>
-        {head.slice(2, -2).map((_, i) => (
+        {head.slice(2, -1).map((_, i) => (
           <td key={i} className="r num">
             {line ? line.cells[i] : ''}
           </td>
         ))}
-        <td className="r num">{prize ? kfmt(valuer.worth(prize)) : ''}</td>
-        <td>{prize ? text : <span className="faint">no prize</span>}</td>
+        <td className="pl-prize" title={prize ? `≈ ${formatNumber(valuer.worth(prize), 0)} TLM if sold` : undefined}>
+          {prize ? text : <span className="faint">no prize</span>}
+        </td>
       </tr>
     )
   }
@@ -463,7 +398,6 @@ function FundingView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx 
   const [amount, setAmount] = useState('')
   const since = recent.length ? recent[recent.length - 1].at : null
   const eta = fundingEta(s.fundedDef, s.thresholdDef, since, now)
-  const perDay = since ? (s.fundedDef / Math.max(3_600_000, now - since)) * 86_400_000 : 0
   const divisions = (army.data?.divisions ?? []).filter((d) => d.units.length > 0)
   const qualifying = divisions.filter((d) => d.atk >= s.minAtk && d.def >= s.minDef)
   const place = (i: number) => (funders[i] ? Math.floor(funders[i].def) + 1 : 1)
@@ -476,38 +410,24 @@ function FundingView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx 
           from={since}
           to={Math.max(eta, now + 86_400_000)}
           now={now}
-          marks={[
-            { at: since, label: 'Funding opened', sub: day(since) },
-            {
-              at: now,
-              label: `Now · ${formatNumber((s.fundedDef / (s.thresholdDef || 1)) * 100, 1)}%`,
-              sub: day(now),
-              tone: 'now'
-            },
-            { at: eta, label: 'Fully funded at this pace', sub: day(eta), tone: 'proj' }
-          ]}
+          start={`Funding opened ${day(since)}`}
+          end={`Funded ≈ ${day(eta)}`}
+          marks={[{ at: now, label: `Today · ${formatNumber((s.fundedDef / (s.thresholdDef || 1)) * 100, 1)}%` }]}
         />
       )}
-      <Figures
-        items={[
-          { label: 'To open', value: `${formatNumber(Math.max(0, s.thresholdDef - s.fundedDef), 0)} DEF` },
-          { label: 'Pace', value: `${formatNumber(perDay, 1)} DEF/day` },
-          { label: 'Opens ≈', value: eta ? day(eta) : '–' },
-          ...FUNDER_BONUS.map((b, i) => ({
-            label: `${pct(b)} place`,
-            value: `${formatNumber(place(i), 0)} DEF`,
-            tone: i === 0 ? 'c-cyan' : ''
-          })),
-          { label: 'Your divisions', value: tx.account ? `${qualifying.length} of ${divisions.length} qualify` : '–' }
-        ]}
-      />
-      <Bar
-        label="Funded"
-        tone="fund"
-        value={s.fundedDef}
-        target={s.thresholdDef}
-        note={`${formatNumber((s.fundedDef / (s.thresholdDef || 1)) * 100, 1)}%`}
-      />
+      <div className="pl-row">
+        <div className="pl-bars">
+          <Bar label="Funded" tone="fund" value={s.fundedDef} target={s.thresholdDef} />
+        </div>
+        <Figures
+          items={[
+            { label: 'To open', value: `${formatNumber(Math.max(0, s.thresholdDef - s.fundedDef), 0)} DEF` },
+            { label: 'Opens ≈', value: eta ? day(eta) : '–' },
+            { label: `${pct(FUNDER_BONUS[0])} place`, value: `${formatNumber(place(0), 0)} DEF`, tone: 'c-cyan' },
+            { label: 'Your divisions', value: tx.account ? `${qualifying.length} of ${divisions.length} qualify` : '–' }
+          ]}
+        />
+      </div>
 
       <div className="pl-cols">
         <div className="pl-sec">
@@ -598,13 +518,13 @@ function FundingView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx 
 
       <div className="pl-sec">
         <div className="pl-sec__label">
-          <span>Prizes once the season runs</span>
-          <span>{ranks.length} ranks · prize written out per rank</span>
+          <span>Prizes</span>
+          <span>{ranks.length} ranks</span>
         </div>
         {prizes.isLoading ? (
           <p className="pl-note">Reading the prize table…</p>
         ) : (
-          <RankTable head={['#', 'Player', '≈ TLM', 'Prize']} lines={[]} prizes={ranks} valuer={valuer} />
+          <RankTable head={['#', 'Player', 'Prize']} lines={[]} prizes={ranks} valuer={valuer} />
         )}
       </div>
     </>
@@ -905,103 +825,58 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           me: r.me,
           bonus: bonus.get(r.account),
           cells: [
-            r.me && !r.score ? '–' : formatNumber(r.score, 0),
             kfmt(r.projected),
             // Joins and spend by the close, at each player's pace so far (yours: what your divisions fit in).
             joinsCell(r.projectedJoins),
-            r.me ? (
-              <span>
-                {formatNumber(spent(r.account, r.projectedJoins), 0)} TLM <span className="faint">planned</span>
-              </span>
-            ) : (
-              spentCell(r.account, r.projectedJoins)
-            )
+            r.me ? <span>{formatNumber(spent(r.account, r.projectedJoins), 0)} TLM</span> : spentCell(r.account, r.projectedJoins)
           ]
         }))
 
+  // Meeting both targets does not end the season; it only decides whether it counts as met.
+  const metAt = projection ? Math.max(projection.atkMetAt, projection.defMetAt) : Infinity
+  const dayNo = s.startAt ? Math.max(0, (now - s.startAt) / 86_400_000) : 0
+
   return (
     <>
-      {s.startAt && s.endAt && projection && (
+      {s.startAt && s.endAt && (
         <Timeline
           from={s.startAt}
           to={s.endAt}
           now={now}
+          start={day(s.startAt)}
+          end={`Ends ${day(s.endAt)}`}
           marks={[
-            { at: s.startAt, label: 'Launch', sub: day(s.startAt) },
-            { at: now, label: 'Now', sub: day(now), tone: 'now' },
-            // Meeting the targets does not end the season; it only decides whether it counts as met.
-            ...(Math.max(projection.atkMetAt, projection.defMetAt) < s.endAt
-              ? [
-                  {
-                    at: Math.max(projection.atkMetAt, projection.defMetAt),
-                    label: 'Targets met ≈',
-                    sub: dayTime(Math.max(projection.atkMetAt, projection.defMetAt)),
-                    tone: 'proj' as const
-                  }
-                ]
-              : []),
-            { at: s.endAt, label: 'Season ends', sub: dayTime(s.endAt) }
+            { at: now, label: `Today · day ${formatNumber(dayNo, 1)} of ${s.durationDays}` },
+            ...(metAt < s.endAt ? [{ at: metAt, label: `Targets met ≈ ${day(metAt)}`, tone: 'met' as const }] : [])
           ]}
         />
       )}
-      {projection && (
-        <Figures
-          items={[
-            { label: 'Ends in', value: shortDuration(Math.max(0, projection.close - now)) },
-            { label: 'Players / paid', value: `${s.participants} / ${ranks.length || '–'}` },
-            { label: 'Open ranks', value: Math.max(0, ranks.length - s.participants), tone: 'c-green' },
-            ...(meProjected
-              ? [
-                  {
-                    label: 'Your finish, deploying constantly',
-                    value: `#${meProjected.rank} · ${kfmt(meProjected.projected)}`,
-                    tone: 'c-cyan'
-                  },
-                  { label: 'Your prize ≈', value: `${kfmt(valuer.worth(prizeAt(meProjected.rank)))} TLM`, tone: 'c-cyan' }
-                ]
-              : []),
-            {
-              label: 'Your standing now',
-              value: meNow ? `#${meNow.rank} · ${formatNumber(meNow.score, 0)}` : tx.account ? 'no joins yet' : '–'
-            },
-            ...(meProjected
-              ? [{ label: 'Entries to close', value: `${projection.joins} · ${formatNumber(projection.cost, 0)} TLM` }]
-              : []),
-            ...(meProjected && above
-              ? [
-                  {
-                    label: `To pass #${above.rank}`,
-                    value: `+${formatNumber(above.projected - meProjected.projected, 0)}`,
-                    tone: 'c-mov'
-                  }
-                ]
-              : [])
-          ]}
-        />
-      )}
-      <div className="pl-sec">
-        <Bar
-          label="Attack"
-          tone="atk"
-          value={s.cumAtk}
-          target={s.targetAtk}
-          note={
-            projection
-              ? `${formatNumber((s.cumAtk / (s.targetAtk || 1)) * 100, 1)}% · ${formatNumber(projection.atkPerHour, 0)}/h · met ≈ ${day(projection.atkMetAt)}`
-              : ''
-          }
-        />
-        <Bar
-          label="Defense"
-          tone="def"
-          value={s.cumDef}
-          target={s.targetDef}
-          note={
-            projection
-              ? `${formatNumber((s.cumDef / (s.targetDef || 1)) * 100, 1)}% · ${formatNumber(projection.defPerHour, 0)}/h · met ≈ ${day(projection.defMetAt)}`
-              : ''
-          }
-        />
+      <div className="pl-row">
+        <div className="pl-bars">
+          <Bar label="ATK" tone="atk" value={s.cumAtk} target={s.targetAtk} />
+          <Bar label="DEF" tone="def" value={s.cumDef} target={s.targetDef} />
+        </div>
+        {projection && (
+          <Figures
+            items={
+              meProjected
+                ? [
+                    { label: 'Your finish', value: `#${meProjected.rank}`, tone: 'c-cyan' },
+                    { label: 'Prize', value: `≈ ${kfmt(valuer.worth(prizeAt(meProjected.rank)))} TLM` },
+                    { label: 'Cost', value: `${formatNumber(projection.cost, 0)} TLM` },
+                    above
+                      ? { label: `To #${above.rank}`, value: `+${kfmt(above.projected - meProjected.projected)}` }
+                      : { label: 'Ends in', value: shortDuration(Math.max(0, projection.close - now)) }
+                  ]
+                : [
+                    { label: 'Ends in', value: shortDuration(Math.max(0, projection.close - now)) },
+                    { label: 'Players', value: s.participants },
+                    { label: 'Open ranks', value: Math.max(0, ranks.length - s.participants) },
+                    { label: 'You', value: meNow ? `#${meNow.rank}` : '–' }
+                  ]
+            }
+          />
+        )}
       </div>
 
       <DeployPanel
@@ -1015,15 +890,15 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
 
       <div className="pl-sec">
         <div className="pl-sec__label">
+          <span>Leaderboard</span>
           <span className="pl-switch" role="group" aria-label="Leaderboard">
             <button type="button" aria-pressed={boardView === 'now'} onClick={() => setBoardView('now')}>
-              Current
+              Now
             </button>
             <button type="button" aria-pressed={boardView === 'close'} onClick={() => setBoardView('close')}>
-              Projected at close
+              At end
             </button>
           </span>
-          <span>{ranks.length} paid ranks · prize written out per rank</span>
         </div>
         {board.isLoading ? (
           <p className="pl-note">Reading the scores…</p>
@@ -1031,19 +906,14 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           <RankTable
             head={
               boardView === 'now'
-                ? ['#', 'Player', 'Score now', 'Joins', 'Spent', '≈ TLM', 'Prize at this rank']
-                : ['#', 'Player', 'Score now', 'At close ≈', 'Joins', 'Spent', '≈ TLM', 'Prize']
+                ? ['#', 'Player', 'Score', 'Joins', 'Spent', 'Prize']
+                : ['#', 'Player', 'At end', 'Joins', 'Spent', 'Prize']
             }
             lines={lines}
             prizes={ranks}
             valuer={valuer}
           />
         )}
-        <p className="pl-note">
-          Projection: the season runs to its end time (meeting the targets does not end it early); every player keeps their pace
-          since launch, in score and in joins, and the top funders get their bonus at the close. Spent: joins × the entry fee,
-          plus DEF funded at the pool rate. ≈ TLM: the prize sold, NFTs at their AtomicMarket median after fees.
-        </p>
       </div>
     </>
   )
@@ -1068,8 +938,7 @@ function DeployPanel({
   const credit = useEntryCredit(tx.account, s.planetId)
   const open = joinOpen(s, now)
   const ready = states.filter((x) => x.qualifies && x.readyAt <= now)
-  const [picked, setPicked] = useState<Set<number> | null>(null)
-  const chosen = ready.filter((x) => (picked ? picked.has(x.division.id) : true))
+  const chosen = ready
   const available = (credit.data ?? 0) + (balance.data ?? 0)
 
   // A division's join: claim it back first if it has to be, top up the entry fee, refresh its stats, join.
@@ -1103,19 +972,31 @@ function DeployPanel({
       })),
       'siege-all'
     )
-    setPicked(null)
     void refreshSieges(tx.account)
   }
+
+  const money = `Balance ${balance.data === undefined ? '…' : formatToken(balance.data)} TLM${(credit.data ?? 0) > 0 ? `, credit ${formatToken(credit.data!)} TLM` : ''}. Entry fees beyond it are deposited in the same transaction.`
 
   return (
     <div className="pl-sec">
       <div className="pl-sec__label">
-        <span>Deploy</span>
-        <span>
-          balance {balance.data === undefined ? '…' : `${formatToken(balance.data)} TLM`}
-          {(credit.data ?? 0) > 0 ? ` · credit ${formatToken(credit.data!)} TLM` : ''} · entry fees beyond it are deposited in the
-          same transaction
+        <span title={money}>
+          Deploy{' '}
+          <small>
+            {formatToken(s.entryTlm)} TLM per join · {formatNumber(s.cooldownBase / 3600, 1)}h + 10 s per move
+          </small>
         </span>
+        {open && chosen.length > 1 && (
+          <Button
+            size="sm"
+            color="solidBlue"
+            disabled={tx.spectating}
+            isLoading={tx.pending === 'siege-all'}
+            onClick={() => void deployAll()}
+          >
+            Deploy {chosen.length} ready · {formatToken(chosen.length * s.entryTlm)} TLM
+          </Button>
+        )}
       </div>
       {!tx.account ? (
         <p className="pl-note">Sign in to deploy.</p>
@@ -1126,96 +1007,41 @@ function DeployPanel({
           No divisions yet. <Link to="/army">Build one in the Army.</Link>
         </p>
       ) : (
-        <>
-          <div className="pl-table">
-            <table>
-              <thead>
-                <tr>
-                  <th>Division</th>
-                  <th className="r">ATK / DEF</th>
-                  <th className="r">Move</th>
-                  <th className="r">Score per join</th>
-                  <th className="r">Cycle</th>
-                  <th className="r">Joins · cost to close</th>
-                  <th>Status</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {states.map((x) => {
-                  const d = x.division
-                  const isReady = x.qualifies && x.readyAt <= now
-                  const joins = x.qualifies
-                    ? joinsUntil({ id: d.id, atk: d.atk, def: d.def, move: d.move, readyAt: x.readyAt }, s.cooldownBase, close)
-                    : 0
-                  return (
-                    <tr key={d.id} className={x.qualifies ? '' : 'is-open'}>
-                      <td>
-                        <label className="pl-pick">
-                          <input
-                            type="checkbox"
-                            disabled={!isReady}
-                            checked={isReady && (picked ? picked.has(d.id) : true)}
-                            onChange={(e) => {
-                              const next = new Set(picked ?? ready.map((r) => r.division.id))
-                              if (e.target.checked) next.add(d.id)
-                              else next.delete(d.id)
-                              setPicked(next)
-                            }}
-                            aria-label={`Include division #${d.id}`}
-                          />
-                          <b className="num">#{d.id}</b>
-                        </label>
-                      </td>
-                      <td className="r num">
-                        <span className="c-atk">{formatNumber(d.atk, 0)}</span> /{' '}
-                        <span className="c-def">{formatNumber(d.def, 0)}</span>
-                      </td>
-                      <td className="r num faint">{formatNumber(d.move, 0)}</td>
-                      <td className="r num">{formatNumber(d.atk + d.def, 0)}</td>
-                      <td className="r num">
-                        {x.qualifies ? shortDuration(missionLockSeconds(s.cooldownBase, d.move) * 1000) : ''}
-                      </td>
-                      <td className="r num">{x.qualifies ? `${joins} · ${formatNumber(joins * s.entryTlm, 0)} TLM` : ''}</td>
-                      <td className={x.qualifies ? (isReady ? (x.claim ? 'c-mov' : 'c-green') : 'faint') : 'faint'}>
-                        {x.qualifies ? x.status : `Below the ${s.minAtk} / ${s.minDef} minimum`}
-                      </td>
-                      <td className="r">
-                        <Button
-                          size="sm"
-                          color="ghost"
-                          disabled={!isReady || !open || tx.spectating}
-                          isLoading={tx.pending === `siege-${d.id}`}
-                          onClick={() => void deployOne(x)}
-                        >
-                          {x.claim ? 'Claim and deploy' : 'Deploy'}
-                        </Button>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-          <div className="pl-deploybar">
-            <span className="faint">
-              {open
-                ? `${chosen.length} selected · ${formatNumber(
-                    chosen.reduce((n, x) => n + x.division.atk + x.division.def, 0),
-                    0
-                  )} score · ${formatToken(chosen.length * s.entryTlm)} TLM`
-                : 'The season is not taking divisions right now.'}
-            </span>
-            <Button
-              color="solidBlue"
-              disabled={!open || !chosen.length || tx.spectating}
-              isLoading={tx.pending === 'siege-all'}
-              onClick={() => void deployAll()}
-            >
-              Deploy {chosen.length} · {formatToken(chosen.length * s.entryTlm)} TLM
-            </Button>
-          </div>
-        </>
+        <div className="pl-divs">
+          {states.map((x) => {
+            const d = x.division
+            const isReady = x.qualifies && x.readyAt <= now
+            const joins = x.qualifies
+              ? joinsUntil({ id: d.id, atk: d.atk, def: d.def, move: d.move, readyAt: x.readyAt }, s.cooldownBase, close)
+              : 0
+            return (
+              <div
+                key={d.id}
+                className={`pl-div ${x.qualifies ? '' : 'is-off'}`}
+                title={
+                  x.qualifies
+                    ? `${formatNumber(d.atk, 0)} ATK / ${formatNumber(d.def, 0)} DEF · cycle ${shortDuration(missionLockSeconds(s.cooldownBase, d.move) * 1000)} · ${joins} joins (${formatNumber(joins * s.entryTlm, 0)} TLM) until the end`
+                    : undefined
+                }
+              >
+                <b className="num">#{d.id}</b>
+                <span className="num">{kfmt(d.atk + d.def)}</span>
+                <span className={x.qualifies ? (isReady ? (x.claim ? 'c-mov' : 'c-green') : 'faint') : 'faint'}>
+                  {x.qualifies ? x.status : 'Below the minimum'}
+                </span>
+                <Button
+                  size="sm"
+                  color="ghost"
+                  disabled={!isReady || !open || tx.spectating}
+                  isLoading={tx.pending === `siege-${d.id}`}
+                  onClick={() => void deployOne(x)}
+                >
+                  {x.claim ? 'Claim and deploy' : 'Deploy'}
+                </Button>
+              </div>
+            )
+          })}
+        </div>
       )}
     </div>
   )
@@ -1243,7 +1069,6 @@ function SettledView({
   const rows = board.data ?? []
   const prizes = past?.prizes.length ? past.prizes : season === s.season ? (live.data ?? []) : []
   const entry = past?.entryTlm ?? s.entryTlm
-  const total = rows.reduce((n, r) => n + r.score, 0)
   const closedAt = past?.closedAt ?? s.endAt ?? now
   const openedAt = closedAt - (past?.durationDays ?? s.durationDays) * 86_400_000
 
@@ -1252,34 +1077,30 @@ function SettledView({
     <>
       <Timeline
         from={openedAt}
-        to={Math.max(now, closedAt)}
-        now={now}
-        marks={[
-          { at: openedAt, label: `Season ${season} opened`, sub: day(openedAt) },
-          { at: closedAt, label: 'Closed · paid', sub: day(closedAt) },
-          { at: now, label: 'Now', sub: day(now), tone: 'now' }
-        ]}
+        to={closedAt}
+        now={closedAt}
+        start={`Opened ${day(openedAt)}`}
+        end={`Closed ${day(closedAt)}`}
+        marks={[]}
       />
       <Figures
         items={[
           { label: 'Players', value: rows.length },
-          { label: 'Total score', value: kfmt(total) },
           { label: 'Winner', value: rows[0]?.account ?? '–' },
           { label: 'Winner spent', value: rows[0] ? `${formatNumber(rows[0].deployments * entry, 0)} TLM` : '–' },
-          { label: 'Total spent', value: `${formatNumber(rows.reduce((n, r) => n + r.deployments, 0) * entry, 0)} TLM` },
-          { label: 'Unpaid ranks', value: Math.max(0, prizes.length - rows.length) }
+          { label: 'Total spent', value: `${formatNumber(rows.reduce((n, r) => n + r.deployments, 0) * entry, 0)} TLM` }
         ]}
       />
       <div className="pl-sec">
         <div className="pl-sec__label">
-          <span>Final standings and prizes</span>
-          <span>{prizes.length} paid ranks · prize written out per rank</span>
+          <span>Final standings</span>
+          <span>{prizes.length} ranks paid</span>
         </div>
         {board.isLoading ? (
           <p className="pl-note">Reading the scores…</p>
         ) : (
           <RankTable
-            head={['#', 'Player', 'Final score', 'Joins', 'Spent', '≈ TLM', 'Prize paid']}
+            head={['#', 'Player', 'Score', 'Joins', 'Spent', 'Prize paid']}
             lines={rows.map((r) => ({
               rank: r.rank,
               account: r.account,
@@ -1294,9 +1115,6 @@ function SettledView({
             emptyLabel="Unpaid: nobody held this rank"
           />
         )}
-        <p className="pl-note">
-          Prizes from the contract's own table for this season. Spent: joins × the {formatToken(entry)} TLM entry.
-        </p>
       </div>
     </>
   )
