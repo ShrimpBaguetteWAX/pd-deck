@@ -62,6 +62,7 @@ import { useTransaction } from '@/wallet/useTransaction'
 
 import { Inventory } from './MarketInventory'
 import { LootMarket } from './MarketLoot'
+import { Upgrades } from './MarketUpgrade'
 
 import './Market.css'
 
@@ -226,8 +227,8 @@ export default function Market() {
     phase: Refinement['phase']
   } | null>(null)
   const [browse, setBrowse] = useState<Kind | 'all'>('mercenary')
-  /** The page's three parts: the division builder, the wallet's inventory, and the loot shelf. */
-  const [tab, setTab] = useState<'builder' | 'inventory' | 'loot'>('builder')
+  /** The page's parts: the division builder, the upgrades for your divisions, the wallet's inventory, and the loot shelf. */
+  const [tab, setTab] = useState<'builder' | 'upgrade' | 'inventory' | 'loot'>('builder')
   /** How many chests the "open chests first?" forecast assumes. */
   const [chestCounts, setChestCounts] = useState({ chest: 10, key: 10 })
 
@@ -771,6 +772,9 @@ export default function Market() {
         <button type="button" className={tab === 'builder' ? 'is-active' : ''} onClick={() => setTab('builder')}>
           Division builder
         </button>
+        <button type="button" className={tab === 'upgrade' ? 'is-active' : ''} onClick={() => setTab('upgrade')}>
+          Upgrade
+        </button>
         <button type="button" className={tab === 'inventory' ? 'is-active' : ''} onClick={() => setTab('inventory')}>
           Inventory
         </button>
@@ -785,7 +789,9 @@ export default function Market() {
     return (
       <div className="page market">
         {tabs}
-        {tab === 'inventory' ? (
+        {tab === 'upgrade' ? (
+          <Upgrades account={account} listings={listings.data} />
+        ) : tab === 'inventory' ? (
           <Inventory account={account} listings={listings.data} />
         ) : (
           <LootMarket account={account} listings={listings.data} wax={player.data?.wax ?? 0} />
