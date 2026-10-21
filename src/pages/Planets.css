@@ -444,6 +444,112 @@
   text-decoration: underline;
 }
 
+/* ---- Spec strip: the community target beside the season's rules ---- */
+
+.pl-spec {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr);
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+}
+
+.pl-spec > div {
+  display: grid;
+  align-content: center;
+  gap: 8px;
+  padding: 12px 14px;
+}
+
+.pl-spec > div + div {
+  border-left: 1px solid var(--border);
+  background: rgba(255, 255, 255, 0.015);
+}
+
+.pl-spec__label {
+  color: var(--text-faint);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.pl-spec .pl-bar {
+  grid-template-columns: 34px minmax(0, 1fr) auto;
+}
+
+.pl-spec .pl-bar > .num {
+  min-width: 7.5em;
+}
+
+.pl-spec__rules {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px 18px;
+  margin: 0;
+}
+
+.pl-spec__rules > div {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.pl-spec__rules svg,
+.pl-spec__rules img {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  color: var(--text-dim);
+}
+
+.pl-spec__rules svg.c-atk {
+  color: var(--atk);
+}
+
+.pl-spec__rules svg.c-def {
+  color: var(--dfn);
+}
+
+.pl-spec__rules dt {
+  flex: 1;
+  overflow: hidden;
+  color: var(--text-faint);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pl-spec__rules dd {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.pl-spec__fit {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.pl-spec__fit span {
+  padding: 0 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  font-size: 11px;
+}
+
+.pl-spec__fit .is-ok {
+  border-color: rgba(46, 229, 157, 0.35);
+  color: var(--green);
+}
+
+.pl-spec__fit .is-no {
+  color: var(--text-faint);
+  text-decoration: line-through;
+}
+
 /* ---- Deploy rows ---- */
 
 .pl-divs {
@@ -643,14 +749,24 @@
 
 @media (max-width: 900px) {
   .pl-cols,
-  .pl-row {
+  .pl-row,
+  .pl-spec {
     grid-template-columns: 1fr;
+  }
+
+  .pl-spec > div + div {
+    border-top: 1px solid var(--border);
+    border-left: 0;
   }
 }
 
 @media (max-width: 720px) {
   .pl-world {
     padding: 12px;
+  }
+
+  .pl-spec__rules {
+    grid-template-columns: 1fr;
   }
 
   .pl-figs {

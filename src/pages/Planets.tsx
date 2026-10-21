@@ -36,6 +36,7 @@ import { publicUrl } from '@/lib/publicUrl'
 import { fundingEta, joinsUntil, projectSiege, type ProjectedDivision, type Projection } from '@/lib/siegeProjection'
 import { missionLockSeconds } from '@/lib/stats'
 import { chainDate, shortDuration, useNow } from '@/lib/time'
+import { CampaignIcon, ShieldIcon, SwordIcon, TimerIcon, UsersIcon } from '@/icons'
 import { useTransaction } from '@/wallet/useTransaction'
 
 import './Planets.css'
@@ -305,7 +306,19 @@ function Figures({ items }: { items: { label: string; value: ReactNode; tone?: s
 }
 
 /** A target as a thin bar and its share; the numbers on hover. */
-function Bar({ label, tone, value, target }: { label: string; tone: string; value: number; target: number }) {
+function Bar({
+  label,
+  tone,
+  value,
+  target,
+  of = false
+}: {
+  label: string
+  tone: string
+  value: number
+  target: number
+  of?: boolean
+}) {
   const share = target > 0 ? Math.min(1, value / target) : 0
   return (
     <div className={`pl-bar is-${tone}`} title={`${formatNumber(value, 0)} of ${formatNumber(target, 0)}`}>
@@ -313,7 +326,9 @@ function Bar({ label, tone, value, target }: { label: string; tone: string; valu
       <span className="pl-bar__track">
         <i style={{ width: `${Math.max(share > 0 ? 0.5 : 0, share * 100)}%` }} />
       </span>
-      <span className="num">{formatNumber((value / (target || 1)) * 100, 1)}%</span>
+      <span className="num">
+        {formatNumber((value / (target || 1)) * 100, 1)}%{of ? <small className="faint"> of {kfmt(target)}</small> : null}
+      </span>
     </div>
   )
 }
@@ -790,10 +805,6 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
   )
 
   const ranks = prizes.data ?? []
-  const prizeAt = (rank: number) => ranks.find((p) => p.rank === rank)
-  const meProjected = projection?.field.find((r) => r.me) ?? null
-  const above = meProjected && projection ? projection.field[meProjected.rank - 2] : null
-  const meNow = rows.find((r) => r.account === tx.account) ?? null
   const spent = (account: string, joins: number) => joins * s.entryTlm + (funded.get(account) ?? 0) * valuer.defTlm
   const joinsCell = (joins: number) => <span className="faint">{joins}</span>
   const spentCell = (account: string, joins: number) => {
@@ -851,33 +862,7 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           ]}
         />
       )}
-      <div className="pl-row">
-        <div className="pl-bars">
-          <Bar label="ATK" tone="atk" value={s.cumAtk} target={s.targetAtk} />
-          <Bar label="DEF" tone="def" value={s.cumDef} target={s.targetDef} />
-        </div>
-        {projection && (
-          <Figures
-            items={
-              meProjected
-                ? [
-                    { label: 'Your finish', value: `#${meProjected.rank}`, tone: 'c-cyan' },
-                    { label: 'Prize', value: `≈ ${kfmt(valuer.worth(prizeAt(meProjected.rank)))} TLM` },
-                    { label: 'Cost', value: `${formatNumber(projection.cost, 0)} TLM` },
-                    above
-                      ? { label: `To #${above.rank}`, value: `+${kfmt(above.projected - meProjected.projected)}` }
-                      : { label: 'Ends in', value: shortDuration(Math.max(0, projection.close - now)) }
-                  ]
-                : [
-                    { label: 'Ends in', value: shortDuration(Math.max(0, projection.close - now)) },
-                    { label: 'Players', value: s.participants },
-                    { label: 'Open ranks', value: Math.max(0, ranks.length - s.participants) },
-                    { label: 'You', value: meNow ? `#${meNow.rank}` : '–' }
-                  ]
-            }
-          />
-        )}
-      </div>
+      <SpecStrip siege={s} states={states} signedIn={!!tx.account} />
 
       <DeployPanel
         siege={s}
@@ -916,6 +901,62 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
         )}
       </div>
     </>
+  )
+}
+
+/** The community target as two bars, and the season's rules beside it: what a division needs and what a join costs. */
+function SpecStrip({ siege: s, states, signedIn }: { siege: Siege; states: DivisionState[]; signedIn: boolean }) {
+  return (
+    <div className="pl-spec">
+      <div>
+        <span className="pl-spec__label">Community target</span>
+        <Bar label="ATK" tone="atk" value={s.cumAtk} target={s.targetAtk} of />
+        <Bar label="DEF" tone="def" value={s.cumDef} target={s.targetDef} of />
+      </div>
+      <div>
+        <span className="pl-spec__label">Rules</span>
+        <dl className="pl-spec__rules">
+          <div>
+            <SwordIcon className="c-atk" />
+            <dt>Min ATK per division</dt>
+            <dd className="num">{formatNumber(s.minAtk, 0)}</dd>
+          </div>
+          <div>
+            <TokenIcon symbol="TLM" size={14} />
+            <dt>Entry per join</dt>
+            <dd className="num c-tlm">{formatToken(s.entryTlm)} TLM</dd>
+          </div>
+          <div>
+            <ShieldIcon className="c-def" />
+            <dt>Min DEF per division</dt>
+            <dd className="num">{formatNumber(s.minDef, 0)}</dd>
+          </div>
+          <div>
+            <TimerIcon />
+            <dt>Cooldown</dt>
+            <dd className="num">{formatNumber(s.cooldownBase / 3600, 1)}h + 10 s/move</dd>
+          </div>
+          {signedIn && states.length > 0 && (
+            <div>
+              <UsersIcon />
+              <dt>Your divisions</dt>
+              <dd className="pl-spec__fit">
+                {states.map((x) => (
+                  <span key={x.division.id} className={x.qualifies ? 'is-ok' : 'is-no'}>
+                    #{x.division.id}
+                  </span>
+                ))}
+              </dd>
+            </div>
+          )}
+          <div>
+            <CampaignIcon />
+            <dt>Season</dt>
+            <dd className="num">{s.durationDays} days</dd>
+          </div>
+        </dl>
+      </div>
+    </div>
   )
 }
 
