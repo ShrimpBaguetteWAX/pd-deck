@@ -198,10 +198,13 @@ export const MinusIcon = (p: P) => (
 )
 
 /** A planet with a ring: the planetary sieges. */
-export const OrbitIcon = (p: P) => (
+/** A ring with three stations: a campaign's phases, fund, siege and prizes. */
+export const CampaignIcon = (p: P) => (
   <svg {...base(p)}>
-    <circle cx="12" cy="12" r="5" />
-    <path d="M3.5 9.5c-1.6 2.6 5 7.3 11.5 9.8s11-1 7.5-4.2" />
+    <path d="M10.2 4.2a8 8 0 0 0-5.6 9.7M8.8 19.3a8 8 0 0 0 6.4 0M19.4 13.9a8 8 0 0 0-5.6-9.7" />
+    <circle cx="12" cy="4" r="2" />
+    <circle cx="18.9" cy="16" r="2" />
+    <circle cx="5.1" cy="16" r="2" />
   </svg>
 )
 

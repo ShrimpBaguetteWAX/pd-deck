@@ -14,7 +14,7 @@ import {
   FlameIcon,
   GiftIcon,
   LedgerIcon,
-  OrbitIcon,
+  CampaignIcon,
   RocketIcon,
   SwordIcon,
   UsersIcon
@@ -28,7 +28,7 @@ const NAV = [
   { to: '/army', label: 'Army', icon: UsersIcon },
   { to: '/missions', label: 'Missions', icon: RocketIcon },
   { to: '/deployments', label: 'Deployments', icon: GiftIcon },
-  { to: '/planets', label: 'Planets', icon: OrbitIcon },
+  { to: '/planets', label: 'Campaigns', icon: CampaignIcon },
   { to: '/forge', label: 'Forge', icon: FlameIcon },
   { to: '/market', label: 'Market', icon: CartIcon },
   { to: '/blend', label: 'Blend', icon: SparkIcon },
