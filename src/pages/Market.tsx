@@ -229,6 +229,8 @@ export default function Market() {
   const [browse, setBrowse] = useState<Kind | 'all'>('mercenary')
   /** The page's parts: the division builder, the upgrades for your divisions, the wallet's inventory, and the loot shelf. */
   const [tab, setTab] = useState<'builder' | 'upgrade' | 'inventory' | 'loot'>('builder')
+  /** Set when the Upgrade tab hands a division over: the builder scans it once its targets are in. */
+  const [autoScan, setAutoScan] = useState(false)
   /** How many chests the "open chests first?" forecast assumes. */
   const [chestCounts, setChestCounts] = useState({ chest: 10, key: 10 })
 
@@ -263,6 +265,13 @@ export default function Market() {
     setFrozen({ key, at: Date.now(), data: live })
   }
   const scan = () => scanWith(atk, def)
+  useEffect(() => {
+    if (!autoScan || tab !== 'builder') return
+    setAutoScan(false)
+    scanWith(atk, def)
+    // Runs once the handed-over targets have rendered.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoScan, tab, atk, def, maxMove])
   const snapshot = scanning && frozen?.key === scanKey ? frozen : null
   const snap = snapshot?.data ?? live
 
@@ -790,7 +799,17 @@ export default function Market() {
       <div className="page market">
         {tabs}
         {tab === 'upgrade' ? (
-          <Upgrades account={account} listings={listings.data} />
+          <Upgrades
+            account={account}
+            listings={listings.data}
+            onBuild={(t) => {
+              setAtkText(String(t.atk))
+              setDefText(String(t.def))
+              setMoveText(t.maxMove ? String(t.maxMove) : '')
+              setTab('builder')
+              setAutoScan(true)
+            }}
+          />
         ) : tab === 'inventory' ? (
           <Inventory account={account} listings={listings.data} />
         ) : (

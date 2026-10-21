@@ -1,6 +1,4 @@
 .gbal {
-  /* The menu loads before the page styles, so the reset can win over the modal's zero-specificity margin. */
-  margin: auto;
   width: min(94vw, 480px);
 }
 

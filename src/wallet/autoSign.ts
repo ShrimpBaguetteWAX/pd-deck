@@ -40,6 +40,26 @@ export const AUTO_GROUPS: AutoGroup[] = [
     ]
   },
   {
+    title: 'Divisions',
+    actions: [
+      { contract: CONTRACTS.CORE, action: 'creatediv', label: 'Create a division under a warlord' },
+      { contract: CONTRACTS.CORE, action: 'addunit', label: 'Add a mercenary to a division' },
+      { contract: CONTRACTS.CORE, action: 'removeunit', label: 'Take a mercenary out of a division' },
+      { contract: CONTRACTS.CORE, action: 'assign', label: 'Equip gear on a mercenary' },
+      { contract: CONTRACTS.CORE, action: 'unassign', label: 'Take gear off a mercenary' },
+      { contract: CONTRACTS.CORE, action: 'deldvasset', label: 'Disband an empty division' },
+      { contract: CONTRACTS.CORE, action: 'calcdiv', label: 'Refresh a division’s stats before it joins' },
+      { contract: CONTRACTS.CORE, action: 'unstake', label: 'Unstake an NFT back to your wallet' },
+      { contract: CONTRACTS.CORE, action: 'regplayer', label: 'Register as a player (first action only)' }
+    ]
+  },
+  {
+    title: 'Game balance',
+    actions: [
+      { contract: CONTRACTS.CORE, action: 'withdrawbal', label: 'Withdraw TLM or DEF from the game balance to your wallet' }
+    ]
+  },
+  {
     title: 'Mining',
     actions: [
       { contract: CONTRACTS.MINING, action: 'mine', label: 'Mine with the Mine button' },
@@ -48,33 +68,35 @@ export const AUTO_GROUPS: AutoGroup[] = [
     ]
   },
   {
-    title: 'Divisions',
-    actions: [
-      { contract: CONTRACTS.CORE, action: 'calcdiv', label: 'Refresh a division’s stats before it joins' },
-      { contract: CONTRACTS.CORE, action: 'regplayer', label: 'Register as a player (first action only)' }
-    ]
+    title: 'Market',
+    actions: [{ contract: 'atomicmarket', action: 'cancelsale', label: 'Take one of your listings off the market' }]
   },
   {
-    title: 'Entry fees',
+    title: 'DEF',
     actions: [
-      {
-        contract: CONTRACTS.TLM,
-        action: 'transfer',
-        label: 'Pay entry fees and deposits in TLM',
-        warning: 'A permission for TLM transfers is not limited to the game: whoever holds the key could send your TLM anywhere.'
-      },
       {
         contract: CONTRACTS.DEF,
         action: 'transfer',
-        label: 'Pay entry fees in DEF',
+        label: 'Send DEF: mission entry fees, Forge slots, game balance deposits, campaign funding',
         warning: 'A permission for DEF transfers is not limited to the game: whoever holds the key could send your DEF anywhere.'
       }
     ]
   }
 ]
 
-/** Without a choice saved, the game actions that move nothing out of the account. */
-const DEFAULT = [
+/*
+ * Never offered: TLM, WAX and NFT transfers (staking, blends, ascension, market purchases and
+ * listings, swaps on Alcor, Forge levels). A transaction with one of those always asks the wallet.
+ */
+
+/** Every action that may be auto-signed. */
+const ALLOWED = new Set(AUTO_GROUPS.flatMap((g) => g.actions.map((a) => `${a.contract}::${a.action}`)))
+
+/** Without a choice saved: everything except moving DEF. */
+const DEFAULT = [...ALLOWED].filter((k) => k !== `${CONTRACTS.DEF}::transfer`)
+
+/** Actions the first version of this page offered: anything else is new and starts ticked. */
+const OFFERED_V1 = new Set([
   'miss.pdef::join',
   'miss.pdef::claim',
   'siege.pdef::joindiv',
@@ -83,18 +105,27 @@ const DEFAULT = [
   'core.pdef::regplayer',
   'm.federation::mine',
   'm.federation::setland',
-  'cpu.mc::paycpu'
-]
+  'cpu.mc::paycpu',
+  'alien.worlds::transfer',
+  'defensetoken::transfer'
+])
 
-const STORE = 'pd:autosign:actions'
+const STORE = 'pd:autosign:actions:v2'
+const STORE_V1 = 'pd:autosign:actions'
 
 export const actionKey = (a: { contract: string; action: string }) => `${a.contract}::${a.action}`
 
-/** The actions picked in this browser, as "contract::action". */
+/** The actions picked in this browser, as "contract::action", limited to what may be auto-signed. */
 export function savedActions(): string[] {
   try {
     const raw = localStorage.getItem(STORE)
-    if (raw) return (JSON.parse(raw) as string[]).filter((k) => typeof k === 'string')
+    if (raw) return (JSON.parse(raw) as string[]).filter((k) => ALLOWED.has(k))
+    // A choice from the first version: kept, minus TLM transfers, plus the actions added since.
+    const old = localStorage.getItem(STORE_V1)
+    if (old) {
+      const kept = (JSON.parse(old) as string[]).filter((k) => ALLOWED.has(k))
+      return [...new Set([...kept, ...DEFAULT.filter((k) => !OFFERED_V1.has(k))])]
+    }
   } catch {
     // Blocked storage: the defaults.
   }

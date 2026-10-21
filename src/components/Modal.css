@@ -5,13 +5,20 @@
 :where(.modal) {
   width: min(92vw, 420px);
   max-height: 92vh;
-  /* The global reset zeroes margins; auto centres the modal. */
-  margin: auto;
   padding: 0;
   border: 1px solid var(--border);
   border-radius: 18px;
   background: #0b1a2c;
   color: var(--text);
+}
+
+/*
+ * Centring stays out of :where(): the global reset zeroes every margin with the same zero
+ * specificity, and whichever stylesheet loads last would win (the account menu loads this one
+ * before the page styles), leaving dialogs stuck in the top left corner.
+ */
+dialog.modal {
+  margin: auto;
 }
 
 :where(.modal)::backdrop {

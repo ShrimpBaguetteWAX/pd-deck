@@ -62,6 +62,7 @@ export interface Stats {
 }
 
 export interface Upgrade {
+  kind: 'single'
   id: string
   division: Division
   /** The mercenary the gear goes on; unset for a new mercenary. */
@@ -240,6 +241,7 @@ export function findUpgrades(input: UpgradeInput): Upgrade[] {
         const uses = [o.res, `${place}`]
         if (slotKind) uses.push(slotFree ? `slot:${slotKind}` : `slotbuy:${slotKind}`)
         const u: Upgrade = {
+          kind: 'single',
           id: `${place}>${o.res}`,
           division: d,
           unit,
@@ -314,13 +316,22 @@ const trim = (n: number) => (Number.isInteger(n) ? String(n) : String(Number(n.t
 
 export type Goal = 'tlm' | 'atk' | 'move'
 
-export const gainOf = (u: Upgrade, goal: Goal) => (goal === 'tlm' ? u.gain.tlm : goal === 'atk' ? u.gain.atk : u.gain.move)
+/** What the ranking needs of a row: single upgrades and whole-division plans alike. */
+export interface Rankable {
+  id: string
+  wax: number
+  uses: string[]
+  gain: { tlm: number; atk: number; move: number }
+  steps: UpgradeStep[]
+}
 
-export interface Ranked {
-  upgrade: Upgrade
+export const gainOf = (u: Rankable, goal: Goal) => (goal === 'tlm' ? u.gain.tlm : goal === 'atk' ? u.gain.atk : u.gain.move)
+
+export interface Ranked<T extends Rankable = Upgrade> {
+  upgrade: T
   value: number
   /** Set when a better row already uses what this one needs. */
-  instead?: Upgrade
+  instead?: T
   /** Totals down to this row, counting only the rows that can all happen together. */
   runWax: number
   runGain: number
@@ -331,7 +342,7 @@ export interface Ranked {
  * an upgrade that needs something a better one already took (the same place, the same owned NFT,
  * the last free Forge slot) is marked as the alternative to it and left out of the totals.
  */
-export function rankUpgrades(list: Upgrade[], goal: Goal, capacity: Map<string, number>): Ranked[] {
+export function rankUpgrades<T extends Rankable>(list: T[], goal: Goal, capacity: Map<string, number>): Ranked<T>[] {
   const rows = list
     .map((upgrade) => ({ upgrade, value: gainOf(upgrade, goal) }))
     .filter((r) => r.value > 1e-9)
@@ -345,10 +356,10 @@ export function rankUpgrades(list: Upgrade[], goal: Goal, capacity: Map<string, 
   // The same upgrade can be best by two measures: keep it once.
   const seen = new Set<string>()
   const used = new Map<string, number>()
-  const takenBy = new Map<string, Upgrade>()
+  const takenBy = new Map<string, T>()
   let runWax = 0
   let runGain = 0
-  const out: Ranked[] = []
+  const out: Ranked<T>[] = []
   for (const r of rows) {
     if (seen.has(r.upgrade.id)) continue
     seen.add(r.upgrade.id)
@@ -369,4 +380,4 @@ export function rankUpgrades(list: Upgrade[], goal: Goal, capacity: Map<string, 
 }
 
 /** The step kinds an upgrade involves, for the filter chips. */
-export const kindsOf = (u: Upgrade) => new Set(u.steps.map((s) => s.kind))
+export const kindsOf = (u: Rankable) => new Set(u.steps.map((s) => s.kind))
