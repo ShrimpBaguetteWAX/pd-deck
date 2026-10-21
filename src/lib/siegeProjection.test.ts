@@ -6,7 +6,7 @@ const H = 3_600_000
 const D = 24 * H
 
 const base = (over: Partial<ProjectionInput> = {}): ProjectionInput => ({
-  now: 2 * D,
+  now: 3 * D,
   startAt: 0,
   endAt: 15 * D,
   cumAtk: 400_000,
@@ -26,32 +26,35 @@ const base = (over: Partial<ProjectionInput> = {}): ProjectionInput => ({
 })
 
 describe('projectSiege', () => {
-  it('closes when the slower target is met at the pace since launch', () => {
-    const p = projectSiege(base({ cumDef: 200_000 }))
-    // 400k ATK in 2 days: 2M after 10 days. 200k DEF in 2 days: 2M after 20 days, past the 15-day timer.
-    expect(p.atkMetAt).toBeCloseTo(10 * D, -3)
-    expect(p.closeWithout).toBe(15 * D)
+  it('runs to the end time even when the targets are met sooner', () => {
+    const p = projectSiege(base({ cumDef: 600_000 }))
+    // 400k ATK in 3 days: 2M after 15 days. 600k DEF in 3 days: 2M after 10 days.
+    expect(p.defMetAt).toBeCloseTo(10 * D, -3)
+    expect(p.close).toBe(15 * D)
   })
 
-  it('scales the others to the close and adds the funder bonus', () => {
+  it('scales the others, score and joins, to the end and adds the funder bonus', () => {
     const p = projectSiege(base({ bonus: new Map([['b', 0.15]]) }))
-    // Close at day 10: five times the time so far.
-    expect(p.close).toBeCloseTo(10 * D, -3)
-    expect(p.field.find((r) => r.account === 'a')!.projected).toBeCloseTo(500_000, -2)
-    expect(p.field.find((r) => r.account === 'b')!.projected).toBeCloseTo(287_500, -2)
+    // Five times the time so far.
+    const a = p.field.find((r) => r.account === 'a')!
+    const b = p.field.find((r) => r.account === 'b')!
+    expect(a.projected).toBeCloseTo(500_000, -2)
+    expect(a.projectedJoins).toBe(50)
+    expect(b.projected).toBeCloseTo(287_500, -2)
     expect(p.field.some((r) => r.me)).toBe(false)
   })
 
-  it('places you by what your divisions add, and brings the close forward', () => {
-    const mine = [{ id: 1, atk: 50_000, def: 50_000, move: 0, readyAt: 2 * D }]
+  it('places you by what your divisions add until the end', () => {
+    const mine = [{ id: 1, atk: 50_000, def: 50_000, move: 0, readyAt: 3 * D }]
     const p = projectSiege(base({ mine }))
-    expect(p.close).toBeLessThan(p.closeWithout)
-    // One join now, then one every 4 hours until the close.
-    expect(p.joins).toBe(joinsUntil(mine[0], 14_400, p.close))
+    // One join now, then one every 4 hours until day 15: 12 days × 6 + 1.
+    expect(p.joins).toBe(joinsUntil(mine[0], 14_400, 15 * D))
+    expect(p.joins).toBe(73)
     expect(p.added).toBe(p.joins * 100_000)
     expect(p.cost).toBe(p.joins * 25)
     const me = p.field.find((r) => r.me)!
     expect(me.projected).toBe(p.added)
+    expect(me.projectedJoins).toBe(p.joins)
     expect(me.rank).toBe(p.field.filter((r) => r.projected > me.projected).length + 1)
   })
 

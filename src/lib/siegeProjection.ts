@@ -1,13 +1,14 @@
 import { missionLockSeconds } from './stats'
 
 /*
- * Where a live siege season is heading: when it closes, where every player stands then, and
- * where you would land if your divisions joined on every cooldown until the close.
+ * Where a live siege season is heading: where every player stands at the close, and where you
+ * would land if your divisions joined on every cooldown until then.
  *
- * Everything is a straight line from the average pace since launch. The season closes when both
- * community targets are met, or when its timer runs out, whichever comes first. Other players are
- * assumed to keep their own pace; the top funders' bonus is added at the close, as the contract
- * does.
+ * A season always runs to its end time: meeting the community targets does not end it early
+ * (Magor's first season met both targets halfway and still ran its 15 days, then the contract
+ * closed it). Everything else is a straight line from the average pace since launch: other
+ * players keep their own pace, in score and in joins, and the top funders' bonus is added at the
+ * close, as the contract does.
  */
 
 export interface ProjectedDivision {
@@ -46,6 +47,8 @@ export interface ProjectionInput {
 export interface ProjectedRow extends StandingRow {
   /** Score at the close, the funder bonus included. */
   projected: number
+  /** Joins by the close at the same pace (yours: what your divisions fit in). */
+  projectedJoins: number
   rank: number
   me: boolean
 }
@@ -54,11 +57,10 @@ export interface Projection {
   /** ATK and DEF the season gains per hour, on average since launch. */
   atkPerHour: number
   defPerHour: number
-  /** When each target is met at that pace, without you. */
+  /** When each community target is met at that pace (the season runs on regardless). */
   atkMetAt: number
   defMetAt: number
-  /** When the season closes without you, and with your divisions joining on every cooldown. */
-  closeWithout: number
+  /** The season's end time. */
   close: number
   /** Your joins, their entry fees and the score they add, from now until the close. */
   joins: number
@@ -84,16 +86,8 @@ export function projectSiege(p: ProjectionInput): Projection {
   const defPerHour = (p.cumDef / elapsed) * HOUR
   const metAt = (cum: number, target: number, perHour: number) =>
     cum >= target ? p.now : perHour > 0 ? p.now + ((target - cum) / perHour) * HOUR : Infinity
-  const atkMetAt = metAt(p.cumAtk, p.targetAtk, atkPerHour)
-  const defMetAt = metAt(p.cumDef, p.targetDef, defPerHour)
-  const closeWithout = Math.min(p.endAt, Math.max(atkMetAt, defMetAt))
+  const close = p.endAt
 
-  // Your divisions speed the season up, which in turn leaves them fewer joins: settle both together.
-  const myRate = (k: 'atk' | 'def') => p.mine.reduce((n, d) => n + d[k] * (3600 / missionLockSeconds(p.cooldownBase, d.move)), 0)
-  const close = Math.min(
-    p.endAt,
-    Math.max(metAt(p.cumAtk, p.targetAtk, atkPerHour + myRate('atk')), metAt(p.cumDef, p.targetDef, defPerHour + myRate('def')))
-  )
   let joins = 0
   let added = 0
   for (const d of p.mine) {
@@ -102,21 +96,34 @@ export function projectSiege(p: ProjectionInput): Projection {
     added += n * (d.atk + d.def)
   }
 
-  const grow = (close - p.startAt) / elapsed
+  const grow = Math.max(1, (close - p.startAt) / elapsed)
   const rows = p.board.map((r) => ({
     ...r,
     projected: r.score * grow * (1 + (p.bonus.get(r.account) ?? 0)),
+    projectedJoins: Math.round(r.joins * grow),
     me: r.account === p.me
   }))
   if (p.me && p.mine.length) {
     const mine = rows.find((r) => r.me)
     // Your own line: what you have, your bonus, and what your divisions add, not your past pace.
     const projected = ((mine?.score ?? 0) + added) * (1 + (p.bonus.get(p.me) ?? 0))
-    if (mine) mine.projected = projected
-    else rows.push({ account: p.me, score: 0, joins: 0, projected, me: true })
+    if (mine) {
+      mine.projected = projected
+      mine.projectedJoins = mine.joins + joins
+    } else rows.push({ account: p.me, score: 0, joins: 0, projected, projectedJoins: joins, me: true })
   }
   const field = rows.sort((a, b) => b.projected - a.projected).map((r, i) => ({ ...r, rank: i + 1 }))
-  return { atkPerHour, defPerHour, atkMetAt, defMetAt, closeWithout, close, joins, cost: joins * p.entry, added, field }
+  return {
+    atkPerHour,
+    defPerHour,
+    atkMetAt: metAt(p.cumAtk, p.targetAtk, atkPerHour),
+    defMetAt: metAt(p.cumDef, p.targetDef, defPerHour),
+    close,
+    joins,
+    cost: joins * p.entry,
+    added,
+    field
+  }
 }
 
 /** When a funding phase reaches its threshold at the pace since its first contribution. */

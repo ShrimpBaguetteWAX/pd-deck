@@ -907,13 +907,14 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           cells: [
             r.me && !r.score ? '–' : formatNumber(r.score, 0),
             kfmt(r.projected),
-            joinsCell(r.me ? projection.joins : r.joins),
+            // Joins and spend by the close, at each player's pace so far (yours: what your divisions fit in).
+            joinsCell(r.projectedJoins),
             r.me ? (
               <span>
-                {formatNumber(projection.cost, 0)} TLM <span className="faint">planned</span>
+                {formatNumber(spent(r.account, r.projectedJoins), 0)} TLM <span className="faint">planned</span>
               </span>
             ) : (
-              spentCell(r.account, r.joins)
+              spentCell(r.account, r.projectedJoins)
             )
           ]
         }))
@@ -925,19 +926,28 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           from={s.startAt}
           to={s.endAt}
           now={now}
-          band={[Math.min(projection.close, projection.closeWithout), Math.max(projection.close, projection.closeWithout)]}
           marks={[
             { at: s.startAt, label: 'Launch', sub: day(s.startAt) },
             { at: now, label: 'Now', sub: day(now), tone: 'now' },
-            { at: projection.close, label: 'Close ≈', sub: dayTime(projection.close), tone: 'proj' },
-            { at: s.endAt, label: 'Timer', sub: dayTime(s.endAt) }
+            // Meeting the targets does not end the season; it only decides whether it counts as met.
+            ...(Math.max(projection.atkMetAt, projection.defMetAt) < s.endAt
+              ? [
+                  {
+                    at: Math.max(projection.atkMetAt, projection.defMetAt),
+                    label: 'Targets met ≈',
+                    sub: dayTime(Math.max(projection.atkMetAt, projection.defMetAt)),
+                    tone: 'proj' as const
+                  }
+                ]
+              : []),
+            { at: s.endAt, label: 'Season ends', sub: dayTime(s.endAt) }
           ]}
         />
       )}
       {projection && (
         <Figures
           items={[
-            { label: 'Closes ≈', value: shortDuration(Math.max(0, projection.close - now)) },
+            { label: 'Ends in', value: shortDuration(Math.max(0, projection.close - now)) },
             { label: 'Players / paid', value: `${s.participants} / ${ranks.length || '–'}` },
             { label: 'Open ranks', value: Math.max(0, ranks.length - s.participants), tone: 'c-green' },
             ...(meProjected
@@ -1030,8 +1040,8 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           />
         )}
         <p className="pl-note">
-          Projection: a straight line from the average pace since launch; the season closes when both targets are met or the timer
-          runs out; other players keep their pace and the top funders get their bonus at the close. Spent: joins × the entry fee,
+          Projection: the season runs to its end time (meeting the targets does not end it early); every player keeps their pace
+          since launch, in score and in joins, and the top funders get their bonus at the close. Spent: joins × the entry fee,
           plus DEF funded at the pool rate. ≈ TLM: the prize sold, NFTs at their AtomicMarket median after fees.
         </p>
       </div>
