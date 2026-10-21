@@ -104,6 +104,8 @@ function EffRing({ score, share }: { score: number; share: number }) {
   )
 }
 
+type SortKey = 'mission' | 'requires' | 'entry' | 'reward' | 'cycle' | 'rate'
+
 interface Row {
   e: MissionEconomics
   /** The qualifying division whose time this mission pays best for (lowest move), busy or not. */
@@ -151,6 +153,8 @@ export default function Missions() {
   const [moveSet, setMoveSet] = useState<number | null>(null)
   // Whether the cycle and TLM/h columns show the slider's estimate or your own divisions.
   const [view, setView] = useState<'est' | 'mine'>('est')
+  // Which column the table is sorted by; efficiency first, best on top.
+  const [sort, setSort] = useState<{ key: SortKey; desc: boolean }>({ key: 'rate', desc: true })
   // The scoring panel: open from its chip, closed by Escape or a click elsewhere.
   const [scoreOpen, setScoreOpen] = useState(false)
   const scoreRef = useRef<HTMLDivElement>(null)
@@ -246,16 +250,7 @@ export default function Missions() {
           return true
       }
     })
-    // Missions your army can run, by efficiency; then shard/NFT missions; then losing loops; then
-    // what is still out of reach, best first so the next target is visible.
-    const tier = (r: Row) => {
-      if (r.e.state !== 'active') return 0
-      if (!r.eligible) return 1
-      if (r.efficiency === null && !isTokenLoop(r.e) && r.loot <= 0) return 3
-      return (r.efficiency ?? r.perHour) > 0 ? 4 : 2
-    }
-    const score = (r: Row) => r.efficiency ?? -Infinity
-    return filtered.sort((a, b) => tier(b) - tier(a) || score(b) - score(a) || b.perHour - a.perHour)
+    return filtered
   }, [missions, filter, idle, divisions, market, priceByTemplate, pools.data, movePer100, tlmPerShard])
 
   // The gauges show each mission's share of the most efficient one in the list.
@@ -269,6 +264,53 @@ export default function Missions() {
     (m, d) => ({ atk: Math.max(m.atk, d.atk), def: Math.max(m.def, d.def) }),
     { atk: 0, def: 0 }
   )
+
+  // What each column sorts by, for the view on screen.
+  const sortValue = (r: Row): number | string => {
+    const m = view === 'est' ? r.assumedMove : r.move
+    switch (sort.key) {
+      case 'mission':
+        return r.e.title.toLowerCase()
+      case 'requires':
+        return Math.max(r.e.minAtk, r.e.minDef)
+      case 'entry':
+        return r.route.tlmIn
+      case 'reward':
+        return r.route.tlmOut + r.loot + r.e.rewardShards * tlmPerShard
+      case 'cycle':
+        return cycleSeconds(r.e, m)
+      default:
+        // Efficiency; missions without one (no TLM, shards not counted) go after, by TLM per hour.
+        return r.efficiency ?? -1e12 + (view === 'est' ? r.estPerHour : r.perHour)
+    }
+  }
+  const sorted = [...rows].sort((a, b) => {
+    const x = sortValue(a)
+    const y = sortValue(b)
+    const c = typeof x === 'string' ? x.localeCompare(String(y)) : x - (y as number)
+    return (sort.desc ? -c : c) || a.e.title.localeCompare(b.e.title)
+  })
+  const sortHead = (key: SortKey, label: string, inline = false) => {
+    const on = sort.key === key
+    const button = (
+      <button
+        type="button"
+        className={`mtable__sort ${on ? 'is-on' : ''}`}
+        aria-label={`Sort by ${label}`}
+        onClick={() =>
+          setSort(
+            on
+              ? { key, desc: !sort.desc }
+              : { key, desc: key !== 'mission' && key !== 'requires' && key !== 'entry' && key !== 'cycle' }
+          )
+        }
+      >
+        {label}
+        <span aria-hidden="true">{on ? (sort.desc ? ' ▾' : ' ▴') : ''}</span>
+      </button>
+    )
+    return inline ? button : <span aria-sort={on ? (sort.desc ? 'descending' : 'ascending') : 'none'}>{button}</span>
+  }
 
   if (!config.data) return <Loading inline label="Scanning the sector" />
 
@@ -402,12 +444,12 @@ export default function Missions() {
       {/* Table */}
       <div className="mtable" role="table">
         <div className="mtable__head" role="row">
-          <span>Mission</span>
-          <span>Requires</span>
-          <span>Entry</span>
-          <span>Reward</span>
+          {sortHead('mission', 'Mission')}
+          {sortHead('requires', 'Requires')}
+          {sortHead('entry', 'Entry')}
+          {sortHead('reward', 'Reward')}
           <span>
-            Cycle{' '}
+            {sortHead('cycle', 'Cycle', true)}{' '}
             <Tooltip
               text={
                 view === 'est'
@@ -417,7 +459,7 @@ export default function Missions() {
             />
           </span>
           <span>
-            TLM / h · Efficiency{' '}
+            {sortHead('rate', 'TLM / h · Efficiency', true)}{' '}
             <Tooltip
               text={`TLM per hour after the swaps, for ${view === 'est' ? 'the estimate' : 'your fastest qualifying division'}. The ring is the efficiency: net TLM per hour for every 100 points of the strength the mission asks for (ATK, or DEF when it asks for more DEF), for a division with ${movePer100} move per 100 strength. It stays the same in both views.`}
             />
@@ -430,7 +472,7 @@ export default function Missions() {
             <span>Try another filter.</span>
           </div>
         )}
-        {rows.map((r) => {
+        {sorted.map((r) => {
           const { e, division, idleDivision, move, perHour, efficiency, route, eligible, deployable } = r
           const shownMove = view === 'est' ? r.assumedMove : move
           const shownPerHour = view === 'est' ? r.estPerHour : perHour

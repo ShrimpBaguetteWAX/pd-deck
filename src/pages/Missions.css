@@ -947,3 +947,18 @@
     width: auto;
   }
 }
+
+/* ---- Sortable headers ---- */
+
+.mtable__sort {
+  color: inherit;
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+  cursor: pointer;
+}
+
+.mtable__sort:hover,
+.mtable__sort.is-on {
+  color: var(--text);
+}
