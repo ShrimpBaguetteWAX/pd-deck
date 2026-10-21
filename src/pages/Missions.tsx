@@ -57,6 +57,28 @@ const FILTERS: { key: Filter; label: string }[] = [
   { key: 'nft', label: 'NFT' }
 ]
 
+/** Move per 100 strength when there is no army to read it from. */
+const MOVE_DEFAULT = 40
+const MOVE_MAX = 100
+/** Shards the player counts as 1 TLM, kept between visits. */
+const SHARD_KEY = 'pd:missions:shardsPerTlm'
+const SHARDS_DEFAULT = 10
+function readStored(key: string): string | null {
+  try {
+    return localStorage.getItem(key)
+  } catch {
+    return null
+  }
+}
+function writeStored(key: string, value: string) {
+  try {
+    if (value) localStorage.setItem(key, value)
+    else localStorage.removeItem(key)
+  } catch {
+    // Storage blocked: the value lasts for this visit only.
+  }
+}
+
 interface Row {
   e: MissionEconomics
   /** The qualifying division whose time this mission pays best for (lowest move), busy or not. */
@@ -68,6 +90,12 @@ interface Row {
   perHour: number
   /** TLM a cycle's NFT reward would fetch: market value after the 7% sale fees, swapped to TLM. 0 when unpriced. */
   loot: number
+  /**
+   * TLM per hour for every 100 points of the strength the mission asks for (the higher of ATK and
+   * DEF), for a division with the assumed move per 100 of strength. Null when the mission pays no
+   * TLM or asks for no strength.
+   */
+  efficiency: number | null
   route: CycleRoute
   eligible: boolean
   deployable: boolean
@@ -92,6 +120,11 @@ export default function Missions() {
   const [expanded, setExpanded] = useState<number | null>(null)
   const [deploying, setDeploying] = useState<MissionEconomics | null>(null)
   const [planOpen, setPlanOpen] = useState(false)
+  // Move per 100 strength the efficiency score assumes; null follows the connected army.
+  const [moveSet, setMoveSet] = useState<number | null>(null)
+  // How many shards the player takes as worth 1 TLM (10 unless they set it); empty leaves shards out of the score.
+  const [shardsPerTlm, setShardsPerTlm] = useState(() => readStored(SHARD_KEY) ?? String(SHARDS_DEFAULT))
+  const shardRate = Number(shardsPerTlm) > 0 ? Number(shardsPerTlm) : 0
 
   const missions = useMemo(
     () =>
@@ -108,6 +141,12 @@ export default function Missions() {
     [divisions, busy, now]
   )
   const plan = useMemo(() => planLoops(idle, missions, market), [idle, missions, market])
+  // How much move the army carries for its strength: the default for the efficiency score.
+  const armyMove = useMemo(() => {
+    const strength = divisions.reduce((n, d) => n + Math.max(d.atk, d.def), 0)
+    return strength > 0 ? Math.min(MOVE_MAX, Math.round((divisions.reduce((n, d) => n + d.move, 0) / strength) * 100)) : null
+  }, [divisions])
+  const movePer100 = moveSet ?? armyMove ?? MOVE_DEFAULT
   const planPerDay = plan.reduce((n, l) => n + l.perHour * 24, 0)
 
   const rows = useMemo<Row[]>(() => {
@@ -126,6 +165,14 @@ export default function Missions() {
       const m = Number.isFinite(move) ? move : 0
       const loot = lootOf(e)
       const perHour = tlmPerHour(e, m, market) + (loot > 0 ? (loot / cycleSeconds(e, m)) * 3600 : 0)
+      const need = Math.max(e.minAtk, e.minDef)
+      const assumed = Math.round((need * movePer100) / 100)
+      const shards = shardRate > 0 ? e.rewardShards : 0
+      const efficiency =
+        need > 0 && (isTokenLoop(e) || loot > 0 || shards > 0)
+          ? ((tlmPerHour(e, assumed, market) + ((loot + shards / (shardRate || 1)) / cycleSeconds(e, assumed)) * 3600) / need) *
+            100
+          : null
       return {
         e,
         division,
@@ -133,6 +180,7 @@ export default function Missions() {
         move: Number.isFinite(move) ? move : 0,
         perHour,
         loot,
+        efficiency,
         route: cycleRoute(e, market),
         eligible: !!division,
         deployable: e.state === 'active' && !!idleDivision
@@ -155,16 +203,17 @@ export default function Missions() {
           return true
       }
     })
-    // Missions your army can run, by TLM per hour after swaps; then shard/NFT missions; then losing
-    // loops; then what is still out of reach, best first so the next target is visible.
+    // Missions your army can run, by efficiency; then shard/NFT missions; then losing loops; then
+    // what is still out of reach, best first so the next target is visible.
     const tier = (r: Row) => {
       if (r.e.state !== 'active') return 0
       if (!r.eligible) return 1
-      if (!isTokenLoop(r.e) && r.loot <= 0) return 3
-      return r.perHour > 0 ? 4 : 2
+      if (r.efficiency === null && !isTokenLoop(r.e) && r.loot <= 0) return 3
+      return (r.efficiency ?? r.perHour) > 0 ? 4 : 2
     }
-    return filtered.sort((a, b) => tier(b) - tier(a) || b.perHour - a.perHour)
-  }, [missions, filter, planet, idle, divisions, market, priceByTemplate, pools.data])
+    const score = (r: Row) => r.efficiency ?? -Infinity
+    return filtered.sort((a, b) => tier(b) - tier(a) || score(b) - score(a) || b.perHour - a.perHour)
+  }, [missions, filter, planet, idle, divisions, market, priceByTemplate, pools.data, movePer100, shardRate])
 
   const planets = useMemo(() => [...new Set(missions.map((e) => e.planet).filter(Boolean))], [missions])
   // Reward NFTs are loot (Quantum Chests), which the stats templates do not cover: the collection's templates name them.
@@ -311,6 +360,47 @@ export default function Missions() {
             </button>
           ))}
         </div>
+        <label className="effmove">
+          <Tooltip text="Efficiency rates every mission for a division that carries this much move per 100 points of strength, so missions compare even where you have no division for them yet. It starts at what your army carries now.">
+            <span className="effmove__label">Move per 100 strength</span>
+          </Tooltip>
+          <input
+            type="range"
+            min={0}
+            max={MOVE_MAX}
+            step={1}
+            value={movePer100}
+            onChange={(ev) => setMoveSet(Number(ev.target.value))}
+            aria-label="Move per 100 strength"
+          />
+          <b className="num">{movePer100}</b>
+          {moveSet !== null && armyMove !== null && moveSet !== armyMove && (
+            <button type="button" className="effmove__reset" onClick={() => setMoveSet(null)}>
+              Your army: {armyMove}
+            </button>
+          )}
+        </label>
+        <label className="effmove">
+          <Tooltip text="How many shards you count as worth 1 TLM. With a value here, shard rewards add to the efficiency score, so shard missions rank with the TLM ones. Starts at 10; empty it to score TLM only.">
+            <span className="effmove__label">1 TLM =</span>
+          </Tooltip>
+          <input
+            type="number"
+            min={0}
+            step="any"
+            inputMode="decimal"
+            placeholder="–"
+            value={shardsPerTlm}
+            onChange={(ev) => {
+              setShardsPerTlm(ev.target.value)
+              writeStored(SHARD_KEY, ev.target.value)
+            }}
+            aria-label="Shards worth 1 TLM"
+          />
+          <span>
+            <ShardIcon width={12} height={12} /> shards
+          </span>
+        </label>
         <Tooltip
           text={`Every loop is valued in TLM out minus TLM in: DEF an entry needs is bought with TLM on Alcor, DEF a reward pays is sold for TLM, both at the pool's live quote with its ${percent(market.fee)} fee.${market.live ? '' : ' Pool not read yet: using a typical rate.'}`}
         >
@@ -332,8 +422,10 @@ export default function Missions() {
             <Tooltip text="How long your division is locked per run: base cooldown + 10 s per point of its move cost. Your fastest qualifying division is used." />
           </span>
           <span>
-            TLM / hour{' '}
-            <Tooltip text="Net Trilium per hour of division time after the swaps: TLM (and DEF bought with TLM) in, TLM (and DEF sold for TLM) out." />
+            Efficiency{' '}
+            <Tooltip
+              text={`Net TLM per hour for every 100 points of the strength the mission asks for (ATK, or DEF when it asks for more DEF), for a division with ${movePer100} move per 100 strength. Below it: the TLM per hour your fastest qualifying division makes, after the swaps.`}
+            />
           </span>
           <span />
         </div>
@@ -344,7 +436,7 @@ export default function Missions() {
           </div>
         )}
         {rows.map((r) => {
-          const { e, division, idleDivision, move, perHour, route, eligible, deployable } = r
+          const { e, division, idleDivision, move, perHour, efficiency, route, eligible, deployable } = r
           const open = expanded === e.id
           const atkOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.atk >= e.minAtk
           const defOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.def >= e.minDef
@@ -412,10 +504,25 @@ export default function Missions() {
                   <TimerIcon width={13} height={13} /> {formatDuration(cycleSeconds(e, move))}
                   <small className="faint">{formatDuration(e.cooldownBase)} base</small>
                 </div>
-                {isTokenLoop(e) || r.loot > 0 ? (
+                {efficiency !== null || isTokenLoop(e) || r.loot > 0 ? (
                   <>
-                    <div className={`mrow__rate num ${perHour > 0 ? 'is-pos' : perHour < 0 ? 'is-neg' : ''}`}>
-                      {formatSigned(perHour)}
+                    <div
+                      className={`mrow__rate num ${(efficiency ?? perHour) > 0 ? 'is-pos' : (efficiency ?? perHour) < 0 ? 'is-neg' : ''}`}
+                    >
+                      {efficiency === null ? formatSigned(perHour) : `${efficiency > 0 ? '+' : ''}${formatNumber(efficiency, 2)}`}
+                      <small>
+                        {efficiency === null
+                          ? 'TLM / hour'
+                          : [
+                              `per 100 ${e.minDef > e.minAtk ? 'DEF' : 'ATK'}`,
+                              isTokenLoop(e) || r.loot > 0 ? `${formatSigned(perHour)} TLM/h` : '',
+                              e.rewardShards > 0 && shardRate > 0
+                                ? `${formatNumber((e.rewardShards / cycleSeconds(e, move)) * 3600, 1)} shards/h`
+                                : ''
+                            ]
+                              .filter(Boolean)
+                              .join(' · ')}
+                      </small>
                     </div>
                   </>
                 ) : (
