@@ -875,17 +875,18 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
   const above = meProjected && projection ? projection.field[meProjected.rank - 2] : null
   const meNow = rows.find((r) => r.account === tx.account) ?? null
   const spent = (account: string, joins: number) => joins * s.entryTlm + (funded.get(account) ?? 0) * valuer.defTlm
+  const joinsCell = (joins: number) => <span className="faint">{joins}</span>
   const spentCell = (account: string, joins: number) => {
     const def = funded.get(account)
-    const total = spent(account, joins)
+    const total = `${formatNumber(spent(account, joins), 0)} TLM`
     return def ? (
       <span
         title={`${formatNumber(joins * s.entryTlm, 0)} TLM in entries + ${formatNumber(def, 0)} DEF funded (≈ ${formatNumber(def * valuer.defTlm, 0)} TLM)`}
       >
-        {joins} · {formatNumber(total, 0)} TLM
+        {total}
       </span>
     ) : (
-      `${joins} · ${formatNumber(total, 0)} TLM`
+      total
     )
   }
 
@@ -896,7 +897,7 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           account: r.account,
           bonus: bonus.get(r.account),
           me: false,
-          cells: [formatNumber(r.score, 0), spentCell(r.account, r.deployments)]
+          cells: [formatNumber(r.score, 0), joinsCell(r.deployments), spentCell(r.account, r.deployments)]
         }))
       : projection.field.map((r) => ({
           rank: r.rank,
@@ -906,9 +907,10 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           cells: [
             r.me && !r.score ? '–' : formatNumber(r.score, 0),
             kfmt(r.projected),
+            joinsCell(r.me ? projection.joins : r.joins),
             r.me ? (
               <span>
-                {projection.joins} · {formatNumber(projection.cost, 0)} TLM <span className="faint">planned</span>
+                {formatNumber(projection.cost, 0)} TLM <span className="faint">planned</span>
               </span>
             ) : (
               spentCell(r.account, r.joins)
@@ -1019,8 +1021,8 @@ function LiveView({ siege: s, now, tx }: { siege: Siege; now: number; tx: Tx }) 
           <RankTable
             head={
               boardView === 'now'
-                ? ['#', 'Player', 'Score now', 'Joins · spent', '≈ TLM', 'Prize at this rank']
-                : ['#', 'Player', 'Score now', 'At close ≈', 'Joins · spent', '≈ TLM', 'Prize']
+                ? ['#', 'Player', 'Score now', 'Joins', 'Spent', '≈ TLM', 'Prize at this rank']
+                : ['#', 'Player', 'Score now', 'At close ≈', 'Joins', 'Spent', '≈ TLM', 'Prize']
             }
             lines={lines}
             prizes={ranks}
@@ -1267,11 +1269,15 @@ function SettledView({
           <p className="pl-note">Reading the scores…</p>
         ) : (
           <RankTable
-            head={['#', 'Player', 'Final score', 'Joins · spent', '≈ TLM', 'Prize paid']}
+            head={['#', 'Player', 'Final score', 'Joins', 'Spent', '≈ TLM', 'Prize paid']}
             lines={rows.map((r) => ({
               rank: r.rank,
               account: r.account,
-              cells: [formatNumber(r.score, 0), `${r.deployments} · ${formatNumber(r.deployments * entry, 0)} TLM`]
+              cells: [
+                formatNumber(r.score, 0),
+                <span className="faint">{r.deployments}</span>,
+                `${formatNumber(r.deployments * entry, 0)} TLM`
+              ]
             }))}
             prizes={prizes}
             valuer={valuer}
