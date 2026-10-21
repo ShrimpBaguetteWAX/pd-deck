@@ -138,3 +138,13 @@ export const payForgeLevel = (a: string, p: string, level: number, quantity: str
 /** Buys a shop item (a slot): its price to forge.pdef with memo "shop:<item>". */
 export const buyShopItem = (a: string, p: string, itemId: number, price: string, priceContract: string) =>
   action(priceContract, 'transfer', a, p, { from: a, to: CONTRACTS.FORGE, quantity: price, memo: `shop:${itemId}` })
+
+// ---- core.pdef: the game balance -------------------------------------------------------------------
+
+/** Adds to the game balance core.pdef holds for the player: a token transfer with the memo "deposit". */
+export const depositAction = (a: string, p: string, contract: string, quantity: string) =>
+  action(contract, 'transfer', a, p, { from: a, to: CONTRACTS.CORE, quantity, memo: 'deposit' })
+
+/** Sends part of the game balance back to the wallet. */
+export const withdrawBalanceAction = (a: string, p: string, quantity: string) =>
+  action(CONTRACTS.CORE, 'withdrawbal', a, p, { owner: a, quantity })

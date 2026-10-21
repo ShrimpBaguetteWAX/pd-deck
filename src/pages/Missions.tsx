@@ -11,12 +11,14 @@ import {
   freshMarket,
   useArmy,
   useDeployments,
+  useGameBalance,
   useMarket,
   useMissionConfig,
   usePlayer,
   useTemplates,
   type Division
 } from '@/data/game'
+import { coveredBy, walletCosts, walletPart, type GameBalance } from '@/lib/deposit'
 import { ChevronIcon, RocketIcon, ShardIcon, ShieldIcon, SwordIcon, TimerIcon, XIcon } from '@/icons'
 import { formatDuration, formatNumber, formatSigned, formatToken, percent, titleCase } from '@/lib/format'
 import {
@@ -137,6 +139,7 @@ export default function Missions() {
   const config = useMissionConfig()
   const army = useArmy(account)
   const player = usePlayer(account)
+  const gameBalance = useGameBalance(account)
   const deployments = useDeployments(account)
   const templates = useTemplates()
   const collection = useCollectionTemplates()
@@ -642,17 +645,21 @@ export default function Missions() {
           idle={idle}
           market={market}
           balances={balance}
+          deposit={gameBalance.data ?? null}
           pending={pending}
           onClose={() => setDeploying(null)}
           onDeploy={async (ids) => {
             const chosen = idle.filter((d) => ids.includes(d.id))
-            const cost = { tlm: deploying.costTlm * ids.length, def: deploying.costDef * ids.length }
+            const entries = { tlm: deploying.costTlm * ids.length, def: deploying.costDef * ids.length }
+            // What the game balance covers is taken from it by the contract; the rest is sent as before.
+            const fromDeposit = coveredBy(entries, gameBalance.data)
+            const cost = walletPart(entries, fromDeposit)
             // One transaction per division; the first also buys the DEF all the entries need.
             const done = await runSequence(
               chosen.map((d, i) => ({
                 build: async (a: string, p: string) => [
                   ...(i === 0 ? fundEntries(a, p, await freshMarket(market), cost, balance).actions : []),
-                  ...deployActions(a, p, deploying.id, d.id, !d.fresh, deploying.costs)
+                  ...deployActions(a, p, deploying.id, d.id, !d.fresh, walletCosts(deploying.costs, fromDeposit))
                 ],
                 success: `#${d.id} sent to ${deploying.title}`
               })),
@@ -744,17 +751,25 @@ interface DeployProps {
   idle: Division[]
   market: Market
   balances: { tlm: number; def: number } | null
+  /** The game balance: entry fees it covers are taken from it, not sent. */
+  deposit: GameBalance | null
   pending: string | null
   onClose: () => void
   onDeploy: (divisionIds: number[]) => Promise<void>
 }
 
-function DeployModal({ mission: e, idle, market, balances, pending, onClose, onDeploy }: DeployProps) {
+function DeployModal({ mission: e, idle, market, balances, deposit, pending, onClose, onDeploy }: DeployProps) {
   const eligible = useMemo(() => idle.filter((d) => canDeploy(e, d)).sort((a, b) => a.move - b.move), [idle, e])
   const [chosen, setChosen] = useState<number[]>(() => eligible.map((d) => d.id))
   const toggle = (id: number) => setChosen((c) => (c.includes(id) ? c.filter((x) => x !== id) : [...c, id]))
   const n = chosen.length
-  const funding = quoteFunding(market, { tlm: e.costTlm * n, def: e.costDef * n }, balances)
+  const entries = { tlm: e.costTlm * n, def: e.costDef * n }
+  const fromDeposit = coveredBy(entries, deposit)
+  const funding = quoteFunding(market, walletPart(entries, fromDeposit), balances)
+  const paidInGame = [
+    fromDeposit.tlm && formatToken(entries.tlm, 'TLM'),
+    fromDeposit.def && formatToken(entries.def, 'DEF')
+  ].filter(Boolean)
   const route = cycleRoute(e, market)
 
   return (
@@ -824,8 +839,18 @@ function DeployModal({ mission: e, idle, market, balances, pending, onClose, onD
 
       <footer className="picker__foot">
         <span className="muted">
-          {n} division{n === 1 ? '' : 's'} · {funding.tlmTotal > 0 ? `${formatToken(funding.tlmTotal, 'TLM')} in` : 'free entry'}
-          {e.costDef > 0 && funding.defBought === 0 && n > 0 && ` + ${formatToken(e.costDef * n, 'DEF')} from your wallet`}
+          {n} division{n === 1 ? '' : 's'} ·{' '}
+          {funding.tlmTotal > 0
+            ? `${formatToken(funding.tlmTotal, 'TLM')} in`
+            : paidInGame.length
+              ? 'nothing from your wallet'
+              : 'free entry'}
+          {e.costDef > 0 &&
+            !fromDeposit.def &&
+            funding.defBought === 0 &&
+            n > 0 &&
+            ` + ${formatToken(e.costDef * n, 'DEF')} from your wallet`}
+          {n > 0 && paidInGame.length > 0 && ` · ${paidInGame.join(' + ')} from your game balance`}
           {funding.defBought > 0 && ` (buys ${formatToken(funding.defBought)} DEF on Alcor)`}
           {!funding.affordable && <b className="c-red"> · not enough TLM</b>}
         </span>

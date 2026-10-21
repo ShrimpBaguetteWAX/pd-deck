@@ -1,16 +1,21 @@
 import { useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 import { TokenIcon } from '@/components/Art'
 import { NetworkLed, NetworkPanel } from '@/components/NetworkStatus'
 import { Tooltip } from '@/components/Tooltip'
 import { formatCompact } from '@/lib/format'
 import { useDismiss } from '@/components/useDismiss'
+import { useGameBalance } from '@/data/game'
 import { LogoutIcon } from '@/icons'
 import { useNetwork } from '@/state/useNetwork'
 
+import { GameBalanceModal } from './GameBalance'
+
 /**
  * The top bar's account control: one small round button carrying the node LED, which opens a
- * menu with the account, its balances, the WAX nodes and Disconnect. Neither the wallet name nor
+ * menu with the account, its balances, the game balance (deposit and withdraw), the WAX nodes and
+ * Disconnect. Neither the wallet name nor
  * the balances take room in the bar.
  */
 export function AccountMenu({
@@ -26,6 +31,8 @@ export function AccountMenu({
 }) {
   const net = useNetwork()
   const [open, setOpen] = useState(false)
+  const [banking, setBanking] = useState(false)
+  const game = useGameBalance(account)
   const wrapRef = useRef<HTMLDivElement>(null)
   useDismiss(open, wrapRef, () => setOpen(false))
 
@@ -72,12 +79,36 @@ export function AccountMenu({
               </span>
             </Tooltip>
           </div>
+          <button
+            type="button"
+            className="acctpop__item"
+            role="menuitem"
+            onClick={() => {
+              setOpen(false)
+              setBanking(true)
+            }}
+          >
+            <b>Game balance</b>
+            <span>
+              <i>
+                <TokenIcon symbol="TLM" size={13} />
+                {game.data ? formatCompact(game.data.tlm) : '–'}
+              </i>
+              <i>
+                <TokenIcon symbol="DEF" size={13} />
+                {game.data ? formatCompact(game.data.def) : '–'}
+              </i>
+              <i>Deposit · Withdraw</i>
+            </span>
+          </button>
           <NetworkPanel />
           <button type="button" className="acctpop__out" role="menuitem" onClick={onLogout}>
             <LogoutIcon width={14} height={14} /> {spectating ? 'Stop viewing' : 'Disconnect'}
           </button>
         </div>
       )}
+      {/* Out of the top bar: its backdrop blur would trap and dim the dialog. */}
+      {banking && createPortal(<GameBalanceModal account={account} onClose={() => setBanking(false)} />, document.body)}
     </div>
   )
 }

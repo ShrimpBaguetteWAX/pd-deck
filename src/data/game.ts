@@ -3,6 +3,8 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { atomic } from '@/chain/atomic'
 import { ALCOR_TLM_DEF_POOL_ID, COLLECTIONS, CONTRACTS } from '@/chain/config'
 import { getRow, getRows } from '@/chain/rpc'
+import type { GameBalance } from '@/lib/deposit'
+import { parseAsset } from '@/lib/format'
 import { chainDate } from '@/lib/time'
 import { fallbackMarket, marketFromPool, type Market } from '@/lib/market'
 import { kindOfCategory, unitTotals, type Kind } from '@/lib/stats'
@@ -382,6 +384,22 @@ export function useArmy(account: string | null): UseQueryResult<Army> {
   })
 }
 
+// ---- The game balance: TLM and DEF deposited with core.pdef ----------------------------------------
+
+/** What the player has deposited with core.pdef; joins without an entry transfer are paid from it. */
+export function useGameBalance(account: string | null): UseQueryResult<GameBalance> {
+  return useQuery({
+    queryKey: ['game-balance', account],
+    enabled: !!account,
+    staleTime: 20_000,
+    queryFn: async () => {
+      const rows = await getRows<{ balance: string }>({ code: CONTRACTS.CORE, scope: account!, table: 'balances', limit: 20 })
+      const amount = (symbol: string) => rows.map((r) => parseAsset(r.balance)).find((a) => a.symbol === symbol)?.amount ?? 0
+      return { tlm: amount('TLM'), def: amount('DEF') }
+    }
+  })
+}
+
 // ---- NFTs still in the wallet (stakeable) ---------------------------------------------------------
 
 export function useWalletNfts(account: string | null): UseQueryResult<AssetRef[]> {
@@ -461,6 +479,8 @@ export function useDeployments(account: string | null): UseQueryResult<Deploymen
 export async function refreshPlayer(account: string | null) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ['player', account] }),
+    queryClient.invalidateQueries({ queryKey: ['game-balance', account] }),
+    queryClient.invalidateQueries({ queryKey: ['tlm-balance', account] }),
     queryClient.invalidateQueries({ queryKey: ['army', account] }),
     queryClient.invalidateQueries({ queryKey: ['deployments', account] }),
     queryClient.invalidateQueries({ queryKey: ['wallet-nfts', account] }),

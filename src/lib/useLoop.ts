@@ -3,7 +3,17 @@ import { useMemo } from 'react'
 import type { AnyAction } from '@wharfkit/session'
 
 import { claimMission, deployActions } from '@/chain/actions/pd'
-import { freshMarket, useArmy, useDeployments, useMarket, useMissionConfig, usePlayer, type Deployment } from '@/data/game'
+import {
+  freshMarket,
+  useArmy,
+  useDeployments,
+  useGameBalance,
+  useMarket,
+  useMissionConfig,
+  usePlayer,
+  type Deployment
+} from '@/data/game'
+import { coveredBy, walletCosts, walletPart } from '@/lib/deposit'
 import { missionEconomics, type MissionEconomics } from '@/lib/loop'
 import { fundEntries, quoteFunding, sellDefAction, tlmForDef } from '@/lib/market'
 import { useClockFor } from '@/lib/time'
@@ -36,6 +46,7 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
   const army = useArmy(account)
   const player = usePlayer(account)
   const market = useMarket()
+  const game = useGameBalance(account)
 
   // Re-render as each division's cooldown ends.
   const unlocks = useMemo(() => deployments.data?.map((d) => d.unlockAt) ?? [], [deployments.data])
@@ -70,7 +81,10 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
       items.reduce((n, d) => n + (econ.get(d.missionId) ? f(econ.get(d.missionId)!) : 0), 0)
     const earnedTlm = sum(claims, (e) => e.rewardTlm)
     const earnedDef = sum(claims, (e) => e.rewardDef)
-    const cost = { tlm: sum(redeploy, (e) => e.costTlm), def: sum(redeploy, (e) => e.costDef) }
+    const entries = { tlm: sum(redeploy, (e) => e.costTlm), def: sum(redeploy, (e) => e.costDef) }
+    // Entry fees the game balance covers are left to the contract to take from it: no transfer, no swap.
+    const fromDeposit = coveredBy(entries, game.data)
+    const cost = walletPart(entries, fromDeposit)
     const after = wallet ? { tlm: wallet.tlm + earnedTlm, def: wallet.def + earnedDef } : null
     const funding = quoteFunding(market, cost, after)
     const surplusDef = cashOut ? Math.max(0, earnedDef - cost.def) : 0
@@ -90,7 +104,7 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
         x.missionId,
         x.divisionId,
         !!divisionById.get(x.divisionId) && !divisionById.get(x.divisionId)!.fresh,
-        econ.get(x.missionId)!.costs
+        walletCosts(econ.get(x.missionId)!.costs, fromDeposit)
       )
     const [first, ...rest] = redeploy
     const parts: LoopPart[] = [
@@ -107,7 +121,7 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
         success: `#${x.divisionId} sent back to ${econ.get(x.missionId)?.title ?? 'its mission'}`
       }))
     ]
-    return { parts, build: parts[0].build, funding, surplusDef, sold, earnedTlm, earnedDef }
+    return { parts, build: parts[0].build, funding, fromDeposit, surplusDef, sold, earnedTlm, earnedDef }
   }
 
   return {
