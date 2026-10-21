@@ -592,6 +592,240 @@
   }
 }
 
+/* ---- Mine key: fused to the Loop key, laid out line for line like it ---- */
+
+/* The two keys share one base: Loop's right corners and Mine's left ones are squared off. */
+.loop__console {
+  display: flex;
+  align-items: stretch;
+}
+
+.loop__console > .tip:first-child .loop__key,
+.loop__console > .loop__key {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.mine-key {
+  /* Mode colours as on WAX Mission Control: orange for favourites by TLM, green for shards. */
+  --m1: #ff9a3c;
+  --m2: #e2480d;
+  --mink: #2a0e00;
+  --mbase: #7a2a05;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+  width: 168px;
+  padding: 6px 12px 7px;
+  border: none;
+  border-left: 1px solid rgba(0, 0, 0, 0.45);
+  border-radius: 0 8px 8px 0;
+  background: linear-gradient(180deg, #16294a, #0b1a2c);
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: default;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    inset 0 0 0 1px rgba(143, 166, 191, 0.3),
+    0 4px 0 #050b16,
+    0 6px 10px rgba(0, 0, 0, 0.5);
+  transition:
+    transform 0.08s ease,
+    box-shadow 0.08s ease;
+}
+
+.mine-key.is-shard {
+  --m1: #2ff5b1;
+  --m2: #0aa076;
+  --mink: #02241a;
+  --mbase: #04583f;
+}
+
+.mine-key.is-ready {
+  background: linear-gradient(180deg, var(--m1), var(--m2));
+  color: var(--mink);
+  cursor: pointer;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 4px 0 var(--mbase),
+    0 6px 10px rgba(0, 0, 0, 0.5);
+}
+
+.mine-key.is-ready:not(:disabled):hover,
+.mine-key.is-ready:not(:disabled):active {
+  transform: translateY(2px);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.45),
+    0 2px 0 var(--mbase),
+    0 3px 6px rgba(0, 0, 0, 0.5);
+}
+
+/* While mining: a sheen runs across the key until the chain has answered. */
+.mine-key.is-busy::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.18) 50%, transparent 70%);
+  background-size: 250% 100%;
+  animation: mine-sheen 1.3s linear infinite;
+  pointer-events: none;
+}
+
+@keyframes mine-sheen {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}
+
+/* Switched off (Anchor, no membership, no favourites): the plain body, greyed. */
+.mine-key.is-off {
+  color: var(--text-faint);
+  cursor: not-allowed;
+}
+
+/* Row one is the Loop label's 19.5px, row two its 10px timeline, so both keys stay the same height. */
+.mine-key__r1 {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  height: 19.5px;
+}
+
+.mine-key__r2 {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  height: 10px;
+}
+
+.mine-key__lab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--m1);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.mine-key.is-ready .mine-key__lab {
+  color: var(--mink);
+}
+
+.mine-key.is-off .mine-key__lab {
+  color: var(--text-faint);
+}
+
+.mine-key__time {
+  font-size: 13px;
+  letter-spacing: 0.08em;
+}
+
+.mine-key__est {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+/* The real TLM token, not the Loop key's tinted one. */
+.mine-key .token-icon[alt='TLM'] {
+  filter: none;
+}
+
+.mine-key__shard {
+  flex: none;
+  color: #f6a800;
+}
+
+.mine-key.is-ready .mine-key__shard {
+  color: var(--mink);
+}
+
+.mine-key__land {
+  overflow: hidden;
+  color: var(--text-dim);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 10px;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.mine-key.is-ready .mine-key__land {
+  color: color-mix(in srgb, var(--mink) 75%, transparent);
+}
+
+.mine-key.is-off .mine-key__land {
+  color: var(--text-faint);
+}
+
+.mine-key__up {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  color: var(--green);
+  font-size: 10.5px;
+  font-weight: 800;
+  line-height: 10px;
+  white-space: nowrap;
+}
+
+.mine-key.is-ready .mine-key__up {
+  color: var(--mink);
+}
+
+/* While cooling: a hairline filling toward ready, as the Loop timeline runs. */
+.mine-key__line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 4px;
+  height: 1px;
+  background: rgba(143, 166, 191, 0.45);
+}
+
+.mine-key__line i {
+  position: absolute;
+  left: 0;
+  top: -1px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--m1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mine-key {
+    transition: none;
+  }
+
+  .mine-key.is-busy::after {
+    animation: none;
+  }
+}
+
+@media (max-width: 760px) {
+  .mine-key {
+    width: 132px;
+    padding: 5px 10px 6px;
+  }
+}
+
 /* ---- Account menu: one small button, the node LED on it; name, nodes and Disconnect inside ---- */
 
 .acct {

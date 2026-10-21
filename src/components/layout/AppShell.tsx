@@ -15,6 +15,7 @@ import {
   GiftIcon,
   LedgerIcon,
   CampaignIcon,
+  GearIcon,
   RocketIcon,
   SwordIcon,
   UsersIcon
@@ -33,7 +34,8 @@ const NAV = [
   { to: '/market', label: 'Market', icon: CartIcon },
   { to: '/blend', label: 'Blend', icon: SparkIcon },
   { to: '/swap', label: 'Swap', icon: SwapIcon },
-  { to: '/ledger', label: 'Ledger', icon: LedgerIcon }
+  { to: '/ledger', label: 'Ledger', icon: LedgerIcon },
+  { to: '/settings', label: 'Settings', icon: GearIcon }
 ]
 
 /** The frame of every signed-in page: navigation, the player's balances and the wallet. */

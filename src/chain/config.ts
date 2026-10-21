@@ -53,7 +53,11 @@ export const CONTRACTS = {
   /** Ascension: sacrifices (memo "burn") and star-ups (memo "ascend") by NFT transfer. */
   ASCEND: 'ascend.pdef',
   /** Planetary sieges: worlds funded with DEF and held for a season by everyone's divisions. */
-  SIEGE: 'siege.pdef'
+  SIEGE: 'siege.pdef',
+  /** Alien Worlds mining: the land a player mines on, and the mine itself. */
+  MINING: 'm.federation',
+  /** WAX Mission Control's CPU payer, signed first in every mine it makes. */
+  MC_CPU: 'cpu.mc'
 } as const
 
 /** The Fragment material, ascension's currency. */

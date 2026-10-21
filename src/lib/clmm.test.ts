@@ -1,16 +1,6 @@
 import { describe, expect, it } from 'vitest'
 
-import {
-  bestSize,
-  findLoops,
-  loopOut,
-  planSegments,
-  spotRate,
-  swapOut,
-  tacoFromRow,
-  type ClmmPool,
-  type ClmmToken
-} from './clmm'
+import { bestSize, findLoops, loopOut, planSegments, spotRate, swapOut, tacoFromRow, type ClmmPool, type ClmmToken } from './clmm'
 
 const token = (symbol: string, decimals = 4): ClmmToken => ({ id: `${symbol}@c`, symbol, contract: 'c', decimals })
 const X = token('X')

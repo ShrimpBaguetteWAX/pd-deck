@@ -3,6 +3,8 @@ import type { AnyAction, Session, SessionKit } from '@wharfkit/session'
 import { APP_NAME, CHAIN_ID } from '@/chain/config'
 import { endpointPool } from '@/chain/endpoints'
 
+import { AUTO_SIGN_PERMISSION, savedActions, whitelistOf } from './autoSign'
+
 let kit: Promise<SessionKit> | null = null
 let current: Session | undefined
 
@@ -12,7 +14,8 @@ const STORED_SESSION_KEY = 'wharf--session'
 /**
  * The wallet code is downloaded on first use, not at startup, and the kit is built after the
  * endpoint pool has been probed, so the wallet broadcasts through a node confirmed up and in
- * sync this session. WAX Cloud Wallet and Anchor are offered.
+ * sync this session. WAX Cloud Wallet and Anchor are offered. The session key (auto-signing) is set
+ * up with the actions picked in Settings; changing them rebuilds the kit (see reloadAutoSign).
  */
 function getKit(): Promise<SessionKit> {
   kit ??= (async () => {
@@ -32,12 +35,17 @@ function getKit(): Promise<SessionKit> {
         onPickerClosed?.()
         return cancel(reason, silent)
       })
-    return new SessionKit({
-      appName: APP_NAME,
-      chains: [ChainDefinition.from({ id: CHAIN_ID, url: endpointPool.next() })],
-      ui,
-      walletPlugins: [new cloudWallet.WalletPluginCloudWallet(), new anchor.WalletPluginAnchor()]
-    })
+    const whitelist = whitelistOf(savedActions())
+    return new SessionKit(
+      {
+        appName: APP_NAME,
+        chains: [ChainDefinition.from({ id: CHAIN_ID, url: endpointPool.next() })],
+        ui,
+        walletPlugins: [new cloudWallet.WalletPluginCloudWallet(), new anchor.WalletPluginAnchor()]
+      },
+      // Session keys are an option of the kit, not one of its arguments.
+      whitelist.length ? { sessionKey: { permission: AUTO_SIGN_PERMISSION, whitelist } } : {}
+    )
   })()
   kit.catch(() => {
     kit = null
@@ -100,9 +108,17 @@ export async function logout(): Promise<void> {
   current = undefined
 }
 
+/** The wallet the player signed in with; with auto-sign on, the one the session key wraps. */
 export function walletId(): string | null {
-  return current ? current.walletPlugin.id : null
+  if (!current) return null
+  const plugin = current.walletPlugin as typeof current.walletPlugin & { getPrimaryWallet?: () => { id: string } }
+  return plugin.getPrimaryWallet ? plugin.getPrimaryWallet().id : plugin.id
 }
+
+/** Wallets that may not mine, as on WAX Mission Control. */
+const NO_MINING_WALLETS = ['anchor']
+export const MINING_BLOCKED_MESSAGE = 'Mining is not available with Anchor. Sign in with WAX Cloud Wallet to mine.'
+export const canMine = (wallet: string | null) => !wallet || !NO_MINING_WALLETS.includes(wallet)
 
 export function permission(): string {
   return current ? String(current.permission) : 'active'
@@ -122,6 +138,58 @@ export function formatTransactError(err: unknown): string {
 export async function transact(actions: AnyAction[]): Promise<string> {
   const session = current ?? (await restoreSession())
   if (!session) throw new Error('Connect a wallet first')
+  // The last guard against mining with Anchor, whatever the screen allowed (auto-sign included).
+  if (!canMine(walletId()) && actions.some((a) => String(a.account) === 'm.federation' && String(a.name) === 'mine')) {
+    throw new Error(MINING_BLOCKED_MESSAGE)
+  }
   const result = await session.transact({ actions }, { broadcast: true, expireSeconds: 120 })
   return String(result.resolved?.transaction.id ?? '')
+}
+
+// ---- Auto-signing (WharfKit session keys) ----------------------------------------------------------
+
+async function currentSession(): Promise<Session> {
+  const session = current ?? (await restoreSession())
+  if (!session) throw new Error('Connect a wallet first')
+  return session
+}
+
+export type AutoSignState = 'active' | 'inactive' | 'mismatch' | 'not-setup'
+
+export interface AutoSignStatus {
+  state: AutoSignState
+  /** The session key's public key, once one is set up. */
+  publicKey?: string
+}
+
+/** Whether auto-signing is on for the signed-in account, and in step with the actions picked here. */
+export async function autoSignStatus(): Promise<AutoSignStatus> {
+  const session = await currentSession()
+  const status = await session.getSessionKeyStatus()
+  return { state: status.state, publicKey: status.publicKey }
+}
+
+/** Creates the session key and links it to the picked actions: one wallet signature. */
+export async function enableAutoSign(): Promise<void> {
+  const session = await currentSession()
+  await session.setupSessionKey()
+}
+
+/** Brings the on-chain links in line with the picked actions: one wallet signature. */
+export async function syncAutoSign(): Promise<void> {
+  const session = await currentSession()
+  await session.updateSessionKeyLinks()
+}
+
+/** Removes the session key from the account: one wallet signature. */
+export async function disableAutoSign(): Promise<void> {
+  const session = await currentSession()
+  await session.removeSessionKey()
+}
+
+/** After the picked actions change: the kit is built again with them and the session restored under it. */
+export async function reloadAutoSign(): Promise<void> {
+  kit = null
+  current = undefined
+  await restoreSession()
 }

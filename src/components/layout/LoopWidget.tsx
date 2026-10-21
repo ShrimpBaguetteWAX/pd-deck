@@ -7,6 +7,8 @@ import { cooldownLabel, shortDuration, useNow } from '@/lib/time'
 import { readCashOut, useLoopPlan } from '@/lib/useLoop'
 import { useTransaction } from '@/wallet/useTransaction'
 
+import { MineKey } from './MineKey'
+
 /** The timeline never spans less than this, so it is never a single point. */
 const MIN_WINDOW_MS = 60_000
 
@@ -53,58 +55,62 @@ export function LoopWidget() {
     <div className="loop" aria-live="polite">
       <div className="loop__body">
         <span className="loop__row">
-          <Tooltip
-            text={
-              !loop.loaded
-                ? 'Reading your deployments.'
-                : total === 0
-                  ? 'Nothing is out. Send divisions out from the Missions page.'
-                  : !ready
-                    ? `Counts down to the next division back. The line runs from when the earliest division still out left to the last return; each dot is a division at the moment it returns.`
-                    : !affordable
-                      ? 'The entry fees of the redeploys are more than your TLM covers. Claim and redeploy from the Deployments page, or add TLM.'
-                      : loop.loopable.length
-                        ? `Claims ${ready} reward${ready === 1 ? '' : 's'} (≈ ${formatNumber(waiting, 1)} TLM, DEF at today's price) and sends ${loop.loopable.length} division${loop.loopable.length === 1 ? '' : 's'} straight back out, one transaction per division.`
-                        : `Claims ${ready} reward${ready === 1 ? '' : 's'} (≈ ${formatNumber(waiting, 1)} TLM); the missions have closed, so nothing goes back out.`
-            }
-          >
-            <button
-              type="button"
-              className={`loop__key ${ready && affordable ? 'is-ready' : ''} ${busy ? 'is-busy' : ''}`}
-              disabled={!canPress}
-              onClick={() => void onClick()}
+          {/* The Loop key and the Mine key share one base: a console for everything on a timer. */}
+          <span className="loop__console">
+            <Tooltip
+              text={
+                !loop.loaded
+                  ? 'Reading your deployments.'
+                  : total === 0
+                    ? 'Nothing is out. Send divisions out from the Missions page.'
+                    : !ready
+                      ? `Counts down to the next division back. The line runs from when the earliest division still out left to the last return; each dot is a division at the moment it returns.`
+                      : !affordable
+                        ? 'The entry fees of the redeploys are more than your TLM covers. Claim and redeploy from the Deployments page, or add TLM.'
+                        : loop.loopable.length
+                          ? `Claims ${ready} reward${ready === 1 ? '' : 's'} (≈ ${formatNumber(waiting, 1)} TLM, DEF at today's price) and sends ${loop.loopable.length} division${loop.loopable.length === 1 ? '' : 's'} straight back out, one transaction per division.`
+                          : `Claims ${ready} reward${ready === 1 ? '' : 's'} (≈ ${formatNumber(waiting, 1)} TLM); the missions have closed, so nothing goes back out.`
+              }
             >
-              <span className="loop__lab">
-                {busy ? (
-                  <span className="loop__word">
-                    <span className="spinner" /> Signing
-                  </span>
-                ) : ready ? (
-                  <span className="loop__word">
-                    <span className="loop__cell num">{ready}</span> {loop.loopable.length ? 'Loop' : 'Claim'}
-                  </span>
-                ) : (
-                  <small>{loop.loaded ? (total ? 'Next back' : 'Deployments') : '…'}</small>
-                )}
-                <span className="loop__time num">{time ?? (ready ? 'all back' : '')}</span>
-              </span>
-              <span className="loop__tl" aria-hidden="true">
-                {dots.map((d) => (
-                  <i
-                    key={d.divisionId}
-                    className={`loop__dot ${d.unlockAt <= now ? 'is-back' : ''} ${d.divisionId === nextId ? 'is-next' : ''}`}
-                    style={{ left: pos(d.unlockAt) }}
-                    title={
-                      d.unlockAt <= now
-                        ? `#${d.divisionId} is back`
-                        : `#${d.divisionId} back in ${shortDuration(d.unlockAt - now)}`
-                    }
-                  />
-                ))}
-                {total > 0 && <i className="loop__now" style={{ left: pos(now) }} />}
-              </span>
-            </button>
-          </Tooltip>
+              <button
+                type="button"
+                className={`loop__key ${ready && affordable ? 'is-ready' : ''} ${busy ? 'is-busy' : ''}`}
+                disabled={!canPress}
+                onClick={() => void onClick()}
+              >
+                <span className="loop__lab">
+                  {busy ? (
+                    <span className="loop__word">
+                      <span className="spinner" /> Signing
+                    </span>
+                  ) : ready ? (
+                    <span className="loop__word">
+                      <span className="loop__cell num">{ready}</span> {loop.loopable.length ? 'Loop' : 'Claim'}
+                    </span>
+                  ) : (
+                    <small>{loop.loaded ? (total ? 'Next back' : 'Deployments') : '…'}</small>
+                  )}
+                  <span className="loop__time num">{time ?? (ready ? 'all back' : '')}</span>
+                </span>
+                <span className="loop__tl" aria-hidden="true">
+                  {dots.map((d) => (
+                    <i
+                      key={d.divisionId}
+                      className={`loop__dot ${d.unlockAt <= now ? 'is-back' : ''} ${d.divisionId === nextId ? 'is-next' : ''}`}
+                      style={{ left: pos(d.unlockAt) }}
+                      title={
+                        d.unlockAt <= now
+                          ? `#${d.divisionId} is back`
+                          : `#${d.divisionId} back in ${shortDuration(d.unlockAt - now)}`
+                      }
+                    />
+                  ))}
+                  {total > 0 && <i className="loop__now" style={{ left: pos(now) }} />}
+                </span>
+              </button>
+            </Tooltip>
+            <MineKey now={now} />
+          </span>
           <button
             type="button"
             className="loop__refresh"
