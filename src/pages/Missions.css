@@ -554,6 +554,7 @@
   }
   .mrow__score {
     grid-area: rate;
+    grid-column: 1 / -1;
   }
 
   .mrow__rate {
@@ -843,32 +844,128 @@
   color: var(--shard);
 }
 
-/* ---- Efficiency gauge ---- */
+/* ---- Score: TLM/h, then the efficiency ring ---- */
 
 .mrow__score {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   min-width: 0;
 }
 
-.effgauge {
+.effring {
+  position: relative;
+  display: grid;
   flex: none;
-  width: 34px;
-  height: 21px;
+  place-items: center;
+  width: 46px;
+  height: 46px;
 }
 
-.effgauge path {
+.effring svg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+
+.effring circle {
   fill: none;
-  stroke-width: 4.5;
-  stroke-linecap: round;
+  stroke-width: 4;
 }
 
-.effgauge__track {
+.effring__track {
   stroke: rgba(255, 255, 255, 0.1);
 }
 
-.effgauge__fill {
+.effring__fill {
   stroke: var(--tlm);
-  filter: drop-shadow(0 0 3px rgba(255, 215, 94, 0.45));
+  stroke-linecap: round;
+  filter: drop-shadow(0 0 3px rgba(255, 215, 94, 0.4));
+}
+
+.effring b {
+  position: relative;
+  color: var(--tlm);
+  font-family: var(--font-display);
+  font-size: 12.5px;
+  font-weight: 800;
+}
+
+.effring.is-neg b {
+  color: var(--atk);
+}
+
+/* ---- Estimate / My divisions ---- */
+
+.viewflip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 30px;
+  font-family: var(--font-display);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.viewflip > button:not(.viewflip__switch) {
+  color: var(--text-faint);
+  transition: color 0.2s ease;
+}
+
+.viewflip > button:not(.viewflip__switch):hover {
+  color: var(--text-dim);
+}
+
+.viewflip.is-est > button.is-on {
+  color: var(--mov);
+}
+
+.viewflip.is-mine > button.is-on {
+  color: var(--cyan);
+}
+
+.viewflip__switch {
+  position: relative;
+  width: 44px;
+  height: 24px;
+  border: 1px solid rgba(245, 200, 76, 0.5);
+  border-radius: 999px;
+  background: rgba(245, 200, 76, 0.18);
+  transition:
+    background 0.2s ease,
+    border-color 0.2s ease;
+}
+
+.viewflip__switch::after {
+  content: '';
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--mov);
+  transition:
+    transform 0.22s ease,
+    background 0.2s ease;
+}
+
+.viewflip.is-mine .viewflip__switch {
+  border-color: rgba(0, 212, 255, 0.5);
+  background: rgba(0, 212, 255, 0.16);
+}
+
+.viewflip.is-mine .viewflip__switch::after {
+  transform: translateX(20px);
+  background: var(--cyan);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .viewflip__switch,
+  .viewflip__switch::after {
+    transition: none;
+  }
 }

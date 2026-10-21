@@ -79,17 +79,20 @@ function writeStored(key: string, value: string) {
   }
 }
 
-/** A half dial filled to a mission's share of the best efficiency in the list. */
-function EffGauge({ share }: { share: number }) {
+const RING_R = 20
+const RING_C = 2 * Math.PI * RING_R
+
+/** The efficiency score in a ring filled to its share of the best one in the list. */
+function EffRing({ score, share }: { score: number; share: number }) {
   const r = Math.max(0, Math.min(1, share))
-  const a = Math.PI * (1 - r)
-  const x = 20 + 15 * Math.cos(a)
-  const y = 20 - 15 * Math.sin(a)
   return (
-    <svg className="effgauge" viewBox="0 0 40 24" aria-hidden="true">
-      <path d="M5 20 A15 15 0 0 1 35 20" className="effgauge__track" />
-      {r > 0 && <path d={`M5 20 A15 15 0 0 1 ${x.toFixed(2)} ${y.toFixed(2)}`} className="effgauge__fill" />}
-    </svg>
+    <span className={`effring num ${score < 0 ? 'is-neg' : ''}`}>
+      <svg viewBox="0 0 48 48" aria-hidden="true">
+        <circle cx="24" cy="24" r={RING_R} className="effring__track" />
+        {r > 0 && <circle cx="24" cy="24" r={RING_R} className="effring__fill" strokeDasharray={`${RING_C * r} ${RING_C}`} />}
+      </svg>
+      <b>{formatNumber(score, Math.abs(score) >= 10 ? 1 : 2)}</b>
+    </span>
   )
 }
 
@@ -110,6 +113,10 @@ interface Row {
    * TLM or asks for no strength.
    */
   efficiency: number | null
+  /** The move the efficiency score assumes for this mission (the slider times what it asks for). */
+  assumedMove: number
+  /** TLM per hour, NFT loot included, for a division with the assumed move. */
+  estPerHour: number
   route: CycleRoute
   eligible: boolean
   deployable: boolean
@@ -136,6 +143,8 @@ export default function Missions() {
   const [planOpen, setPlanOpen] = useState(false)
   // Move per 100 strength the efficiency score assumes; null follows the connected army.
   const [moveSet, setMoveSet] = useState<number | null>(null)
+  // Whether the cycle and TLM/h columns show the slider's estimate or your own divisions.
+  const [view, setView] = useState<'est' | 'mine'>('est')
   // How many shards the player takes as worth 1 TLM (10 unless they set it); empty leaves shards out of the score.
   const [shardsPerTlm, setShardsPerTlm] = useState(() => readStored(SHARD_KEY) ?? String(SHARDS_DEFAULT))
   const shardRate = Number(shardsPerTlm) > 0 ? Number(shardsPerTlm) : 0
@@ -195,6 +204,8 @@ export default function Missions() {
         perHour,
         loot,
         efficiency,
+        assumedMove: assumed,
+        estPerHour: tlmPerHour(e, assumed, market) + (loot > 0 ? (loot / cycleSeconds(e, assumed)) * 3600 : 0),
         route: cycleRoute(e, market),
         eligible: !!division,
         deployable: e.state === 'active' && !!idleDivision
@@ -377,6 +388,21 @@ export default function Missions() {
             </button>
           ))}
         </div>
+        <div className={`viewflip is-${view}`} role="group" aria-label="Show the cycle and TLM per hour for">
+          <button type="button" className={view === 'est' ? 'is-on' : ''} onClick={() => setView('est')}>
+            Estimate
+          </button>
+          <button
+            type="button"
+            className="viewflip__switch"
+            aria-pressed={view === 'mine'}
+            aria-label="Switch between the estimate and my divisions"
+            onClick={() => setView(view === 'est' ? 'mine' : 'est')}
+          />
+          <button type="button" className={view === 'mine' ? 'is-on' : ''} onClick={() => setView('mine')}>
+            My divisions
+          </button>
+        </div>
         <label className="effmove">
           <Tooltip text="Efficiency rates every mission for a division that carries this much move per 100 points of strength, so missions compare even where you have no division for them yet. It starts at what your army carries now.">
             <span className="effmove__label">Move per 100 strength</span>
@@ -436,12 +462,18 @@ export default function Missions() {
           <span>Reward</span>
           <span>
             Cycle{' '}
-            <Tooltip text="How long your division is locked per run: base cooldown + 10 s per point of its move cost. Your fastest qualifying division is used." />
+            <Tooltip
+              text={
+                view === 'est'
+                  ? `How long a division is locked per run: base cooldown + 10 s per point of move. Estimate: a division with ${movePer100} move per 100 strength.`
+                  : 'How long your division is locked per run: base cooldown + 10 s per point of its move cost. Your fastest qualifying division is used.'
+              }
+            />
           </span>
           <span>
-            Efficiency{' '}
+            TLM / h · Efficiency{' '}
             <Tooltip
-              text={`Net TLM per hour for every 100 points of the strength the mission asks for (ATK, or DEF when it asks for more DEF), for a division with ${movePer100} move per 100 strength. Below it: the TLM per hour your fastest qualifying division makes, after the swaps.`}
+              text={`TLM per hour after the swaps, for ${view === 'est' ? 'the estimate' : 'your fastest qualifying division'}. The ring is the efficiency: net TLM per hour for every 100 points of the strength the mission asks for (ATK, or DEF when it asks for more DEF), for a division with ${movePer100} move per 100 strength. It stays the same in both views.`}
             />
           </span>
           <span />
@@ -454,6 +486,8 @@ export default function Missions() {
         )}
         {rows.map((r) => {
           const { e, division, idleDivision, move, perHour, efficiency, route, eligible, deployable } = r
+          const shownMove = view === 'est' ? r.assumedMove : move
+          const shownPerHour = view === 'est' ? r.estPerHour : perHour
           const open = expanded === e.id
           const atkOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.atk >= e.minAtk
           const defOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.def >= e.minDef
@@ -518,36 +552,42 @@ export default function Missions() {
                   ))}
                 </div>
                 <div className="mrow__cycle num">
-                  <TimerIcon width={13} height={13} /> {formatDuration(cycleSeconds(e, move))}
-                  <small className="faint">{formatDuration(e.cooldownBase)} base</small>
+                  <TimerIcon width={13} height={13} /> {formatDuration(cycleSeconds(e, shownMove))}
+                  <small className="faint">
+                    {formatDuration(e.cooldownBase)} base ·{' '}
+                    {view === 'est'
+                      ? `${formatNumber(r.assumedMove, 0)} move`
+                      : division
+                        ? `#${division.id}`
+                        : 'no division qualifies'}
+                  </small>
                 </div>
                 {efficiency !== null || isTokenLoop(e) || r.loot > 0 ? (
                   <div className="mrow__score">
-                    {efficiency !== null && <EffGauge share={bestEfficiency > 0 ? efficiency / bestEfficiency : 0} />}
-                    <div
-                      className={`mrow__rate num ${(efficiency ?? perHour) > 0 ? 'is-pos' : (efficiency ?? perHour) < 0 ? 'is-neg' : ''}`}
-                    >
-                      {efficiency === null ? formatSigned(perHour) : `${efficiency > 0 ? '+' : ''}${formatNumber(efficiency, 2)}`}
-                      <small>
-                        {efficiency === null
-                          ? 'TLM / hour'
-                          : [
-                              `per 100 ${e.minDef > e.minAtk ? 'DEF' : 'ATK'}`,
-                              isTokenLoop(e) || r.loot > 0 ? `${formatSigned(perHour)} TLM/h` : '',
-                              e.rewardShards > 0 && shardRate > 0
-                                ? `${formatNumber((e.rewardShards / cycleSeconds(e, move)) * 3600, 1)} shards/h`
-                                : ''
-                            ]
-                              .filter(Boolean)
-                              .join(' · ')}
-                      </small>
-                    </div>
+                    {isTokenLoop(e) || r.loot > 0 ? (
+                      <div className={`mrow__rate num ${shownPerHour > 0 ? 'is-pos' : shownPerHour < 0 ? 'is-neg' : ''}`}>
+                        {formatSigned(shownPerHour)}
+                        <small>TLM / hour</small>
+                      </div>
+                    ) : (
+                      <div className="mrow__rate num is-shards">
+                        {formatNumber((e.rewardShards / cycleSeconds(e, shownMove)) * 3600, 1)}
+                        <small>shards / hour</small>
+                      </div>
+                    )}
+                    {efficiency !== null && (
+                      <Tooltip
+                        text={`${formatSigned(efficiency)} TLM per hour for every 100 ${e.minDef > e.minAtk ? 'DEF' : 'ATK'} the mission asks for, at ${movePer100} move per 100 strength.`}
+                      >
+                        <EffRing score={efficiency} share={bestEfficiency > 0 ? efficiency / bestEfficiency : 0} />
+                      </Tooltip>
+                    )}
                   </div>
                 ) : (
                   <>
                     <div className={`mrow__rate num ${e.rewardShards ? 'is-shards' : 'is-nft'}`}>
                       {e.rewardShards
-                        ? `${formatNumber((e.rewardShards / cycleSeconds(e, move)) * 3600, 1)}`
+                        ? `${formatNumber((e.rewardShards / cycleSeconds(e, shownMove)) * 3600, 1)}`
                         : e.rewardNft
                           ? `${e.rewardNft.count}× ${nftName(e.rewardNft.templateId) ?? 'NFT'}`
                           : '–'}
