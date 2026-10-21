@@ -137,7 +137,6 @@ export default function Missions() {
   const market = useMarket()
   const now = useNow(30_000)
   const [filter, setFilter] = useState<Filter>('all')
-  const [planet, setPlanet] = useState('')
   const [expanded, setExpanded] = useState<number | null>(null)
   const [deploying, setDeploying] = useState<MissionEconomics | null>(null)
   const [planOpen, setPlanOpen] = useState(false)
@@ -212,7 +211,6 @@ export default function Missions() {
       }
     })
     const filtered = list.filter(({ e, eligible }) => {
-      if (planet && e.planet !== planet) return false
       switch (filter) {
         case 'eligible':
           return eligible
@@ -238,12 +236,11 @@ export default function Missions() {
     }
     const score = (r: Row) => r.efficiency ?? -Infinity
     return filtered.sort((a, b) => tier(b) - tier(a) || score(b) - score(a) || b.perHour - a.perHour)
-  }, [missions, filter, planet, idle, divisions, market, priceByTemplate, pools.data, movePer100, shardRate])
+  }, [missions, filter, idle, divisions, market, priceByTemplate, pools.data, movePer100, shardRate])
 
   // The gauges show each mission's share of the most efficient one in the list.
   const bestEfficiency = rows.reduce((n, r) => Math.max(n, r.efficiency ?? 0), 0)
 
-  const planets = useMemo(() => [...new Set(missions.map((e) => e.planet).filter(Boolean))], [missions])
   // Reward NFTs are loot (Quantum Chests), which the stats templates do not cover: the collection's templates name them.
   const nftInfo = (id?: number) => (id ? (templates.data?.[String(id)] ?? collection.data?.get(String(id))) : undefined)
   const nftName = (id?: number) => nftInfo(id)?.name
@@ -373,77 +370,64 @@ export default function Missions() {
             </button>
           ))}
         </div>
-        <div className="planets">
-          <button type="button" className={`planets__chip ${planet === '' ? 'is-on' : ''}`} onClick={() => setPlanet('')}>
-            All planets
-          </button>
-          {planets.map((p) => (
+        <div className="effctl">
+          <div className={`viewflip is-${view}`} role="group" aria-label="Show the cycle and TLM per hour for">
+            <button type="button" className={view === 'est' ? 'is-on' : ''} onClick={() => setView('est')}>
+              Estimate
+            </button>
             <button
-              key={p}
               type="button"
-              className={`planets__chip ${planet === p ? 'is-on' : ''}`}
-              onClick={() => setPlanet(planet === p ? '' : p)}
-            >
-              <PlanetIcon planet={p} size={16} /> {titleCase(p)}
+              className="viewflip__switch"
+              aria-pressed={view === 'mine'}
+              aria-label="Switch between the estimate and my divisions"
+              onClick={() => setView(view === 'est' ? 'mine' : 'est')}
+            />
+            <button type="button" className={view === 'mine' ? 'is-on' : ''} onClick={() => setView('mine')}>
+              My divisions
             </button>
-          ))}
+          </div>
+          <label className="effmove">
+            <Tooltip text="Efficiency rates every mission for a division that carries this much move per 100 points of strength, so missions compare even where you have no division for them yet. It starts at what your army carries now.">
+              <span className="effmove__label">Move per 100 strength</span>
+            </Tooltip>
+            <input
+              type="range"
+              min={0}
+              max={MOVE_MAX}
+              step={1}
+              value={movePer100}
+              onChange={(ev) => setMoveSet(Number(ev.target.value))}
+              aria-label="Move per 100 strength"
+            />
+            <b className="num">{movePer100}</b>
+            {moveSet !== null && armyMove !== null && moveSet !== armyMove && (
+              <button type="button" className="effmove__reset" onClick={() => setMoveSet(null)}>
+                Your army: {armyMove}
+              </button>
+            )}
+          </label>
+          <label className="effmove">
+            <Tooltip text="How many shards you count as worth 1 TLM. With a value here, shard rewards add to the efficiency score, so shard missions rank with the TLM ones. Starts at 10; empty it to score TLM only.">
+              <span className="effmove__label">1 TLM =</span>
+            </Tooltip>
+            <input
+              type="number"
+              min={0}
+              step="any"
+              inputMode="decimal"
+              placeholder="–"
+              value={shardsPerTlm}
+              onChange={(ev) => {
+                setShardsPerTlm(ev.target.value)
+                writeStored(SHARD_KEY, ev.target.value)
+              }}
+              aria-label="Shards worth 1 TLM"
+            />
+            <span>
+              <ShardIcon width={12} height={12} /> shards
+            </span>
+          </label>
         </div>
-        <div className={`viewflip is-${view}`} role="group" aria-label="Show the cycle and TLM per hour for">
-          <button type="button" className={view === 'est' ? 'is-on' : ''} onClick={() => setView('est')}>
-            Estimate
-          </button>
-          <button
-            type="button"
-            className="viewflip__switch"
-            aria-pressed={view === 'mine'}
-            aria-label="Switch between the estimate and my divisions"
-            onClick={() => setView(view === 'est' ? 'mine' : 'est')}
-          />
-          <button type="button" className={view === 'mine' ? 'is-on' : ''} onClick={() => setView('mine')}>
-            My divisions
-          </button>
-        </div>
-        <label className="effmove">
-          <Tooltip text="Efficiency rates every mission for a division that carries this much move per 100 points of strength, so missions compare even where you have no division for them yet. It starts at what your army carries now.">
-            <span className="effmove__label">Move per 100 strength</span>
-          </Tooltip>
-          <input
-            type="range"
-            min={0}
-            max={MOVE_MAX}
-            step={1}
-            value={movePer100}
-            onChange={(ev) => setMoveSet(Number(ev.target.value))}
-            aria-label="Move per 100 strength"
-          />
-          <b className="num">{movePer100}</b>
-          {moveSet !== null && armyMove !== null && moveSet !== armyMove && (
-            <button type="button" className="effmove__reset" onClick={() => setMoveSet(null)}>
-              Your army: {armyMove}
-            </button>
-          )}
-        </label>
-        <label className="effmove">
-          <Tooltip text="How many shards you count as worth 1 TLM. With a value here, shard rewards add to the efficiency score, so shard missions rank with the TLM ones. Starts at 10; empty it to score TLM only.">
-            <span className="effmove__label">1 TLM =</span>
-          </Tooltip>
-          <input
-            type="number"
-            min={0}
-            step="any"
-            inputMode="decimal"
-            placeholder="–"
-            value={shardsPerTlm}
-            onChange={(ev) => {
-              setShardsPerTlm(ev.target.value)
-              writeStored(SHARD_KEY, ev.target.value)
-            }}
-            aria-label="Shards worth 1 TLM"
-          />
-          <span>
-            <ShardIcon width={12} height={12} /> shards
-          </span>
-        </label>
         <Tooltip
           text={`Every loop is valued in TLM out minus TLM in: DEF an entry needs is bought with TLM on Alcor, DEF a reward pays is sold for TLM, both at the pool's live quote with its ${percent(market.fee)} fee.${market.live ? '' : ' Pool not read yet: using a typical rate.'}`}
         >
@@ -481,7 +465,7 @@ export default function Missions() {
         {rows.length === 0 && (
           <div className="empty">
             <strong>No missions match</strong>
-            <span>Try another filter or planet.</span>
+            <span>Try another filter.</span>
           </div>
         )}
         {rows.map((r) => {

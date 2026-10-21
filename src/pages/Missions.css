@@ -98,38 +98,6 @@
   flex-wrap: wrap;
 }
 
-.planets {
-  display: flex;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.planets__chip {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  min-height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--border);
-  border-radius: 999px;
-  color: var(--text-dim);
-  font-size: 12px;
-  font-weight: 600;
-  transition:
-    border-color 0.15s ease,
-    color 0.15s ease;
-}
-
-.planets__chip:hover {
-  color: var(--text);
-}
-
-.planets__chip.is-on {
-  border-color: rgba(0, 212, 255, 0.5);
-  background: rgba(0, 212, 255, 0.1);
-  color: var(--text);
-}
-
 .missions__bar > .tip {
   margin-left: auto;
 }
@@ -967,5 +935,39 @@
   .viewflip__switch,
   .viewflip__switch::after {
     transition: none;
+  }
+}
+
+/* The view switch, the move slider and the shard value share one row. */
+.effctl {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 12px;
+  max-width: 100%;
+}
+
+.effctl > * {
+  flex: none;
+}
+
+/* Too narrow for one row: the controls wrap rather than scroll out of sight. */
+@media (max-width: 720px) {
+  .effctl {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .effmove {
+    gap: 6px;
+    padding: 0 10px;
+  }
+
+  .effmove input[type='range'] {
+    width: 72px;
+  }
+
+  .effmove input[type='number'] {
+    width: 44px;
   }
 }
