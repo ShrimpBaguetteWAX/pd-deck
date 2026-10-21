@@ -9,8 +9,8 @@ import { Button } from '@/components/Button'
 import { Loading } from '@/components/Loading'
 import { Tooltip } from '@/components/Tooltip'
 import { makeAssetRef, type AssetRef } from '@/data/assets'
-import { costKey, useAscensionConfig } from '@/data/ascension'
-import { useBlends, useCollectionTemplates, useOwnedBlendInputs } from '@/data/blends'
+import { costKey, expectedYield, useAscensionConfig } from '@/data/ascension'
+import { useBlends, useCollectionTemplates, useOwnedBlendInputs, useTemplatePrices } from '@/data/blends'
 import {
   useArmy,
   useAssetStats,
@@ -64,6 +64,7 @@ const GOALS: { key: Goal; label: string; unit: string }[] = [
 ]
 
 const SLOT_LABEL: Record<UpgradeSlot, string> = {
+  warlord: 'Warlord',
   mercenary: 'Mercenary',
   weapon: 'Equipment',
   supply: 'Supply',
@@ -71,11 +72,18 @@ const SLOT_LABEL: Record<UpgradeSlot, string> = {
   lavalux: 'Lava Lux'
 }
 
-const UPGRADE_SLOTS: UpgradeSlot[] = ['mercenary', 'weapon', 'supply', 'creature', 'lavalux']
-const empty = (): Record<UpgradeSlot, Offer[]> => ({ mercenary: [], weapon: [], supply: [], creature: [], lavalux: [] })
+const UPGRADE_SLOTS: UpgradeSlot[] = ['warlord', 'mercenary', 'weapon', 'supply', 'creature', 'lavalux']
+const empty = (): Record<UpgradeSlot, Offer[]> => ({
+  warlord: [],
+  mercenary: [],
+  weapon: [],
+  supply: [],
+  creature: [],
+  lavalux: []
+})
 const slotOf = (a: AssetRef): UpgradeSlot | null => {
   const k = kindOfCategory(a.stats?.category)
-  return k && k !== 'warlord' ? k : null
+  return k ?? null
 }
 
 const num = (n: number, digits = 1) => formatNumber(n, digits)
@@ -95,6 +103,7 @@ export function Upgrades({ account, listings }: { account: string | null; listin
   const statsMap = useAssetStats()
   const templates = useTemplates()
   const ascension = useAscensionConfig()
+  const prices = useTemplatePrices()
 
   const [goal, setGoal] = useState<Goal>('tlm')
   const [off, setOff] = useState<Set<StepKind>>(() => new Set())
@@ -102,8 +111,11 @@ export function Upgrades({ account, listings }: { account: string | null; listin
   const [showAlt, setShowAlt] = useState(false)
 
   const blendMarket = useMemo(
-    () => (listings && collection.data ? marketFrom(listings, ownedInputs.data ?? new Map(), collection.data, account) : null),
-    [listings, collection.data, ownedInputs.data, account]
+    () =>
+      listings && collection.data
+        ? marketFrom(listings, ownedInputs.data ?? new Map(), collection.data, account, prices.data)
+        : null,
+    [listings, collection.data, ownedInputs.data, account, prices.data]
   )
 
   const missions = useMemo(
@@ -143,7 +155,7 @@ export function Upgrades({ account, listings }: { account: string | null; listin
     // The cheapest listing of each playable template.
     const byTemplate = new Map<string, Listing[]>()
     for (const l of listings!) {
-      if (l.seller === account || !l.kind || l.kind === 'warlord') continue
+      if (l.seller === account || !l.kind) continue
       byTemplate.set(l.templateId, [...(byTemplate.get(l.templateId) ?? []), l])
     }
     for (const [t, list] of byTemplate) {
@@ -174,35 +186,64 @@ export function Upgrades({ account, listings }: { account: string | null; listin
       if (slot) offers[slot].push({ asset, source: 'blend', wax: cost, res: `blend:${b.id}`, capacity: 1, blend: b })
     }
 
-    // Raising a piece in a division a star: the Fragments it needs, owned ones first.
+    // Raising a card a star. Fragments: owned ones first, then the cheaper of buying Fragments and
+    // buying cheap cards to sacrifice for them (expected yield, bonus included).
     const ascensions = new Map<string, Offer>()
     const cfg = ascension.data
     if (cfg && !cfg.paused) {
       const owned = blendMarket!.owned.get(FRAGMENT_TEMPLATE)?.length ?? 0
-      const value = valueOf(blendMarket!, FRAGMENT_TEMPLATE)
-      for (const d of a.divisions)
-        for (const piece of d.units.flatMap((u) => [u.asset, ...Object.values(u.gear)])) {
-          if (!piece) continue
-          const to = cfg.next.get(piece.templateId)
-          const need = cfg.costs.get(costKey(piece.rarity, Number(piece.stats?.min_forge_level ?? 0)))
-          if (!to || !need || !statsMap.data!.has(to)) continue
-          const buy = Math.max(0, need - owned)
-          if (buy > 0 && value === null) continue
-          const asset = makeAssetRef(
-            `asc:${piece.assetId}`,
-            { t: to, s: piece.schema, c: 'planetdefnft' },
-            statsMap.data!,
-            templates.data!
-          )
-          ascensions.set(piece.assetId, {
-            asset,
-            source: 'ascend',
-            wax: buy * (value ?? 0),
-            res: `asc:${piece.assetId}`,
-            capacity: 1,
-            ascend: { from: piece, fragments: need, owned }
-          })
+      let fragment: { price: number; via?: { name: string; perCard: number } } | null = null
+      const listed = valueOf(blendMarket!, FRAGMENT_TEMPLATE)
+      if (listed !== null) fragment = { price: listed }
+      for (const l of listings!) {
+        const y = l.kind && l.seller !== account ? cfg.yields.get(l.asset.rarity) : undefined
+        const perCard = y ? expectedYield(y) : 0
+        if (perCard > 0 && (!fragment || l.price / perCard < fragment.price))
+          fragment = { price: l.price / perCard, via: { name: l.asset.name, perCard } }
+      }
+      const ascendOf = (piece: AssetRef, staked: boolean, res: string, capacity: number): Offer | null => {
+        const to = cfg.next.get(piece.templateId)
+        const need = cfg.costs.get(costKey(piece.rarity, Number(piece.stats?.min_forge_level ?? 0)))
+        if (!to || !need || !statsMap.data!.has(to)) return null
+        const buy = Math.max(0, need - owned)
+        if (buy > 0 && !fragment) return null
+        const asset = makeAssetRef(
+          `asc:${piece.assetId}`,
+          { t: to, s: piece.schema, c: 'planetdefnft' },
+          statsMap.data!,
+          templates.data!
+        )
+        return {
+          asset,
+          source: 'ascend',
+          wax: buy * (fragment?.price ?? 0),
+          res,
+          capacity,
+          ascend: { from: piece, fragments: need, owned, staked, via: buy > 0 ? fragment?.via : undefined }
         }
+      }
+      // Pieces in the divisions, the warlords included.
+      for (const d of a.divisions)
+        for (const piece of [d.leader, ...d.units.flatMap((u) => [u.asset, ...Object.values(u.gear)])]) {
+          if (!piece) continue
+          const o = ascendOf(piece, true, `asc:${piece.assetId}`, 1)
+          if (o) ascensions.set(piece.assetId, o)
+        }
+      // Spare cards, raised a star before they go in.
+      for (const [list, source] of [
+        [Object.values(a.free).flat(), 'reserve'],
+        [wallet.data!, 'wallet']
+      ] as const) {
+        const seen = new Set<string>()
+        for (const card of list) {
+          const slot = slotOf(card)
+          if (!slot || seen.has(card.templateId)) continue
+          seen.add(card.templateId)
+          const res = `${source}:${card.templateId}`
+          const o = ascendOf(card, source === 'reserve', res, capacity.get(res) ?? 1)
+          if (o) offers[slot].push(o)
+        }
+      }
     }
 
     const economy = buildEconomy({
@@ -283,7 +324,9 @@ export function Upgrades({ account, listings }: { account: string | null; listin
           : []),
         ...(o.source === 'wallet' || o.source === 'market' ? [stakeBoughtAction(a, p, [id])] : []),
         ...(u.replaces && u.unit ? [unassignGear(a, p, d.id, u.unit.asset.assetId, u.replaces.assetId)] : []),
-        u.slot === 'mercenary' ? addUnit(a, p, d.id, id) : assignGear(a, p, d.id, u.unit!.asset.assetId, u.slot, id)
+        u.slot === 'mercenary' || u.slot === 'warlord'
+          ? addUnit(a, p, d.id, id)
+          : assignGear(a, p, d.id, u.unit!.asset.assetId, u.slot, id)
       ],
       `${o.asset.name} is in Division #${d.id}`,
       `upgrade:${u.id}`,
@@ -292,6 +335,12 @@ export function Upgrades({ account, listings }: { account: string | null; listin
   }
 
   const action = (u: Upgrade) => {
+    if (u.slot === 'warlord' && u.offer.source !== 'ascend')
+      return (
+        <Link className="up-go" to="/army">
+          Open Army
+        </Link>
+      )
     if (u.offer.source === 'blend' || u.offer.source === 'ascend')
       return (
         <Link className="up-go" to="/blend">
@@ -321,11 +370,16 @@ export function Upgrades({ account, listings }: { account: string | null; listin
     const u = r.upgrade
     const isFree = u.wax <= 0
     const days = payback(u.wax, u.gain.tlm)
-    const target = !u.unit
-      ? 'new mercenary'
-      : u.slot === 'mercenary'
-        ? 'mercenary raised a star'
-        : `${SLOT_LABEL[u.slot]} for ${u.unit.asset.name}`
+    const target =
+      u.slot === 'warlord'
+        ? u.offer.source === 'ascend'
+          ? 'warlord raised a star'
+          : 'new warlord'
+        : !u.unit
+          ? 'new mercenary'
+          : u.slot === 'mercenary'
+            ? 'mercenary raised a star'
+            : `${SLOT_LABEL[u.slot]} for ${u.unit.asset.name}`
     return (
       <article key={u.id} className={`up-row${r.instead ? ' is-alt' : ''}`}>
         <span className="up-rank">{position.get(u.id)}</span>
@@ -336,7 +390,7 @@ export function Upgrades({ account, listings }: { account: string | null; listin
             <span>
               {' '}
               · Division #{u.division.id} · {target}
-              {u.replaces ? ` (instead of ${u.replaces.name})` : ''}
+              {u.replaces && u.offer.source !== 'ascend' ? ` (instead of ${u.replaces.name})` : ''}
             </span>
           </h3>
           <div className="up-steps">
@@ -378,6 +432,7 @@ export function Upgrades({ account, listings }: { account: string | null; listin
                 {Math.abs(u.gain.move)} move
               </span>
             )}
+            {u.gain.places > 0 && <span className="up-stat k-places">+{u.gain.places} places</span>}
           </span>
         </div>
         <div className="up-cost">

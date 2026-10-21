@@ -422,3 +422,7 @@
   border-color: var(--cyan);
   color: var(--cyan);
 }
+
+.up-stat.k-places {
+  --c: var(--cyan);
+}
