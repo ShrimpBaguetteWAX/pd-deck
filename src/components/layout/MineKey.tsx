@@ -1,6 +1,6 @@
 import { TokenIcon } from '@/components/Art'
 import { Tooltip } from '@/components/Tooltip'
-import { ArrowUpIcon, AwShardIcon } from '@/icons'
+import { ArrowUpIcon } from '@/icons'
 import { formatNumber } from '@/lib/format'
 import { cooldownLabel } from '@/lib/time'
 import { useMining, type MineBlock } from '@/mining/useMining'
@@ -21,14 +21,16 @@ const BLOCKED: Record<MineBlock, [string, string]> = {
 /**
  * The Mine half of the top bar's console, laid out line for line like the Loop key beside it: the
  * action and the number on top, the land and the "better land" hint underneath, or a hairline filling
- * up while the tools cool down. Orange for favourites by TLM, green for favourites by shards.
+ * up while the tools cool down. Orange for favourites by TLM, green for favourites by shards; the
+ * number is the TLM estimate in both.
  */
 export function MineKey({ now }: { now: number }) {
   const m = useMining(now)
   const tlm = m.mode === 'tlm'
-  const value = m.pick ? (tlm ? m.pick.estimatedTlm : m.pick.shards) : 0
+  // Both modes show the TLM a mine pays: shard mode only changes which land is picked.
+  const value = m.pick ? m.pick.estimatedTlm : 0
   const ready = !m.block && !m.cooling && !!m.pick
-  const unit = tlm ? <TokenIcon symbol="TLM" size={13} /> : <AwShardIcon width={13} height={13} className="mine-key__shard" />
+  const unit = <TokenIcon symbol="TLM" size={13} />
 
   const tip = m.block
     ? BLOCKED[m.block][1]
@@ -36,9 +38,9 @@ export function MineKey({ now }: { now: number }) {
       ? 'Mining: finding the proof of work and waiting for the chain.'
       : m.cooling
         ? `Your tools are cooling down. ${m.pick?.landName} is the best favourite land once they are ready.`
-        : `Mines on ${m.pick?.landName}: ≈ ${formatNumber(value, tlm ? 4 : 1)} ${tlm ? 'TLM' : 'shards'} after its commission.${
+        : `Mines on ${m.pick?.landName}: ≈ ${formatNumber(value, 4)} TLM after its commission${tlm ? '' : `, and ≈ ${formatNumber(m.pick?.shards ?? 0, 1)} shards`}.${
             m.upgrade
-              ? ` ${m.upgrade.land.landName} pays ≈ ${formatNumber(tlm ? m.upgrade.land.estimatedTlm : m.upgrade.land.shards, tlm ? 4 : 1)} and is ready in ${cooldownLabel(m.upgrade.at, now, '0:00')}.`
+              ? ` ${m.upgrade.land.landName} pays ≈ ${formatNumber(m.upgrade.land.estimatedTlm, 4)} TLM${tlm ? '' : ` and ≈ ${formatNumber(m.upgrade.land.shards, 1)} shards`} and is ready in ${cooldownLabel(m.upgrade.at, now, '0:00')}.`
               : ''
           }`
 
