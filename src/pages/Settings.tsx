@@ -21,8 +21,9 @@ import './Settings.css'
 
 const STATE_LABEL: Record<AutoSignStatus['state'], string> = {
   active: 'On',
-  inactive: 'Set up on another device',
-  mismatch: 'Out of step with the actions below',
+  inactive: 'On for another device, not this one',
+  // Only a browser without its own key can see this: another device set it up with other actions.
+  mismatch: 'On for another device, with other actions',
   'not-setup': 'Off'
 }
 
@@ -133,6 +134,10 @@ export default function Settings() {
               The deck signs the actions you tick below by itself, with a key kept in this browser and added to your account as
               the <code>{AUTO_SIGN_PERMISSION}</code> permission. Everything else still asks your wallet.
             </p>
+            <p className="settings__note">
+              Each phone or computer gets its own key under the same permission: turn it on in every browser you play in. Turning
+              it off removes only this browser's key. The actions are shared: changing them here changes them for every device.
+            </p>
             {status?.publicKey && (
               <p className="settings__key">
                 Key <code>{status.publicKey}</code>
@@ -161,17 +166,7 @@ export default function Settings() {
                 title={changed ? 'Save the actions first' : undefined}
                 onClick={() => void step('on', enableAutoSign, 'Auto-sign is on')}
               >
-                {status?.state === 'inactive' ? 'Set up in this browser' : 'Turn on'}
-              </Button>
-            )}
-            {status?.state === 'mismatch' && !changed && (
-              <Button
-                color="ghost"
-                isLoading={busy === 'sync'}
-                disabled={!!busy}
-                onClick={() => void step('sync', syncAutoSign, 'Auto-sign actions updated')}
-              >
-                Update on chain
+                {status?.state === 'inactive' || status?.state === 'mismatch' ? 'Add this device' : 'Turn on'}
               </Button>
             )}
           </div>

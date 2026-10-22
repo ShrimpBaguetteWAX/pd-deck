@@ -35,6 +35,9 @@ function getKit(): Promise<SessionKit> {
         onPickerClosed?.()
         return cancel(reason, silent)
       })
+    // Auto-sign on a second device adds that device's key next to the first one's; WharfKit would
+    // otherwise ask whether to replace it, which quietly turns auto-sign off on the other device.
+    ui.onSessionKeyConflict = async () => 'add'
     const whitelist = whitelistOf(savedActions())
     return new SessionKit(
       {
