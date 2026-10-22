@@ -5,6 +5,7 @@ import { formatNumber } from '@/lib/format'
 import { tlmForDef } from '@/lib/market'
 import { cooldownLabel, shortDuration, useNow } from '@/lib/time'
 import { readCashOut, useLoopPlan } from '@/lib/useLoop'
+import { useReportCount } from '@/state/tabCount'
 import { useTransaction } from '@/wallet/useTransaction'
 
 import { MineKey } from './MineKey'
@@ -26,6 +27,7 @@ export function LoopWidget() {
 
   const total = loop.deployments.length
   const ready = loop.ready.length
+  useReportCount('loop', ready)
   const plan = ready ? loop.cycle(loop.ready, loop.loopable) : null
   const waiting = plan ? plan.earnedTlm + tlmForDef(loop.market, plan.earnedDef) : 0
   const busy = pending === 'loop-all'

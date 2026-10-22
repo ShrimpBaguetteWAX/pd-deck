@@ -4,6 +4,7 @@ import { ArrowUpIcon } from '@/icons'
 import { formatNumber } from '@/lib/format'
 import { cooldownLabel } from '@/lib/time'
 import { useMining, type MineBlock } from '@/mining/useMining'
+import { useReportCount } from '@/state/tabCount'
 import { MINING_BLOCKED_MESSAGE } from '@/wallet/session'
 
 /** What the switched-off key says, and the longer reason on hover. */
@@ -30,6 +31,7 @@ export function MineKey({ now }: { now: number }) {
   // Both modes show the TLM a mine pays: shard mode only changes which land is picked.
   const value = m.pick ? m.pick.estimatedTlm : 0
   const ready = !m.block && !m.cooling && !!m.pick
+  useReportCount('mine', ready && !m.busy ? 1 : 0)
   const unit = <TokenIcon symbol="TLM" size={13} />
 
   const tip = m.block

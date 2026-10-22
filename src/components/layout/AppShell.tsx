@@ -22,6 +22,7 @@ import {
 } from '@/icons'
 import { useClockFor } from '@/lib/time'
 import { useSession } from '@/state/session'
+import { useTabTitle } from '@/state/tabCount'
 
 import './AppShell.css'
 
@@ -44,6 +45,7 @@ export function AppShell({ children }: { children: ReactNode }) {
     useShallow((s) => ({ account: s.account, spectating: s.spectating, logout: s.logout }))
   )
   const player = usePlayer(account)
+  useTabTitle()
   const deployments = useDeployments(account)
 
   // The deployments badge counts divisions whose cooldown is over: re-render as each one ends.
