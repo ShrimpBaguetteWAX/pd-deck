@@ -590,6 +590,34 @@
     width: 180px;
     padding: 5px 10px 6px;
   }
+
+  /*
+   * Phones: no logo, and the Loop key gives up width (down to what its label needs) so the account
+   * button always fits beside the console.
+   */
+  .topbar__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+  }
+
+  .topbar__row > .brand {
+    display: none;
+  }
+
+  .topbar__row > .loop {
+    justify-self: center;
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .loop__console {
+    min-width: 0;
+  }
+
+  /* The screen less the side gutters (28), the account button and its gap (50) and the Mine key (132). */
+  .loop__console .loop__key {
+    width: clamp(128px, calc(100vw - 210px), 180px);
+  }
 }
 
 /* ---- Mine key: fused to the Loop key, laid out line for line like it ---- */
