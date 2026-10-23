@@ -2,7 +2,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 import { useMemo } from 'react'
 
 import { CONTRACTS, PLANETS, type Planet } from '@/chain/config'
-import { getActions } from '@/chain/history'
+import { getActions, timesRun } from '@/chain/history'
 import { getRow, getRows } from '@/chain/rpc'
 import { parseAsset } from '@/lib/format'
 import { chainDate } from '@/lib/time'
@@ -334,7 +334,7 @@ export function useContributions(planetId: number | null): UseQueryResult<Contri
         .filter((a) => String(a.act.data.memo ?? '') === memo)
         .map((a) => ({
           account: String(a.act.data.from ?? ''),
-          def: parseAsset(String(a.act.data.quantity ?? '0 DEF')).amount,
+          def: parseAsset(String(a.act.data.quantity ?? '0 DEF')).amount * timesRun(a),
           at: +chainDate(a['@timestamp']),
           trxId: a.trx_id
         }))

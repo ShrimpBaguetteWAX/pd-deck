@@ -48,8 +48,20 @@ async function getJson<T>(base: string, path: string): Promise<T> {
 export interface HistoryAction {
   '@timestamp': string
   trx_id: string
+  /** Unique per action on the chain (several claims in one transaction each have their own). */
+  global_sequence?: number
+  action_ordinal?: number
+  /** One receipt per execution and notified account (see timesRun). */
+  receipts?: { receiver: string; global_sequence?: number | string }[]
   act: { account: string; name: string; data: Record<string, unknown> }
 }
+
+/**
+ * How many times an action really ran. Hyperion folds identical actions of one transaction into a
+ * single entry (fourteen claims paying 5 TLM each come back as one transfer), keeping one receipt
+ * per execution for the contract and each account it notified; the contract's own receipts count.
+ */
+export const timesRun = (a: HistoryAction) => a.receipts?.filter((r) => r.receiver === a.act.account).length || 1
 
 /**
  * Every action matching the query, oldest first. `params` are Hyperion's own, for example

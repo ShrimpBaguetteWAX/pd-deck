@@ -2,7 +2,7 @@ import { useQuery, type UseQueryResult } from '@tanstack/react-query'
 
 import { atomic } from '@/chain/atomic'
 import { CONTRACTS } from '@/chain/config'
-import { getActions, getTransactionActions, type HistoryAction } from '@/chain/history'
+import { getActions, getTransactionActions, timesRun, type HistoryAction } from '@/chain/history'
 
 /*
  * Everything an account spent on Planetary Defense and everything it got back, from the chain:
@@ -58,14 +58,17 @@ function tokenOf(quantity: unknown): { amount: number; token: Token } | null {
 function transferEntry(a: HistoryAction, category: Category, direction: 'in' | 'out', note: string): LedgerEntry | null {
   const q = tokenOf(a.act.data.quantity)
   if (!q || !(q.amount > 0)) return null
+  // Identical transfers in one transaction (a claim of several divisions) come back as one action.
+  const times = timesRun(a)
   return {
-    id: `${a.trx_id}:${a.act.account}:${category}:${q.amount}`,
+    // One entry per action: a transaction claiming several divisions pays several equal transfers.
+    id: `${a.trx_id}:${a.global_sequence ?? a.action_ordinal ?? ''}:${a.act.account}:${category}:${q.amount}`,
     time: chainTime(a['@timestamp']),
     category,
     direction,
     token: q.token,
-    amount: q.amount,
-    note
+    amount: q.amount * times,
+    note: times > 1 ? `${note} (${times} × ${q.amount} ${q.token})` : note
   }
 }
 
