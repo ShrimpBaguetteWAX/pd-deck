@@ -180,12 +180,17 @@
   line-height: 1.1;
 }
 
+/* Two fixed slots, the dot at the start of each and digits of one width, so nothing shifts as the times tick. */
 .couch__legend {
-  display: flex;
-  gap: 18px;
+  display: grid;
+  grid-template-columns: repeat(2, 8.5em);
+  justify-content: center;
+  gap: 10px;
   margin: 0;
   color: var(--text-dim);
   font-size: 12.5px;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 .couch__legend i {
