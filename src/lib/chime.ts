@@ -123,7 +123,11 @@ function play(id: ChimeId, when: number): () => void {
     o.start(t)
     o.stop(t + decay + 0.05)
   }
-  return () => out.disconnect()
+  // Re-booking happens right as a time is reached (a division comes back, the mine is ready), so a
+  // chime that has started is left to ring out; only ones still ahead are taken back.
+  return () => {
+    if (c.currentTime < when - 0.05) out.disconnect()
+  }
 }
 
 /** Plays a chime right away (switching sound on, or a preview). */
