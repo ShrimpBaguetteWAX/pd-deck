@@ -91,7 +91,7 @@ export const CHIMES: Record<ChimeId, { name: string; voices: Voice[] }> = {
 }
 
 /** Which chime plays for what. */
-export const CHIME_FOR: Record<'mine' | 'loop', ChimeId> = { mine: 'soft', loop: 'rise' }
+export const CHIME_FOR: Record<'mine' | 'loop', ChimeId> = { mine: 'glass', loop: 'glass' }
 
 let ctx: AudioContext | null = null
 /** The audio context, made (and unlocked) on the first tap that asks for sound. */
