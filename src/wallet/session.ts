@@ -151,6 +151,25 @@ export async function transact(actions: AnyAction[]): Promise<string> {
 
 // ---- Auto-signing (WharfKit session keys) ----------------------------------------------------------
 
+/** The session-key wallet WharfKit puts in front of the player's wallet once auto-sign is set up here. */
+type SessionKeyWallet = { allActionsWhitelisted: (actions: AnyAction[]) => boolean }
+const sessionKeyWallet = () => {
+  const w = current?.walletPlugin as unknown as Partial<SessionKeyWallet> | undefined
+  return typeof w?.allActionsWhitelisted === 'function' ? (w as SessionKeyWallet) : null
+}
+
+/** Whether auto-sign is set up in this browser for the signed-in account. */
+export const autoSignOn = () => !!sessionKeyWallet()
+
+/** Whether the deck signs these actions by itself (no wallet prompt): every one of them is ticked for auto-sign. */
+export function signsByItself(actions: AnyAction[]): boolean {
+  try {
+    return !!sessionKeyWallet()?.allActionsWhitelisted(actions)
+  } catch {
+    return false
+  }
+}
+
 async function currentSession(): Promise<Session> {
   const session = current ?? (await restoreSession())
   if (!session) throw new Error('Connect a wallet first')

@@ -8,7 +8,7 @@ import { refreshPlayer, usePlayer } from '@/data/game'
 import { sleep } from '@/lib/format'
 import { useSession } from '@/state/session'
 
-import { formatTransactError, isUserCancel, transact } from './session'
+import { autoSignOn, formatTransactError, isUserCancel, signsByItself, transact } from './session'
 
 /** A node shows a signed transaction about a second later; lagging nodes get one more read. */
 const CATCH_UP_MS = 1200
@@ -23,6 +23,12 @@ const SPLIT_SIZE = 10
  * next request waits this long.
  */
 const BETWEEN_PARTS_MS = 2000
+/**
+ * After a transaction the deck signed by itself (auto-sign): no wallet window is closing, and the
+ * session pushes every transaction through the same node, which has applied the last one by the
+ * time it answers. A short breath is enough.
+ */
+const AFTER_AUTO_SIGN_MS = 150
 
 /** One transaction, or parts of SPLIT_SIZE in order when there are more than MAX_ACTIONS_PER_TX actions. */
 export function splitActions<T>(actions: T[]): T[][] {
@@ -57,6 +63,10 @@ export function useTransaction() {
   const [pending, setPending] = useState<string | null>(null)
   /** Set once a transaction of this session registered the player, so the next does not again. */
   const registered = useRef(false)
+  /** Whether the last transaction went out signed by the deck itself, which sets the pause before the next. */
+  const lastAuto = useRef(false)
+  const pause = () => sleep(lastAuto.current ? AFTER_AUTO_SIGN_MS : BETWEEN_PARTS_MS)
+  const signPrompt = () => (autoSignOn() ? '' : ' Please sign.')
 
   /**
    * register: false leaves out the player registration a first-time player otherwise gets (for
@@ -89,11 +99,13 @@ export function useTransaction() {
       const parts = opts.split ? splitActions(actions) : [actions]
       for (let i = 0; i < parts.length; i++) {
         if (parts.length > 1) {
-          if (i > 0) await sleep(BETWEEN_PARTS_MS)
-          toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].length} actions. Please sign.`)
+          if (i > 0) await pause()
+          toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].length} actions.${signPrompt()}`)
         }
         try {
+          const auto = signsByItself(parts[i])
           const trxId = await transact(parts[i])
+          lastAuto.current = auto
           if (register) registered.current = true
           opts.onSigned?.(trxId)
         } catch (err) {
@@ -125,9 +137,10 @@ export function useTransaction() {
    * Signs several transactions one after another, in order, each with its own success message;
    * stops at the first that fails or is cancelled and says how many went through. Resolves to
    * the number of transactions that went through. The next signature is asked for BETWEEN_PARTS_MS
-   * after the previous transaction is accepted: the player's data is read again only once, at the
-   * end (the parts are built from the state before the first one, and the wallet broadcasts them
-   * all through one node, so a later part sees what an earlier one did).
+   * after the previous transaction is accepted, or AFTER_AUTO_SIGN_MS when the deck signed it
+   * itself. The player's data is read again only once, at the end (the parts are built from the
+   * state before the first one, and the wallet broadcasts them all through one node, so a later
+   * part sees what an earlier one did).
    */
   async function runSequence(parts: { build: Build; success: string }[], key = 'tx'): Promise<number> {
     if (!account) return 0
@@ -139,8 +152,8 @@ export function useTransaction() {
     try {
       for (let i = 0; i < parts.length; i++) {
         const last = i === parts.length - 1
-        if (i > 0) await sleep(BETWEEN_PARTS_MS)
-        if (parts.length > 1) toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].success}. Please sign.`)
+        if (i > 0) await pause()
+        if (parts.length > 1) toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].success}.${signPrompt()}`)
         const ok = await runOne(
           account,
           parts[i].build,
