@@ -240,3 +240,19 @@ export const ShardIcon = (p: P) => (
     <path d="M5 9.2h14" stroke="#e7fbff" strokeWidth="1.1" />
   </svg>
 )
+
+/** TLM flow: a line going in and one coming out, like a chart of two streams. */
+export const FlowIcon = (p: P) => (
+  <svg
+    viewBox="0 0 24 24"
+    fill="none"
+    stroke="currentColor"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    {...p}
+  >
+    <path d="M3 17l5-5 4 3 5-7 4 3" />
+    <path d="M3 21h18" />
+  </svg>
+)

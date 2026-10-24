@@ -21,6 +21,7 @@ const Settings = lazy(() => import('@/pages/Settings'))
 const Arbitrage = lazy(() => import('@/pages/Arbitrage'))
 const Planets = lazy(() => import('@/pages/Planets'))
 const Couch = lazy(() => import('@/pages/Couch'))
+const Flow = lazy(() => import('@/pages/Flow'))
 
 /** Pages behind sign-in share the session check and the app shell. */
 function PrivateLayout() {
@@ -84,6 +85,7 @@ export function App() {
               <Route path="/settings" element={<Settings />} />
               <Route path="/arbitrage" element={<Arbitrage />} />
               <Route path="/planets" element={<Planets />} />
+              <Route path="/flow" element={<Flow />} />
             </Route>
             <Route element={<BareLayout />}>
               <Route path="/couch" element={<Couch />} />

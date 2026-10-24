@@ -100,3 +100,24 @@ export async function getTransactionActions(trxId: string): Promise<HistoryActio
   }
   throw new Error(`History request failed: ${errors.join('; ')}`)
 }
+
+/**
+ * One page of actions (up to Hyperion's PAGE), for callers that pace their own requests and walk
+ * a long history themselves. Fails over to the next node like getActions.
+ */
+export async function getActionsPage(account: string, params: Record<string, string>): Promise<HistoryAction[]> {
+  const errors: string[] = []
+  for (const base of nodesInOrder()) {
+    try {
+      const query = new URLSearchParams({ account, limit: String(PAGE), sort: 'asc', ...params })
+      const j = await getJson<{ actions?: HistoryAction[] }>(base, `/v2/history/get_actions?${query}`)
+      return j.actions ?? []
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err))
+    }
+  }
+  throw new Error(`History request failed: ${errors.join('; ')}`)
+}
+
+/** Actions per page from getActionsPage. */
+export const HISTORY_PAGE = PAGE

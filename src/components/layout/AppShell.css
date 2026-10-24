@@ -94,6 +94,7 @@
 .nav__link {
   position: relative;
   display: inline-flex;
+  white-space: nowrap;
   align-items: center;
   gap: 8px;
   min-height: 38px;
