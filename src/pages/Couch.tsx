@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 
 import { refreshToday, useTodayEarnings } from '@/data/today'
+import { CHIME_FOR, chimeNow, useChimeSchedule, useChimeSetting, type ChimeEvent } from '@/lib/chime'
 import { formatNumber } from '@/lib/format'
 import { useNow } from '@/lib/time'
 import { readCashOut, useLoopPlan } from '@/lib/useLoop'
@@ -16,7 +17,7 @@ import './Couch.css'
  * Today's TLM at the top (divisions and mining, since local midnight), one calm dial in the middle
  * whose button always does the next thing that's ready (Mine first, otherwise Loop for what's
  * back), and the divisions still out listed quietly at the bottom. It keeps the screen awake and
- * buzzes when something becomes ready.
+ * buzzes when something becomes ready; with the bell on it chimes too, also in a background tab.
  */
 
 const clock = (ms: number) => {
@@ -78,6 +79,20 @@ export default function Couch() {
   }, [next])
 
   const mineLeft = m.pickReadyAt ? Math.max(0, m.pickReadyAt - now) : null
+
+  // The bell: a chime booked for the next mine and for every division's return.
+  const [sound, setSound] = useChimeSetting()
+  const chimes: ChimeEvent[] = [
+    ...(mineOn && !m.busy && m.pickReadyAt && m.pickReadyAt > now ? [{ kind: 'mine' as const, at: m.pickReadyAt }] : []),
+    ...out.map((d) => ({ kind: 'loop' as const, at: d.unlockAt }))
+  ]
+  useChimeSchedule(sound, chimes)
+  const toggleSound = () => {
+    const next = !sound
+    setSound(next)
+    // This tap unlocks sound in the browser; the chime says it works.
+    if (next) chimeNow(CHIME_FOR.loop)
+  }
   const nextOut = out[0]
   // Inner ring: the share of the next returning division's lock that has passed, from when it left
   // (joined its mission) to when it is back. Full while any division is back to loop.
@@ -133,6 +148,28 @@ export default function Couch() {
             {tlm(today.data?.mining)}
             <span>TLM</span>
           </b>
+          <button
+            type="button"
+            className="couch__bell"
+            aria-pressed={sound}
+            aria-label={sound ? 'Chime when ready: on' : 'Chime when ready: off'}
+            title={sound ? 'Chimes when a mine or a division is ready' : 'No sound'}
+            onClick={toggleSound}
+          >
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z" />
+              <path d="M10 20a2 2 0 0 0 4 0" />
+              <path className="couch__bell-off" d="M4 4l16 16" />
+            </svg>
+          </button>
         </div>
       </header>
 

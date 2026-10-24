@@ -273,3 +273,40 @@
     opacity: 0.6;
   }
 }
+
+/* The bell under "Mining today": faint and crossed out while off, a little brighter when on. */
+.couch__today div.is-mine {
+  justify-items: end;
+}
+
+.couch__bell {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 34px;
+  margin: 2px -8px 0 0;
+  border: 0;
+  border-radius: 10px;
+  background: none;
+  color: #2c3648;
+  cursor: pointer;
+  transition: color 0.2s;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.couch__bell svg {
+  width: 22px;
+  height: 22px;
+}
+
+.couch__bell[aria-pressed='true'] {
+  color: var(--text-dim);
+}
+
+.couch__bell-off {
+  transition: opacity 0.2s;
+}
+
+.couch__bell[aria-pressed='true'] .couch__bell-off {
+  opacity: 0;
+}
