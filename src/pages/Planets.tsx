@@ -1009,7 +1009,8 @@ function DeployPanel({
     await tx.runSequence(
       chosen.map((x, i) => ({
         build: actionsFor(x, i === 0 ? deposit : 0),
-        success: `Division #${x.division.id} joined ${titleCase(s.planet)}`
+        success: `Division #${x.division.id} joined ${titleCase(s.planet)}`,
+        settle: i === 0
       })),
       'siege-all',
       `Sending ${chosen.length} divisions to ${titleCase(s.planet)}`

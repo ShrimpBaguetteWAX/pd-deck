@@ -38,6 +38,8 @@ export function readCashOut(): boolean {
 export interface LoopPart {
   build: (a: string, p: string) => AnyAction[] | Promise<AnyAction[]>
   success: string
+  /** The next transaction depends on this one (it frees the divisions): wait for it to go through. */
+  settle?: boolean
 }
 
 export function useLoopPlan(account: string | null, cashOut: boolean) {
@@ -110,6 +112,8 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
     const parts: LoopPart[] = [
       {
         build: async (a, p) => [...(await head(a, p)), ...(first ? out(a, p, first) : [])],
+        // The claims free the divisions the joins after it send out.
+        settle: true,
         success: !first
           ? `${claims.length} claimed`
           : rest.length

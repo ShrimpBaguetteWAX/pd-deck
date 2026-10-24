@@ -661,7 +661,8 @@ export default function Missions() {
                   ...(i === 0 ? fundEntries(a, p, await freshMarket(market), cost, balance).actions : []),
                   ...deployActions(a, p, deploying.id, d.id, !d.fresh, walletCosts(deploying.costs, fromDeposit))
                 ],
-                success: `#${d.id} sent to ${deploying.title}`
+                success: `#${d.id} sent to ${deploying.title}`,
+                settle: i === 0
               })),
               'deploy',
               `Deploying ${chosen.length} divisions to ${deploying.title}`

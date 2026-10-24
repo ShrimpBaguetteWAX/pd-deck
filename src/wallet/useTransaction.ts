@@ -155,7 +155,11 @@ export function useTransaction() {
    * Two or more transactions report in one live toast (a segment each, what just landed, a
    * summary at the end) instead of a toast per transaction; `title` heads it.
    */
-  async function runSequence(parts: { build: Build; success: string }[], key = 'tx', title?: string): Promise<number> {
+  async function runSequence(
+    parts: { build: Build; success: string; settle?: boolean }[],
+    key = 'tx',
+    title?: string
+  ): Promise<number> {
     if (!account) return 0
     if (spectating) {
       toast.info('You are viewing this account read-only. Sign in with your wallet to act.')
@@ -168,7 +172,8 @@ export function useTransaction() {
       const live = liveToast(title ?? `${n} transactions`, n)
       for (let i = 0; i < n; i++) {
         const last = i === n - 1
-        if (i > 0) await pause()
+        // After a transaction the next one depends on (claims, a deposit) the full wait, auto-sign or not.
+        if (i > 0) await (parts[i - 1].settle ? sleep(BETWEEN_PARTS_MS) : pause())
         live.busy(i, `${parts[i].success}…${signPrompt()}`)
         let failure: { message: string; cancelled: boolean } | null = null
         const ok = await runOne(account, parts[i].build, parts[i].success, {
