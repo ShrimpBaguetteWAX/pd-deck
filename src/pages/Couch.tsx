@@ -79,12 +79,16 @@ export default function Couch() {
 
   const mineLeft = m.pickReadyAt ? Math.max(0, m.pickReadyAt - now) : null
   const nextOut = out[0]
+  // Inner ring: the share of the next returning division's lock that has passed, from when it left
+  // (joined its mission) to when it is back. Full while any division is back to loop.
+  // A ring that is on never drops below a small start, so it doesn't vanish right after a mine or loop.
+  const START = 0.03
   const loopProgress = back.length
     ? 1
     : nextOut
-      ? Math.min(1, Math.max(0, (now - nextOut.joinedAt) / Math.max(1, nextOut.unlockAt - nextOut.joinedAt)))
+      ? Math.min(1, Math.max(START, (now - nextOut.joinedAt) / Math.max(1, nextOut.unlockAt - nextOut.joinedAt)))
       : 0
-  const mineProgress = !mineOn ? 0 : mineReady ? 1 : m.progress
+  const mineProgress = !mineOn ? 0 : mineReady ? 1 : Math.max(START, m.progress)
 
   // Back to where it was opened from; to Deployments when it was opened on its own (a home screen icon).
   const close = () => ((window.history.state as { idx?: number } | null)?.idx ? navigate(-1) : navigate('/deployments'))
@@ -101,11 +105,10 @@ export default function Couch() {
 
   // What the button says when nothing is ready: the soonest of the mine and the next return.
   const waits = [
-    mineOn && mineLeft !== null && !mineReady ? { at: mineLeft, what: 'mine' } : null,
+    mineOn && mineLeft !== null && !mineReady && !m.busy ? { at: mineLeft, what: 'mine' } : null,
     nextOut ? { at: nextOut.unlockAt - now, what: `#${nextOut.divisionId} back` } : null
   ].filter((w): w is { at: number; what: string } => !!w)
   const soonest = waits.sort((a, b) => a.at - b.at)[0]
-  const busy = m.busy || looping
   const backTlm = plan ? plan.earnedTlm : 0
 
   return (
@@ -138,36 +141,32 @@ export default function Couch() {
           <svg viewBox="0 0 100 100" aria-hidden="true">
             <circle className="trk" cx="50" cy="50" r="45" />
             <circle
-              className={`m${mineProgress <= 0.005 ? ' is-empty' : ''}`}
+              className={`m${m.busy ? ' is-working' : mineProgress <= 0.005 ? ' is-empty' : ''}`}
               cx="50"
               cy="50"
               r="45"
               pathLength="100"
-              strokeDasharray={`${mineProgress * 100} 100`}
+              strokeDasharray={m.busy ? '100 0' : `${mineProgress * 100} 100`}
             />
             <circle className="trk" cx="50" cy="50" r="33" />
             <circle
-              className={`l${loopProgress <= 0.005 ? ' is-empty' : ''}`}
+              className={`l${looping ? ' is-working' : loopProgress <= 0.005 ? ' is-empty' : ''}`}
               cx="50"
               cy="50"
               r="33"
               pathLength="100"
-              strokeDasharray={`${loopProgress * 100} 100`}
+              strokeDasharray={looping ? '100 0' : `${loopProgress * 100} 100`}
             />
           </svg>
           <button
             type="button"
-            className={`couch__core${next ? ` go-${next}` : ''}${busy ? ' is-busy' : ''}`}
+            className={`couch__core${next ? ` go-${next}` : ''}`}
             onClick={() => void press()}
-            disabled={!next || busy}
+            disabled={!next}
             aria-live="polite"
           >
-            {busy ? (
-              <>
-                <small>{m.busy ? 'Mining' : 'Looping'}</small>
-                <b>…</b>
-              </>
-            ) : next === 'mine' ? (
+            {/* A mine or a loop on its way shows on its own ring; the button stays free for the other. */}
+            {next === 'mine' ? (
               <>
                 <small>Tap to</small>
                 <b>MINE</b>
@@ -181,9 +180,15 @@ export default function Couch() {
                   {back.length} back{backTlm > 0 ? ` · +${formatNumber(backTlm, 0)} TLM` : ''}
                 </small>
               </>
+            ) : looping ? (
+              <>
+                <small>Sending</small>
+                <b>LOOP</b>
+                <small>see the progress above</small>
+              </>
             ) : (
               <>
-                <small>{soonest ? 'Next in' : spectating ? 'Read-only' : 'Nothing to do'}</small>
+                <small>{soonest ? 'Next in' : spectating ? 'Read-only' : m.busy ? 'Mining' : 'Nothing to do'}</small>
                 <b className="num">{soonest ? clock(soonest.at) : '–'}</b>
                 <small>{soonest?.what ?? ''}</small>
               </>
@@ -193,7 +198,15 @@ export default function Couch() {
         <p className="couch__legend">
           <span>
             <i className="is-mine" />
-            {!mineOn ? 'Mine off' : mineReady ? 'Mine ready' : mineLeft !== null ? `Mine ${clock(mineLeft)}` : 'Mine…'}
+            {!mineOn
+              ? 'Mine off'
+              : m.busy
+                ? 'Mining…'
+                : mineReady
+                  ? 'Mine ready'
+                  : mineLeft !== null
+                    ? `Mine ${clock(mineLeft)}`
+                    : 'Mine…'}
           </span>
           <span>
             <i className="is-loop" />

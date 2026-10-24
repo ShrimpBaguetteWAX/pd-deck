@@ -166,10 +166,6 @@
   transform: scale(0.97);
 }
 
-.couch__core.is-busy {
-  opacity: 0.85;
-}
-
 .couch__core small {
   font-size: 10px;
   font-weight: 700;
@@ -247,5 +243,28 @@
 @media (prefers-reduced-motion: reduce) {
   .couch__dial circle {
     transition: none;
+  }
+}
+
+/* A mine or loop on its way: the whole ring slowly brightens and dims, nothing moves round. */
+.couch__dial .is-working {
+  transition: none;
+  animation: couch-breathe 2.4s ease-in-out infinite;
+}
+
+@keyframes couch-breathe {
+  0%,
+  100% {
+    opacity: 0.25;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .couch__dial .is-working {
+    animation: none;
+    opacity: 0.6;
   }
 }
