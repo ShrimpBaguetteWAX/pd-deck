@@ -1,5 +1,6 @@
 import { useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Link } from 'react-router-dom'
 
 import { TokenIcon } from '@/components/Art'
 import { NetworkLed, NetworkPanel } from '@/components/NetworkStatus'
@@ -101,6 +102,10 @@ export function AccountMenu({
               <i>Deposit · Withdraw</i>
             </span>
           </button>
+          <Link to="/couch" className="acctpop__item" role="menuitem" onClick={() => setOpen(false)}>
+            <b>Couch mode</b>
+            <span>Mine and loop from one calm screen</span>
+          </Link>
           <NetworkPanel />
           <button type="button" className="acctpop__out" role="menuitem" onClick={onLogout}>
             <LogoutIcon width={14} height={14} /> {spectating ? 'Stop viewing' : 'Disconnect'}

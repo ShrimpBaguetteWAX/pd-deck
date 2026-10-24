@@ -210,6 +210,8 @@ export function useFavoriteLands(account: string | null, cooling: boolean) {
 /** After a mine: the miner row, the tool cooldowns and the pools. */
 export function refreshMining(account: string | null) {
   return Promise.all(
-    [keys.miner(account), keys.tools(account), keys.pools].map((queryKey) => queryClient.invalidateQueries({ queryKey }))
+    [keys.miner(account), keys.tools(account), keys.pools, ['today-earnings', account]].map((queryKey) =>
+      queryClient.invalidateQueries({ queryKey })
+    )
   )
 }

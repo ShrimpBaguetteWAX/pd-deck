@@ -480,6 +480,7 @@ export async function refreshPlayer(account: string | null) {
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ['player', account] }),
     queryClient.invalidateQueries({ queryKey: ['game-balance', account] }),
+    queryClient.invalidateQueries({ queryKey: ['today-earnings', account] }),
     queryClient.invalidateQueries({ queryKey: ['tlm-balance', account] }),
     queryClient.invalidateQueries({ queryKey: ['army', account] }),
     queryClient.invalidateQueries({ queryKey: ['deployments', account] }),

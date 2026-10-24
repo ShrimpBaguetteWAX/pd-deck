@@ -126,6 +126,7 @@
 /* The menu row that opens it, with the deposited amounts. */
 .acctpop__item {
   display: grid;
+  text-decoration: none;
   gap: 4px;
   width: 100%;
   margin-bottom: 10px;

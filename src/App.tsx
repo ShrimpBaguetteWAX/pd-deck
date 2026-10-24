@@ -20,6 +20,7 @@ const Ledger = lazy(() => import('@/pages/Ledger'))
 const Settings = lazy(() => import('@/pages/Settings'))
 const Arbitrage = lazy(() => import('@/pages/Arbitrage'))
 const Planets = lazy(() => import('@/pages/Planets'))
+const Couch = lazy(() => import('@/pages/Couch'))
 
 /** Pages behind sign-in share the session check and the app shell. */
 function PrivateLayout() {
@@ -35,6 +36,21 @@ function PrivateLayout() {
         </Suspense>
       </ErrorBoundary>
     </AppShell>
+  )
+}
+
+/** Couch mode: signed in like the rest, but full screen, without the top bar and the menu. */
+function BareLayout() {
+  const { account, restored } = useSession(useShallow((s) => ({ account: s.account, restored: s.restored })))
+  const location = useLocation()
+  if (!restored) return <Loading />
+  if (!account) return <Navigate to={`/?to=${encodeURIComponent(location.pathname.slice(1))}`} replace />
+  return (
+    <ErrorBoundary key={location.pathname}>
+      <Suspense fallback={<Loading />}>
+        <Outlet />
+      </Suspense>
+    </ErrorBoundary>
   )
 }
 
@@ -68,6 +84,9 @@ export function App() {
               <Route path="/settings" element={<Settings />} />
               <Route path="/arbitrage" element={<Arbitrage />} />
               <Route path="/planets" element={<Planets />} />
+            </Route>
+            <Route element={<BareLayout />}>
+              <Route path="/couch" element={<Couch />} />
             </Route>
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
