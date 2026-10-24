@@ -48,7 +48,7 @@ export function LoopWidget() {
   async function onClick() {
     if (!plan) return
     if (spectating) return
-    await runSequence(plan.parts, 'loop-all')
+    await runSequence(plan.parts, 'loop-all', `Looping ${ready} division${ready === 1 ? '' : 's'}`)
     void refreshPlayer(account)
   }
 

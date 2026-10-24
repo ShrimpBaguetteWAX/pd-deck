@@ -121,3 +121,83 @@
     animation: toast-fade 0.2s ease-out;
   }
 }
+
+/* ---- The live toast: one for a whole run of transactions ---- */
+.toast--live {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 12px 14px;
+  cursor: default;
+  animation: toast-in 0.38s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+
+.toast--live.toast--success,
+.toast--live.toast--error {
+  cursor: pointer;
+}
+
+.toast__live-top {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.toast__live-top b {
+  font-family: var(--font-display);
+  font-size: 14px;
+}
+
+.toast__live-top span {
+  margin-left: auto;
+  color: var(--text-dim);
+  font-size: 12px;
+}
+
+.toast__segs {
+  display: flex;
+  gap: 3px;
+}
+
+.toast__segs i {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.1);
+  transition: background 0.15s;
+}
+
+.toast__segs i.is-busy {
+  background: linear-gradient(90deg, var(--cyan), rgba(0, 212, 255, 0.25));
+  background-size: 200% 100%;
+  animation: toast-seg 0.8s linear infinite;
+}
+
+.toast__segs i.is-ok {
+  background: var(--green);
+}
+
+.toast__segs i.is-bad {
+  background: var(--red);
+}
+
+.toast__line {
+  color: var(--text-dim);
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+@keyframes toast-seg {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -100% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast__segs i.is-busy {
+    animation: none;
+  }
+}

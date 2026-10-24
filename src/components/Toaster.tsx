@@ -1,6 +1,6 @@
 import { useEffect, useState, type CSSProperties } from 'react'
 
-import { TOAST_MS, useToasts } from './toast'
+import { TOAST_MS, useToasts, type LiveToast } from './toast'
 
 import './Toaster.css'
 
@@ -32,11 +32,16 @@ function useToastTop(count: number) {
 
 export function Toaster() {
   const toasts = useToasts((s) => s.toasts)
+  const live = useToasts((s) => s.live)
   const dismiss = useToasts((s) => s.dismiss)
-  const top = useToastTop(toasts.length)
+  const close = useToasts((s) => s.close)
+  const top = useToastTop(toasts.length + live.length)
 
   return (
     <div className="toaster" role="status" aria-live="polite" style={top === undefined ? undefined : { top }}>
+      {live.map((t) => (
+        <Live key={t.id} t={t} onClose={() => close(t.id)} />
+      ))}
       {toasts.map((t) => (
         <button
           key={t.id}
@@ -52,5 +57,32 @@ export function Toaster() {
         </button>
       ))}
     </div>
+  )
+}
+
+/** One toast for a run of transactions: a segment per step, what just happened, the summary at the end. */
+function Live({ t, onClose }: { t: LiveToast; onClose: () => void }) {
+  const landed = t.steps.filter((x) => x === 'ok').length
+  const kind = t.state === 'failed' ? 'error' : t.state === 'done' ? 'success' : 'info'
+  return (
+    <button
+      type="button"
+      className={`toast toast--${kind} toast--live`}
+      onClick={t.state === 'running' ? undefined : onClose}
+      aria-label={`${t.title}: ${t.line}`}
+    >
+      <span className="toast__live-top">
+        <b>{t.title}</b>
+        <span className="num">
+          {landed} of {t.steps.length}
+        </span>
+      </span>
+      <span className="toast__segs" aria-hidden>
+        {t.steps.map((x, i) => (
+          <i key={i} className={`is-${x}`} />
+        ))}
+      </span>
+      {t.line && <span className="toast__line">{t.line}</span>}
+    </button>
   )
 }

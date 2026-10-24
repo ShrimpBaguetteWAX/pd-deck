@@ -3,7 +3,7 @@ import type { AnyAction } from '@wharfkit/session'
 import { useShallow } from 'zustand/react/shallow'
 
 import { regPlayer } from '@/chain/actions/pd'
-import { toast } from '@/components/toast'
+import { liveToast, toast } from '@/components/toast'
 import { refreshPlayer, usePlayer } from '@/data/game'
 import { sleep } from '@/lib/format'
 import { useSession } from '@/state/session'
@@ -73,7 +73,15 @@ export function useTransaction() {
    * transactions that have nothing to do with the game, such as an Alcor swap).
    * onSigned: called with the transaction id once each transaction is accepted.
    */
-  type Options = { split?: boolean; refresh?: boolean; register?: boolean; onSigned?: (trxId: string) => void }
+  type Options = {
+    split?: boolean
+    refresh?: boolean
+    register?: boolean
+    onSigned?: (trxId: string) => void
+    /** Inside a live toast: no toasts of its own; a failure is handed to onFail instead. */
+    quiet?: boolean
+    onFail?: (message: string, cancelled: boolean) => void
+  }
 
   /** Resolves true once signed and refreshed, false when cancelled, refused or failed. */
   async function run(build: Build, success: string, key = 'tx', opts: Options = {}): Promise<boolean> {
@@ -120,7 +128,7 @@ export function useTransaction() {
           return false
         }
       }
-      if (success) toast.success(success)
+      if (success && !opts.quiet) toast.success(success)
       if (opts.refresh !== false) {
         await sleep(CATCH_UP_MS)
         await refreshPlayer(account)
@@ -128,7 +136,9 @@ export function useTransaction() {
       }
       return true
     } catch (err) {
-      if (!isUserCancel(err)) toast.error(formatTransactError(err))
+      const cancelled = isUserCancel(err)
+      if (opts.quiet) opts.onFail?.(cancelled ? 'Cancelled in the wallet' : formatTransactError(err), cancelled)
+      else if (!cancelled) toast.error(formatTransactError(err))
       return false
     }
   }
@@ -141,8 +151,11 @@ export function useTransaction() {
    * itself. The player's data is read again only once, at the end (the parts are built from the
    * state before the first one, and the wallet broadcasts them all through one node, so a later
    * part sees what an earlier one did).
+   *
+   * Two or more transactions report in one live toast (a segment each, what just landed, a
+   * summary at the end) instead of a toast per transaction; `title` heads it.
    */
-  async function runSequence(parts: { build: Build; success: string }[], key = 'tx'): Promise<number> {
+  async function runSequence(parts: { build: Build; success: string }[], key = 'tx', title?: string): Promise<number> {
     if (!account) return 0
     if (spectating) {
       toast.info('You are viewing this account read-only. Sign in with your wallet to act.')
@@ -150,25 +163,33 @@ export function useTransaction() {
     }
     setPending(key)
     try {
-      for (let i = 0; i < parts.length; i++) {
-        const last = i === parts.length - 1
+      if (parts.length === 1) return (await runOne(account, parts[0].build, parts[0].success, {})) ? 1 : 0
+      const n = parts.length
+      const live = liveToast(title ?? `${n} transactions`, n)
+      for (let i = 0; i < n; i++) {
+        const last = i === n - 1
         if (i > 0) await pause()
-        if (parts.length > 1) toast.info(`Transaction ${i + 1} of ${parts.length}: ${parts[i].success}.${signPrompt()}`)
-        const ok = await runOne(
-          account,
-          parts[i].build,
-          parts.length > 1 ? `${i + 1} of ${parts.length}: ${parts[i].success}` : parts[i].success,
-          { refresh: last }
-        )
+        live.busy(i, `${parts[i].success}…${signPrompt()}`)
+        let failure: { message: string; cancelled: boolean } | null = null
+        const ok = await runOne(account, parts[i].build, parts[i].success, {
+          refresh: last,
+          quiet: true,
+          onFail: (message, cancelled) => (failure = { message, cancelled })
+        })
         if (!ok) {
-          if (i > 0) {
-            toast.error(`Stopped at transaction ${i + 1} of ${parts.length}. The first ${i} went through.`)
-            void refreshPlayer(account)
-          }
+          const f = failure as { message: string; cancelled: boolean } | null
+          live.fail(
+            i,
+            f?.cancelled ? `Stopped at ${i + 1} of ${n}` : `Transaction ${i + 1} of ${n} failed`,
+            `${f && !f.cancelled ? `${f.message}. ` : ''}${i ? `The first ${i} went through.` : 'Nothing went through.'}`
+          )
+          if (i > 0) void refreshPlayer(account)
           return i
         }
+        live.ok(i, parts[i].success)
       }
-      return parts.length
+      live.done(`${title ?? 'Transactions'}: done`, `All ${n} went through. ${parts[n - 1].success}.`)
+      return n
     } finally {
       setPending(null)
     }

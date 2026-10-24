@@ -77,7 +77,8 @@ export default function Deployments() {
       'claim-all'
     )
 
-  const redeployAll = () => runSequence(loopAll.parts, 'loop-all')
+  const redeployAll = () =>
+    runSequence(loopAll.parts, 'loop-all', `Looping ${loopable.length} division${loopable.length === 1 ? '' : 's'}`)
 
   const nextReturn = running[0]?.unlockAt
 

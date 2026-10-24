@@ -1011,7 +1011,8 @@ function DeployPanel({
         build: actionsFor(x, i === 0 ? deposit : 0),
         success: `Division #${x.division.id} joined ${titleCase(s.planet)}`
       })),
-      'siege-all'
+      'siege-all',
+      `Sending ${chosen.length} divisions to ${titleCase(s.planet)}`
     )
     void refreshSieges(tx.account)
   }

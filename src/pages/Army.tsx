@@ -1257,7 +1257,8 @@ function StakeModal({ account, mode, onClose }: { account: string | null; mode: 
         build: (a: string, p: string) => b.map((id) => unstakeAsset(a, p, id)),
         success: `${b.length} NFT${b.length === 1 ? '' : 's'} returned to your wallet`
       })),
-      'stake'
+      'stake',
+      'Unstaking'
     )
     if (done === batches.length) onClose()
   }

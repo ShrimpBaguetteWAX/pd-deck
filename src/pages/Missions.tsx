@@ -663,7 +663,8 @@ export default function Missions() {
                 ],
                 success: `#${d.id} sent to ${deploying.title}`
               })),
-              'deploy'
+              'deploy',
+              `Deploying ${chosen.length} divisions to ${deploying.title}`
             )
             if (done === chosen.length) setDeploying(null)
           }}
