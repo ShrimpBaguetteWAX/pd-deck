@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
 
-import { CONTRACTS } from '@/chain/config'
 import { getActionsPage, HISTORY_PAGE, timesRun, type HistoryAction } from '@/chain/history'
 import { getRows } from '@/chain/rpc'
 import { parseAsset } from '@/lib/format'
-import { dayKey, dayOf, FLOW_ACCOUNTS, nextDay, REWARD_POOL, type FlowTransfer } from '@/lib/flow'
+import { dayKey, dayOf, FLOW_ACCOUNTS, FLOW_TOKENS, nextDay, REWARD_POOL, type FlowToken, type FlowTransfer } from '@/lib/flow'
 
 /*
- * The TLM flow's data: every TLM transfer of the PD contracts over the days asked for. History is
+ * The token flow's data: every transfer of one token (TLM or DEF) of the PD contracts over the days asked for. History is
  * read gently: one request at a time with a pause between them (the history nodes rate-limit),
  * a page of 1 000 transfers each, walking forward in time. Finished days are kept in this browser
  * (IndexedDB), so a second visit only reads today and whatever is missing.
@@ -64,10 +63,10 @@ const memory = new Map<string, FlowTransfer[]>()
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 const iso = (t: number) => new Date(t).toISOString()
 
-function toTransfer(a: HistoryAction): FlowTransfer | null {
+function toTransfer(a: HistoryAction, symbol: string): FlowTransfer | null {
   const d = a.act.data
   const q = parseAsset(String(d.quantity ?? ''))
-  if (q.symbol !== 'TLM' || !(q.amount > 0)) return null
+  if (q.symbol !== symbol || !(q.amount > 0)) return null
   const times = timesRun(a)
   const t = Date.parse(a['@timestamp'].endsWith('Z') ? a['@timestamp'] : `${a['@timestamp']}Z`)
   return {
@@ -93,6 +92,7 @@ export interface FlowProgress {
  * reports how far it got; `alive` stops it when the page has moved on.
  */
 async function readSpan(
+  token: FlowToken,
   from: number,
   to: number,
   onProgress: (share: number, label: string) => void,
@@ -106,14 +106,14 @@ async function readSpan(
     for (;;) {
       if (!alive()) return out
       const page = await getActionsPage(account, {
-        filter: `${CONTRACTS.TLM}:transfer`,
+        filter: `${FLOW_TOKENS[token].contract}:transfer`,
         after: iso(cursor),
         before: iso(to)
       })
       await sleep(GAP_MS)
       let last = cursor
       for (const a of page) {
-        const x = toTransfer(a)
+        const x = toTransfer(a, FLOW_TOKENS[token].symbol)
         const t = Date.parse(a['@timestamp'].endsWith('Z') ? a['@timestamp'] : `${a['@timestamp']}Z`)
         if (t > last) last = t
         if (!x || seen.has(x.gs)) continue
@@ -134,11 +134,12 @@ async function readSpan(
   return out
 }
 
-/** The reward pool's TLM balance now. */
-async function poolBalance(): Promise<number | null> {
+/** The reward pool's balance of the token now. */
+async function poolBalance(token: FlowToken): Promise<number | null> {
   try {
-    const rows = await getRows<{ balance: string }>({ code: CONTRACTS.TLM, table: 'accounts', scope: REWARD_POOL })
-    const hit = rows.map((r) => parseAsset(r.balance)).find((a) => a.symbol === 'TLM')
+    const t = FLOW_TOKENS[token]
+    const rows = await getRows<{ balance: string }>({ code: t.contract, table: 'accounts', scope: REWARD_POOL })
+    const hit = rows.map((r) => parseAsset(r.balance)).find((a) => a.symbol === t.symbol)
     return hit?.amount ?? 0
   } catch {
     return null
@@ -156,10 +157,10 @@ export interface FlowData {
 }
 
 /**
- * Every TLM transfer of the PD contracts from `from` to now. Kept and finished days come from the
+ * Every transfer of the token by the PD contracts from `from` to now. Kept and finished days come from the
  * browser; the rest is read, gently, with progress reported as it goes.
  */
-export function useFlowData(from: number, round: number): FlowData {
+export function useFlowData(token: FlowToken, from: number, round: number): FlowData {
   const [state, setState] = useState<FlowData>({ transfers: [], poolNow: null, loading: true, progress: null, error: null, from })
   useEffect(() => {
     let live = true
@@ -171,8 +172,9 @@ export function useFlowData(from: number, round: number): FlowData {
       for (let d = dayOf(from); d <= now; d = nextDay(d)) days.push(d)
       // What is kept, then the spans still to read (today is always read again).
       const have = new Map<string, FlowTransfer[]>()
+      const keyOf = (t: number) => (token === 'TLM' ? dayKey(t) : `${token}:${dayKey(t)}`)
       for (const d of days) {
-        const k = dayKey(d)
+        const k = keyOf(d)
         const finished = nextDay(d) + SETTLE_MS < now
         if (!finished || round > 0) continue
         const m = memory.get(k) ?? (await readDay(k))
@@ -183,7 +185,7 @@ export function useFlowData(from: number, round: number): FlowData {
       }
       const spans: [number, number][] = []
       for (const d of days) {
-        if (have.has(dayKey(d))) continue
+        if (have.has(keyOf(d))) continue
         const last = spans.at(-1)
         if (last && last[1] === d) last[1] = nextDay(d)
         else spans.push([d, nextDay(d)])
@@ -195,6 +197,7 @@ export function useFlowData(from: number, round: number): FlowData {
         for (const [a, b] of spans) {
           const end = Math.min(b, now)
           const got = await readSpan(
+            token,
             a,
             end,
             (share, label) =>
@@ -210,12 +213,12 @@ export function useFlowData(from: number, round: number): FlowData {
           doneMs += b - a
           // Keep the finished days of this span.
           const byDay = new Map<string, FlowTransfer[]>()
-          for (let d = a; d < b; d = nextDay(d)) if (nextDay(d) + SETTLE_MS < now) byDay.set(dayKey(d), [])
-          for (const x of got) byDay.get(dayKey(x.t))?.push(x)
+          for (let d = a; d < b; d = nextDay(d)) if (nextDay(d) + SETTLE_MS < now) byDay.set(keyOf(d), [])
+          for (const x of got) byDay.get(keyOf(x.t))?.push(x)
           for (const [k, v] of byDay) memory.set(k, v)
           void writeDays(byDay)
         }
-        const poolNow = await poolBalance()
+        const poolNow = await poolBalance(token)
         if (!alive()) return
         const transfers = [...[...have.values()].flat(), ...fresh].sort((x, y) => x.t - y.t)
         setState({ transfers, poolNow, loading: false, progress: null, error: null, from })
@@ -227,7 +230,7 @@ export function useFlowData(from: number, round: number): FlowData {
     return () => {
       live = false
     }
-  }, [from, round])
+  }, [token, from, round])
 
   return state
 }

@@ -37,7 +37,7 @@ const NAV = [
   { to: '/blend', label: 'Blend', icon: SparkIcon },
   { to: '/swap', label: 'Swap', icon: SwapIcon },
   { to: '/ledger', label: 'Ledger', icon: LedgerIcon },
-  { to: '/flow', label: 'TLM flow', icon: FlowIcon },
+  { to: '/flow', label: 'Token flow', icon: FlowIcon },
   { to: '/settings', label: 'Settings', icon: GearIcon }
 ]
 

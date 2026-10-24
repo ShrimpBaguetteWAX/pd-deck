@@ -86,6 +86,7 @@ export function App() {
               <Route path="/arbitrage" element={<Arbitrage />} />
               <Route path="/planets" element={<Planets />} />
               <Route path="/flow" element={<Flow />} />
+              <Route path="/flow/:token" element={<Flow />} />
             </Route>
             <Route element={<BareLayout />}>
               <Route path="/couch" element={<Couch />} />

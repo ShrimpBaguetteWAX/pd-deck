@@ -1,10 +1,17 @@
 /*
- * The TLM flow of the Planetary Defense contracts: every TLM transfer touching one of them, sorted
+ * The token flow of the Planetary Defense contracts (TLM or DEF): every transfer touching one of them, sorted
  * into money coming in from outside, money going out, and transfers between PD's own contracts
  * (internal, kept out of the in and out lines so nothing counts twice).
  */
 
-/** One TLM transfer, as stored: amounts already multiplied by how often it really ran. */
+/** The tokens the page follows, and the contract each lives on (defensetoken also mints DEF). */
+export const FLOW_TOKENS = {
+  TLM: { symbol: 'TLM', contract: 'alien.worlds', digits: 0 },
+  DEF: { symbol: 'DEF', contract: 'defensetoken', digits: 2 }
+} as const
+export type FlowToken = keyof typeof FLOW_TOKENS
+
+/** One transfer, as stored: amounts already multiplied by how often it really ran. */
 export interface FlowTransfer {
   /** ms */
   t: number
@@ -41,6 +48,9 @@ export const CATEGORIES: FlowCategory[] = [
   { id: 'deposit', name: 'Game balance deposits', dir: 'in', color: 'var(--fl-in)' },
   { id: 'entry', name: 'Entry fees paid directly', dir: 'in', color: 'var(--fl-s3)' },
   { id: 'forge', name: 'Forge levels', dir: 'in', color: 'var(--fl-s4)' },
+  { id: 'slot', name: 'Forge slots', dir: 'in', color: 'var(--fl-s4)' },
+  { id: 'siege-fund', name: 'Campaign funding', dir: 'in', color: 'var(--fl-s6)' },
+  { id: 'mint', name: 'Newly minted', dir: 'in', color: 'var(--fl-in)' },
   { id: 'fund', name: 'Reward pool top-ups', dir: 'in', color: 'var(--fl-s5)' },
   { id: 'siege-in', name: 'Campaign entries', dir: 'in', color: 'var(--fl-s6)' },
   { id: 'other-in', name: 'Other', dir: 'in', color: 'var(--fl-s7)' },
@@ -79,17 +89,23 @@ export function classify(x: FlowTransfer, o: FlowOptions): Classified | null {
   if (toIn) {
     const c = x.to
     const category =
-      c === 'core.pdef' && memo === 'deposit'
-        ? 'deposit'
-        : c === 'miss.pdef' && memo.startsWith('entry:')
-          ? 'entry'
-          : c === 'miss.pdef' && memo.includes('reward')
-            ? 'fund'
-            : c === 'forge.pdef' && memo.startsWith('forge:')
-              ? 'forge'
-              : c === 'siege.pdef' && memo.startsWith('join:')
-                ? 'siege-in'
-                : 'other-in'
+      x.from === FLOW_TOKENS.DEF.contract
+        ? 'mint'
+        : c === 'core.pdef' && memo === 'deposit'
+          ? 'deposit'
+          : c === 'miss.pdef' && memo.startsWith('entry:')
+            ? 'entry'
+            : c === 'miss.pdef' && memo.includes('reward')
+              ? 'fund'
+              : c === 'forge.pdef' && memo.startsWith('forge:')
+                ? 'forge'
+                : c === 'forge.pdef' && memo.startsWith('shop:')
+                  ? 'slot'
+                  : c === 'siege.pdef' && memo.startsWith('join:')
+                    ? 'siege-in'
+                    : c === 'siege.pdef' && memo.startsWith('unlock:')
+                      ? 'siege-fund'
+                      : 'other-in'
     return { dir: 'in', category, contract: c, account: x.from }
   }
   if (fromIn) {

@@ -1,4 +1,5 @@
 import { useMemo, useState, type MouseEvent } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 
 import { useFlowData } from '@/data/flowStore'
 import {
@@ -7,23 +8,30 @@ import {
   CATEGORIES,
   CATEGORY_BY_ID,
   dayOf,
+  FLOW_TOKENS,
   nextDay,
   PD_CONTRACTS,
   rowsIn,
   type Bucket,
+  type FlowToken,
   type FlowRow
 } from '@/lib/flow'
 
 import './Flow.css'
 
 /*
- * TLM flow: all TLM going into and out of the Planetary Defense contracts over time, one line each,
+ * Token flow: all TLM (or DEF) going into and out of the Planetary Defense contracts over time, one line each,
  * what is left in the reward pool, a breakdown of the whole timeframe (or a picked day), and the raw
  * transfers. The history behind it is read slowly with a loading bar (see flowStore).
  */
 
 const DAY = 86400000
-const fmt = (n: number) => Math.round(n).toLocaleString('en-US')
+/**
+ * The token shown: set at the top of every render of the page, before its charts render, so the
+ * small helpers below format in its unit (TLM in whole tokens, DEF with two decimals).
+ */
+let unit: { symbol: string; digits: number } = FLOW_TOKENS.TLM
+const fmt = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: unit.digits, maximumFractionDigits: unit.digits })
 const short = (n: number) =>
   Math.abs(n) >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : Math.abs(n) >= 1e3 ? `${Math.round(n / 1e3)}k` : `${Math.round(n)}`
 const dayName = (t: number) => new Date(t).toLocaleDateString('en-GB', { day: 'numeric', month: 'short' })
@@ -102,7 +110,7 @@ function InOutChart({
       ))
   return (
     <div className="fl-chart">
-      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`TLM in and out per ${gran}`}>
+      <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={`${unit.symbol} in and out per ${gran}`}>
         <g className="fl-axis">
           {[0, 1, 2, 3, 4].map((k) => (
             <g key={k}>
@@ -171,7 +179,7 @@ function NetBars({ bs, pick, gran }: { bs: Bucket[]; pick: number | null; gran: 
   const bw = (W - P.l - P.r) / bs.length
   const y = (v: number) => 10 + (1 - (v + max) / (2 * max)) * (h - 20)
   return (
-    <svg viewBox={`0 0 ${W} ${h}`} role="img" aria-label={`Net TLM per ${gran}`} className="fl-net">
+    <svg viewBox={`0 0 ${W} ${h}`} role="img" aria-label={`Net ${unit.symbol} per ${gran}`} className="fl-net">
       <g className="fl-axis">
         <line className="fl-zero" x1={P.l} x2={W - P.r} y1={y(0)} y2={y(0)} />
         <text x={P.l - 8} y={y(max) + 3.5} textAnchor="end">
@@ -200,7 +208,7 @@ function NetBars({ bs, pick, gran }: { bs: Bucket[]; pick: number | null; gran: 
             className={v >= 0 ? 'is-in' : 'is-out'}
             opacity={b.t === pick ? 1 : 0.75}
           >
-            <title>{`${dayName(b.t)}: ${v >= 0 ? '+' : '−'}${fmt(Math.abs(v))} TLM`}</title>
+            <title>{`${dayName(b.t)}: ${v >= 0 ? '+' : '−'}${fmt(Math.abs(v))} ${unit.symbol}`}</title>
           </rect>
         )
       })}
@@ -219,7 +227,7 @@ function PoolChart({ bs }: { bs: Bucket[] }) {
   const last = bs.length - 1
   return (
     <div className="fl-chart">
-      <svg viewBox={`0 0 ${W} ${h}`} role="img" aria-label="TLM left for player rewards">
+      <svg viewBox={`0 0 ${W} ${h}`} role="img" aria-label={`${unit.symbol} left for player rewards`}>
         <defs>
           <linearGradient id="fl-pool" x1="0" x2="0" y1="0" y2="1">
             <stop offset="0" stopColor="#199e70" stopOpacity=".28" />
@@ -299,6 +307,11 @@ function Bars({ by, dir }: { by: Record<string, number>; dir: 'in' | 'out' }) {
 }
 
 export default function Flow() {
+  const navigate = useNavigate()
+  const param = useParams().token?.toUpperCase()
+  const token: FlowToken = param === 'DEF' ? 'DEF' : 'TLM'
+  unit = FLOW_TOKENS[token]
+  const sym = unit.symbol
   const today = dayOf(Date.now())
   const [range, setRange] = useState<Range>(7)
   const [custom, setCustom] = useState({ from: today - 13 * DAY, to: today })
@@ -318,7 +331,7 @@ export default function Flow() {
 
   const from = range === 'custom' ? Math.min(custom.from, custom.to) : today - (range - 1) * DAY
   const to = range === 'custom' ? Math.max(custom.from, custom.to) : today
-  const data = useFlowData(from, round)
+  const data = useFlowData(token, from, round)
   const gran = week ? 'week' : 'day'
   const opts = { contracts, aliensInside, showInternal, account }
 
@@ -419,11 +432,29 @@ export default function Flow() {
   return (
     <div className="page flow">
       <header className="fl-intro">
-        <h1>TLM flow</h1>
+        <div className="fl-title">
+          <h1>{sym} flow</h1>
+          <div className="segmented" role="group" aria-label="Token">
+            {(['TLM', 'DEF'] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                className={token === t ? 'is-active' : ''}
+                onClick={() => {
+                  setPick(null)
+                  setPage(0)
+                  navigate(t === 'TLM' ? '/flow' : '/flow/def')
+                }}
+              >
+                {t}
+              </button>
+            ))}
+          </div>
+        </div>
         <p>
-          All TLM going into and out of the Planetary Defense contracts, one line each. Transfers between PD&apos;s own contracts
-          are left out, so nothing counts twice. The breakdown and the raw transfers cover the whole timeframe; tap a day on the
-          chart to look at just that day.
+          All {sym} going into and out of the Planetary Defense contracts, one line each. Transfers between PD&apos;s own
+          contracts are left out, so nothing counts twice. The breakdown and the raw transfers cover the whole timeframe; tap a
+          day on the chart to look at just that day.
         </p>
       </header>
 
@@ -545,9 +576,11 @@ export default function Flow() {
             <div className="panel fl-fig">
               <span className="eyebrow">
                 <span className="fl-sw is-in" />
-                TLM in
+                {sym} in
               </span>
-              <b className="num">{fmt(inT)} TLM</b>
+              <b className="num">
+                {fmt(inT)} {sym}
+              </b>
               <small>
                 ≈ {fmt(inT / nDays)} a day over {nDays} days
               </small>
@@ -555,9 +588,11 @@ export default function Flow() {
             <div className="panel fl-fig">
               <span className="eyebrow">
                 <span className="fl-sw is-out" />
-                TLM out
+                {sym} out
               </span>
-              <b className="num">{fmt(outT)} TLM</b>
+              <b className="num">
+                {fmt(outT)} {sym}
+              </b>
               <small>
                 ≈ {fmt(outT / nDays)} a day over {nDays} days
               </small>
@@ -566,7 +601,7 @@ export default function Flow() {
               <span className="eyebrow">Net</span>
               <b className="num">
                 {inT - outT >= 0 ? '+' : '−'}
-                {fmt(Math.abs(inT - outT))} TLM
+                {fmt(Math.abs(inT - outT))} {sym}
               </b>
               <small>{inT >= outT ? 'More came in than went out' : 'More went out than came in'}</small>
             </div>
@@ -623,7 +658,7 @@ export default function Flow() {
                 </span>
               </div>
               <p className="fl-sub">
-                What the mission contract holds to pay rewards from, at the end of each {gran}: {fmt(data.poolNow)} TLM now. It
+                What the mission contract holds to pay rewards from, at the end of each {gran}: {fmt(data.poolNow)} {sym} now. It
                 grows with entry fees and top-ups and shrinks with every reward paid.
               </p>
               <PoolChart bs={bs} />
@@ -696,7 +731,9 @@ export default function Flow() {
                             {a}
                           </button>
                         </td>
-                        <td className="num">{fmt(v)} TLM</td>
+                        <td className="num">
+                          {fmt(v)} {sym}
+                        </td>
                       </tr>
                     ))}
                     {!topAccounts.length && (
@@ -758,7 +795,7 @@ export default function Flow() {
                     <th>Account</th>
                     <th className="r">
                       <button type="button" onClick={() => setSort((s) => ({ k: 'a', d: s.k === 'a' ? (-s.d as 1 | -1) : -1 }))}>
-                        TLM {sort.k === 'a' ? (sort.d < 0 ? '▾' : '▴') : ''}
+                        {sym} {sort.k === 'a' ? (sort.d < 0 ? '▾' : '▴') : ''}
                       </button>
                     </th>
                     <th>Memo</th>
@@ -804,7 +841,7 @@ export default function Flow() {
             </div>
             <div className="fl-pager">
               <span className="faint">
-                {fmt(raw.length)} transfers · page {pageNow + 1} of {pages}
+                {raw.length.toLocaleString('en-US')} transfers · page {pageNow + 1} of {pages}
               </span>
               <span>
                 <button type="button" className="fl-btn" disabled={pageNow === 0} onClick={() => setPage(pageNow - 1)}>
@@ -819,9 +856,10 @@ export default function Flow() {
 
           <section className="fl-notes faint">
             <span>
-              <b>In</b>: TLM sent to a PD contract from outside (game balance deposits, entry fees paid directly, Forge levels,
-              reward pool top-ups, campaign entries). <b>Out</b>: TLM a PD contract sends outside (mission rewards, balance
-              withdrawals, campaign payouts). Claims batched in one transaction count once per claim.
+              <b>In</b>: {sym} sent to a PD contract from outside (game balance deposits, entry fees paid directly, Forge levels
+              and slots, reward pool top-ups, campaign entries and funding
+              {token === 'DEF' ? ', newly minted DEF from defensetoken' : ''}). <b>Out</b>: {sym} a PD contract sends outside
+              (mission rewards, balance withdrawals, campaign payouts). Claims batched in one transaction count once per claim.
             </span>
             <span>
               Data from the WAX history nodes.{' '}
