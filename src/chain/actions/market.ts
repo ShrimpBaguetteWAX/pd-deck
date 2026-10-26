@@ -5,6 +5,9 @@ import { CONTRACTS } from '@/chain/config'
 /** The AtomicMarket contract every listing lives on. */
 export const ATOMICMARKET = 'atomicmarket'
 
+/** The marketplace named on every purchase (registered on AtomicMarket; it receives the buying side's marketplace cut). */
+export const BUY_MARKETPLACE = 'shop.ale'
+
 export interface SaleToBuy {
   saleId: string
   assetId: string
@@ -50,7 +53,7 @@ export function buySalesActions(account: string, permission: string, sales: Sale
       account: ATOMICMARKET,
       name: 'purchasesale',
       authorization: auth,
-      data: { buyer: account, sale_id: s.saleId, intended_delphi_median: 0, taker_marketplace: '' }
+      data: { buyer: account, sale_id: s.saleId, intended_delphi_median: 0, taker_marketplace: BUY_MARKETPLACE }
     }))
   ]
 }
