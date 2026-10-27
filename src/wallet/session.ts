@@ -4,6 +4,7 @@ import { APP_NAME, CHAIN_ID } from '@/chain/config'
 import { endpointPool } from '@/chain/endpoints'
 
 import { AUTO_SIGN_PERMISSION, savedActions, whitelistOf } from './autoSign'
+import { isAuthorityError, signsWithKey, syncAutoSign as matchChain, walletOnly } from './autoSignSync'
 
 let kit: Promise<SessionKit> | null = null
 let current: Session | undefined
@@ -81,6 +82,8 @@ export async function restoreSession(): Promise<Session | undefined> {
   } catch {
     current = undefined
   }
+  // Auto-sign may have been changed or turned off in another browser: let the chain decide.
+  if (current) void matchChain(current)
   return current
 }
 
@@ -145,8 +148,20 @@ export async function transact(actions: AnyAction[]): Promise<string> {
   if (!canMine(walletId()) && actions.some((a) => String(a.account) === 'm.federation' && String(a.name) === 'mine')) {
     throw new Error(MINING_BLOCKED_MESSAGE)
   }
-  const result = await session.transact({ actions }, { broadcast: true, expireSeconds: 120 })
-  return String(result.resolved?.transaction.id ?? '')
+  const opts = { broadcast: true, expireSeconds: 120 }
+  const keyed = signsWithKey(session, actions)
+  try {
+    const result = await session.transact({ actions }, opts)
+    return String(result.resolved?.transaction.id ?? '')
+  } catch (err) {
+    // This browser's key was turned down: taken away in another browser, or the action unlinked
+    // there. Bring this browser in line with the chain and send the same transaction once more
+    // through the wallet.
+    if (!keyed || !isAuthorityError(err)) throw err
+    await matchChain(session)
+    const result = await (await walletOnly(session)).transact({ actions }, opts)
+    return String(result.resolved?.transaction.id ?? '')
+  }
 }
 
 // ---- Auto-signing (WharfKit session keys) ----------------------------------------------------------
@@ -187,6 +202,8 @@ export interface AutoSignStatus {
 /** Whether auto-signing is on for the signed-in account, and in step with the actions picked here. */
 export async function autoSignStatus(): Promise<AutoSignStatus> {
   const session = await currentSession()
+  // What another browser changed shows here as it is on the chain.
+  await matchChain(session)
   const status = await session.getSessionKeyStatus()
   return { state: status.state, publicKey: status.publicKey }
 }

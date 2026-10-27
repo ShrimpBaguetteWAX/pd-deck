@@ -41,6 +41,10 @@ export default function Settings() {
     if (!canSign) return
     try {
       setStatus(await autoSignStatus())
+      // The status read brings the actions in line with the chain (another device may have changed them).
+      const now = savedActions()
+      setPicked(now)
+      setSaved(now)
     } catch {
       setStatus(null)
     }
