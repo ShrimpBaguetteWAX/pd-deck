@@ -14,9 +14,9 @@ import {
   type Deployment
 } from '@/data/game'
 import { coveredBy, walletCosts, walletPart } from '@/lib/deposit'
-import { missionEconomics, type MissionEconomics } from '@/lib/loop'
+import { missionEconomics, planLoops, type MissionEconomics, type PlanLine } from '@/lib/loop'
 import { fundEntries, quoteFunding, sellDefAction, tlmForDef } from '@/lib/market'
-import { useClockFor } from '@/lib/time'
+import { chainDate, useClockFor } from '@/lib/time'
 
 /*
  * The claim-and-redeploy loop, shared by the Deployments page and the top bar's loop button:
@@ -70,6 +70,22 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
   const loopable = ready.filter((d) => econ.get(d.missionId)?.state === 'active')
   const nextReturnAt = running.length ? Math.min(...running.map((d) => d.unlockAt)) : null
   const wallet = player.data ? { tlm: player.data.tlm, def: player.data.def } : null
+
+  /**
+   * Divisions with units that are neither on a mission nor locked, each with the TLM loop that pays
+   * the most per hour (`line`); a division no open mission pays TLM for has none.
+   */
+  const idle = useMemo(() => {
+    // Until the deployments are in, no division counts as idle (they might all be out).
+    if (!deployments.data) return []
+    const out = new Set(deployments.data.map((d) => d.divisionId))
+    const free = (army.data?.divisions ?? [])
+      .filter((d) => d.units.length > 0 && !out.has(d.id) && !(d.lock && +chainDate(d.lock.locked_until) > now))
+      // A lock that has run out no longer holds the division back.
+      .map((d) => (d.lock ? { ...d, lock: null } : d))
+    const lines = new Map(planLoops(free, [...econ.values()], market).map((l) => [l.division.id, l]))
+    return free.map((division) => ({ division, line: lines.get(division.id) ?? null }))
+  }, [army.data, deployments.data, now, econ, market])
 
   /**
    * Claims `claims` and sends `redeploy` back out. The claims, the DEF purchase and the cash-out
@@ -128,6 +144,29 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
     return { parts, build: parts[0].build, funding, fromDeposit, surplusDef, sold, earnedTlm, earnedDef }
   }
 
+  /**
+   * Sends idle divisions out, each to its own mission: one transaction per division (the contract
+   * takes one join each), the first also buying the DEF all the entries need.
+   */
+  function deploy(lines: PlanLine[]) {
+    const entries = {
+      tlm: lines.reduce((n, l) => n + l.mission.costTlm, 0),
+      def: lines.reduce((n, l) => n + l.mission.costDef, 0)
+    }
+    const fromDeposit = coveredBy(entries, game.data)
+    const cost = walletPart(entries, fromDeposit)
+    const funding = quoteFunding(market, cost, wallet)
+    const parts: LoopPart[] = lines.map((l, i) => ({
+      build: async (a: string, p: string) => [
+        ...(i === 0 ? fundEntries(a, p, await freshMarket(market), cost, wallet).actions : []),
+        ...deployActions(a, p, l.mission.id, l.division.id, !l.division.fresh, walletCosts(l.mission.costs, fromDeposit))
+      ],
+      success: `#${l.division.id} sent to ${l.mission.title}`,
+      settle: i === 0
+    }))
+    return { parts, funding }
+  }
+
   return {
     loaded: !!deployments.data && !!config.data,
     loading: deployments.isLoading || config.isLoading,
@@ -140,6 +179,8 @@ export function useLoopPlan(account: string | null, cashOut: boolean) {
     econ,
     divisionById,
     market,
-    cycle
+    idle,
+    cycle,
+    deploy
   }
 }
