@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 
+import { useToasts } from '@/components/toast'
 import { refreshToday, useTodayEarnings } from '@/data/today'
 import { CHIME_FOR, chimeNow, useChimeSchedule, useChimeSetting, type ChimeEvent } from '@/lib/chime'
 import { formatNumber } from '@/lib/format'
@@ -152,6 +153,48 @@ function HoldButton({ label, disabled, onConfirm }: { label: string; disabled?: 
 
 const CORNERS = ['a', 'b', 'c', 'd'] as const
 
+/**
+ * The toasts, docked: while a run of transactions goes (the loop, a march) or a toast is up, one
+ * card takes the tablets' place instead of a toast floating over the screen. The newest run wins,
+ * otherwise the newest toast. A hairline along its foot counts the transactions. A finished or
+ * failed card can be tapped away; a running one cannot.
+ */
+function useDockedToast() {
+  const live = useToasts((s) => s.live)
+  const toasts = useToasts((s) => s.toasts)
+  const close = useToasts((s) => s.close)
+  const dismiss = useToasts((s) => s.dismiss)
+  const setDocked = useToasts((s) => s.setDocked)
+  useEffect(() => {
+    setDocked(true)
+    return () => setDocked(false)
+  }, [setDocked])
+
+  const run = live[live.length - 1]
+  if (run) {
+    return {
+      key: `l${run.id}`,
+      title: run.title,
+      line: run.line,
+      count: `${run.steps.filter((x) => x === 'ok').length} / ${run.steps.length}`,
+      steps: run.steps,
+      tone: run.state === 'failed' ? 'bad' : run.state === 'done' ? 'done' : 'run',
+      onTap: run.state === 'running' ? undefined : () => close(run.id)
+    }
+  }
+  const t = toasts[toasts.length - 1]
+  if (!t) return null
+  return {
+    key: `t${t.id}`,
+    title: t.kind === 'error' ? 'Something went wrong' : t.kind === 'success' ? 'Done' : 'Note',
+    line: t.message,
+    count: '',
+    steps: [t.kind === 'error' ? 'bad' : t.kind === 'success' ? 'ok' : 'busy'],
+    tone: t.kind === 'error' ? 'bad' : t.kind === 'success' ? 'done' : 'run',
+    onTap: () => dismiss(t.id)
+  }
+}
+
 export default function Couch() {
   const navigate = useNavigate()
   const { account, runSequence, pending, spectating } = useTransaction()
@@ -160,6 +203,7 @@ export default function Couch() {
   const m = useMining(now)
   const today = useTodayEarnings(account)
   const [panel, setPanel] = useState<'out' | 'idle' | null>(null)
+  const card = useDockedToast()
   useCouchFonts()
   useWakeLock()
   useTabTitle()
@@ -239,6 +283,18 @@ export default function Couch() {
   const canSend = !!deployFunding?.affordable && !deploying && !spectating && !looping
 
   const backTlm = plan ? plan.earnedTlm : 0
+  // What a division comes back with: its mission's TLM (and DEF, if it pays any).
+  const haul = (missionId: number) => {
+    const e = loop.econ.get(missionId)
+    if (!e) return ''
+    return [
+      e.rewardTlm > 0 ? `+${formatNumber(e.rewardTlm, e.rewardTlm >= 100 ? 0 : 2)} TLM` : '',
+      e.rewardDef > 0 ? `+${formatNumber(e.rewardDef, 2)} DEF` : ''
+    ]
+      .filter(Boolean)
+      .join(' · ')
+  }
+  const comingTlm = [...back, ...out].reduce((n, d) => n + (loop.econ.get(d.missionId)?.rewardTlm ?? 0), 0)
   const mineText = !mineOn ? 'Off' : m.busy ? 'Mining…' : mineReady ? 'Ready' : mineLeft !== null ? clock(mineLeft) : '…'
 
   return (
@@ -285,7 +341,15 @@ export default function Couch() {
           title={sound ? 'Chimes when a mine or a division is ready' : 'No sound'}
           onClick={toggleSound}
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
             <path d="M6 16V11a6 6 0 1 1 12 0v5l1.5 2h-15z" />
             <path d="M10 20a2 2 0 0 0 4 0" />
             <path className="couch__bell-off" d="M4 4l16 16" />
@@ -328,49 +392,82 @@ export default function Couch() {
             className="couch__hit"
             onClick={() => void doLoop()}
             aria-disabled={!canLoop}
-            aria-label={canLoop ? `Loop ${back.length} returned division${back.length === 1 ? '' : 's'}` : 'Loop: nothing back yet'}
+            aria-label={
+              canLoop ? `Loop ${back.length} returned division${back.length === 1 ? '' : 's'}` : 'Loop: nothing back yet'
+            }
           />
         </div>
       </main>
 
       <section className="couch__lower">
-        <div className="couch__tablets">
-          <button type="button" className="couch__tablet" onClick={() => setPanel('out')}>
-            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
-              <path d="M6 26L24 8M24 4v4h4M26 26L8 8M8 4v4H4" />
-              <path d="M4 22l6 6M28 22l-6 6" opacity=".7" />
-            </svg>
-            <b className="num">
-              {out.length + back.length}
-              <small>Deployed</small>
-            </b>
-            <span>
-              {back.length ? (
-                `${back.length} returned`
-              ) : nextOut ? (
-                <>
-                  #{nextOut.divisionId} back in <em className="num">{clock(nextOut.unlockAt - now)}</em>
-                </>
-              ) : (
-                'None out'
-              )}
-            </span>
-          </button>
-          <button
-            type="button"
-            className={`couch__tablet${sendable.length ? ' is-alert' : ''}`}
-            onClick={() => setPanel('idle')}
-          >
-            <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M8 29V3" />
-              <path d="M8 4h17l-4 6 4 6H8" fill="currentColor" fillOpacity=".25" />
-            </svg>
-            <b className="num">
-              {loop.idle.length}
-              <small>Idle</small>
-            </b>
-            <span>{sendable.length ? 'Ready for orders' : loop.idle.length ? 'No TLM mission open' : 'All are out'}</span>
-          </button>
+        <div className={`couch__dock${card ? ' is-carding' : ''}`}>
+          <div className="couch__tablets" aria-hidden={!!card}>
+            <button type="button" className="couch__tablet" onClick={() => setPanel('out')}>
+              <svg viewBox="0 0 32 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" aria-hidden="true">
+                <path d="M6 26L24 8M24 4v4h4M26 26L8 8M8 4v4H4" />
+                <path d="M4 22l6 6M28 22l-6 6" opacity=".7" />
+              </svg>
+              <b className="num">
+                {out.length + back.length}
+                <small>Deployed</small>
+              </b>
+              <span>
+                {back.length ? (
+                  `${back.length} returned`
+                ) : nextOut ? (
+                  <>
+                    #{nextOut.divisionId} back in <em className="num">{clock(nextOut.unlockAt - now)}</em>
+                  </>
+                ) : (
+                  'None out'
+                )}
+              </span>
+            </button>
+            <button
+              type="button"
+              className={`couch__tablet${sendable.length ? ' is-alert' : ''}`}
+              onClick={() => setPanel('idle')}
+            >
+              <svg
+                viewBox="0 0 32 32"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M8 29V3" />
+                <path d="M8 4h17l-4 6 4 6H8" fill="currentColor" fillOpacity=".25" />
+              </svg>
+              <b className="num">
+                {loop.idle.length}
+                <small>Idle</small>
+              </b>
+              <span>{sendable.length ? 'Ready for orders' : loop.idle.length ? 'No TLM mission open' : 'All are out'}</span>
+            </button>
+          </div>
+          {card && (
+            <button
+              key={card.key}
+              type="button"
+              className={`couch__card is-${card.tone}`}
+              onClick={card.onTap}
+              aria-live="polite"
+              aria-label={`${card.title}: ${card.line}${card.onTap ? '. Tap to close.' : ''}`}
+            >
+              <span className="couch__card-hd">
+                <b>{card.title}</b>
+                {card.count && <span className="num">{card.count}</span>}
+              </span>
+              <span className="couch__card-line">{card.line}</span>
+              <span className="couch__card-hair" aria-hidden="true">
+                {card.steps.map((x, i) => (
+                  <i key={i} className={`is-${x}`} />
+                ))}
+              </span>
+            </button>
+          )}
         </div>
         <button
           type="button"
@@ -386,15 +483,17 @@ export default function Couch() {
             <path d="M12 6.5v14.5" />
           </svg>
           <b>Mine</b>
-          <span className="num">
-            {mineReady ? `≈ ${formatNumber(m.pick?.estimatedTlm ?? 0, 2)} TLM` : mineText}
-          </span>
+          <span className="num">{mineReady ? `≈ ${formatNumber(m.pick?.estimatedTlm ?? 0, 2)} TLM` : mineText}</span>
         </button>
       </section>
 
       <div className={`couch__scrim${panel ? ' is-open' : ''}`} onClick={() => setPanel(null)} />
 
-      <section className={`couch__tip is-out${panel === 'out' ? ' is-open' : ''}`} aria-label="Deployed divisions" aria-hidden={panel !== 'out'}>
+      <section
+        className={`couch__tip is-out${panel === 'out' ? ' is-open' : ''}`}
+        aria-label="Deployed divisions"
+        aria-hidden={panel !== 'out'}
+      >
         {CORNERS.map((c) => (
           <i key={c} className={`couch__cn is-${c}`} />
         ))}
@@ -403,7 +502,7 @@ export default function Couch() {
         </button>
         <header>
           <h3>Deployed · {out.length + back.length}</h3>
-          <small>Marching through the burning world</small>
+          <small>{comingTlm > 0 ? `+${formatNumber(comingTlm, 0)} TLM on its way` : 'Marching through the burning world'}</small>
         </header>
         <div className="couch__div">
           <i />
@@ -415,7 +514,10 @@ export default function Couch() {
                 <b>Division {d.divisionId}</b>
                 <small>{loop.econ.get(d.missionId)?.title ?? `Mission #${d.missionId}`}</small>
               </span>
-              <span className="t">Returned</span>
+              <span className="t">
+                Returned
+                <small className="haul">{haul(d.missionId)}</small>
+              </span>
               <span className="p">
                 <i style={{ width: '100%' }} />
               </span>
@@ -427,7 +529,10 @@ export default function Couch() {
                 <b>Division {d.divisionId}</b>
                 <small>{loop.econ.get(d.missionId)?.title ?? `Mission #${d.missionId}`}</small>
               </span>
-              <span className="t num">{clock(d.unlockAt - now)}</span>
+              <span className="t num">
+                {clock(d.unlockAt - now)}
+                <small className="haul">{haul(d.missionId)}</small>
+              </span>
               <span className="p">
                 <i style={{ width: `${share(d) * 100}%` }} />
               </span>
@@ -437,7 +542,11 @@ export default function Couch() {
         </ul>
       </section>
 
-      <section className={`couch__tip is-idle${panel === 'idle' ? ' is-open' : ''}`} aria-label="Idle divisions" aria-hidden={panel !== 'idle'}>
+      <section
+        className={`couch__tip is-idle${panel === 'idle' ? ' is-open' : ''}`}
+        aria-label="Idle divisions"
+        aria-hidden={panel !== 'idle'}
+      >
         {CORNERS.map((c) => (
           <i key={c} className={`couch__cn is-${c}`} />
         ))}
@@ -482,7 +591,9 @@ export default function Couch() {
               onConfirm={() => void send(sendable)}
             />
             {deployFunding && !deployFunding.affordable && (
-              <p className="couch__warn">Not enough TLM for the entries ({formatNumber(deployFunding.tlmTotal, 2)} TLM needed).</p>
+              <p className="couch__warn">
+                Not enough TLM for the entries ({formatNumber(deployFunding.tlmTotal, 2)} TLM needed).
+              </p>
             )}
           </div>
         )}

@@ -582,6 +582,163 @@
   }
 }
 
+/* The dock: the tablets and the toast card share one place; the card steps in while it is up. */
+.couch__dock {
+  display: grid;
+}
+
+.couch__dock > * {
+  grid-area: 1 / 1;
+}
+
+.couch__tablets {
+  transition:
+    opacity 0.3s,
+    transform 0.3s;
+}
+
+.couch__dock.is-carding .couch__tablets {
+  opacity: 0;
+  transform: translateY(8px);
+  pointer-events: none;
+}
+
+.couch__card {
+  --tone: var(--cz-legend);
+  --glow: rgba(208, 119, 58, 0.22);
+  position: relative;
+  display: grid;
+  align-content: center;
+  gap: 2px;
+  min-width: 0;
+  padding: 9px 14px 12px;
+  border: 0;
+  background: linear-gradient(180deg, #140d0a, #0a0605);
+  box-shadow:
+    inset 0 0 0 1px #000,
+    inset 0 0 0 2px #5a4630,
+    inset 0 0 0 3px #000,
+    0 10px 24px rgba(0, 0, 0, 0.7);
+  color: var(--cz-tx);
+  text-align: left;
+  cursor: pointer;
+  animation: couch-card-in 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@keyframes couch-card-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+.couch__card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(80% 110% at 50% 0%, var(--glow), transparent 70%);
+  pointer-events: none;
+}
+
+.couch__card.is-run {
+  cursor: default;
+}
+
+.couch__card.is-done {
+  --tone: var(--cz-gold);
+  --glow: rgba(199, 179, 119, 0.22);
+}
+
+.couch__card.is-bad {
+  --tone: #ff5a42;
+  --glow: rgba(224, 40, 20, 0.24);
+  box-shadow:
+    inset 0 0 0 1px #000,
+    inset 0 0 0 2px #8a2a1a,
+    inset 0 0 0 3px #000,
+    0 0 24px rgba(200, 30, 10, 0.35);
+}
+
+.couch__card > span {
+  position: relative;
+  min-width: 0;
+}
+
+.couch__card-hd {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+}
+
+.couch__card-hd b {
+  overflow: hidden;
+  color: var(--tone);
+  font-family: var(--cz-cap);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow:
+    0 0 10px color-mix(in srgb, var(--tone) 50%, transparent),
+    0 2px 2px #000;
+}
+
+.couch__card-hd span {
+  color: var(--cz-faint);
+  font-family: var(--cz-cap);
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  white-space: nowrap;
+}
+
+.couch__card-line {
+  overflow: hidden;
+  color: var(--cz-dim);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.couch__card > .couch__card-hair {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  bottom: 3px;
+  display: flex;
+  gap: 2px;
+  height: 3px;
+}
+
+.couch__card-hair i {
+  flex: 1;
+  background: #2a1e14;
+  transition:
+    background 0.3s,
+    box-shadow 0.3s;
+}
+
+.couch__card-hair i.is-busy {
+  background: var(--cz-lava);
+  animation: couch-breathe 0.9s ease-in-out infinite;
+}
+
+.couch__card-hair i.is-ok {
+  background: #ff5a32;
+  box-shadow: 0 0 6px #ff3a14;
+}
+
+.couch__card-hair i.is-bad {
+  background: #a01208;
+}
+
+.couch__card.is-done .couch__card-hair i {
+  background: var(--cz-gold);
+  box-shadow: 0 0 6px rgba(199, 179, 119, 0.7);
+}
+
 /* The mine: a bar of lava filling toward the next mine; tap it when it brims. */
 .couch__mine {
   position: relative;
@@ -919,6 +1076,20 @@
   box-shadow: 0 0 6px rgba(224, 52, 28, 0.7);
 }
 
+/* What the division comes back with, under its time. */
+.couch__tip .t .haul {
+  display: block;
+  margin-top: 1px;
+  color: var(--cz-legend);
+  font-family: var(--cz-cap);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  white-space: nowrap;
+}
+
 .couch__tip li.is-home .t {
   color: var(--cz-gold);
   font-size: 12px;
@@ -1046,7 +1217,9 @@
   .couch__tablet.is-alert,
   .couch__mine.is-ready,
   .couch__mine-fill::after,
-  .couch__mine.is-working .couch__mine-fill {
+  .couch__mine.is-working .couch__mine-fill,
+  .couch__card,
+  .couch__card-hair i.is-busy {
     animation: none;
   }
 

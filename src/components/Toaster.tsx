@@ -35,7 +35,9 @@ export function Toaster() {
   const live = useToasts((s) => s.live)
   const dismiss = useToasts((s) => s.dismiss)
   const close = useToasts((s) => s.close)
-  const top = useToastTop(toasts.length + live.length)
+  const docked = useToasts((s) => s.docked)
+  const top = useToastTop(docked ? 0 : toasts.length + live.length)
+  if (docked) return null
 
   return (
     <div className="toaster" role="status" aria-live="polite" style={top === undefined ? undefined : { top }}>

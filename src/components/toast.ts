@@ -5,7 +5,7 @@ type Kind = 'success' | 'error' | 'info'
 /** Where one step of a live toast stands. */
 export type StepState = 'wait' | 'busy' | 'ok' | 'bad'
 
-interface Toast {
+export interface Toast {
   id: number
   kind: Kind
   message: string
@@ -27,6 +27,9 @@ export interface LiveToast {
 interface ToastState {
   toasts: Toast[]
   live: LiveToast[]
+  /** A screen shows the toasts itself (Couch mode docks them in place of its tablets): the floating ones stay hidden. */
+  docked: boolean
+  setDocked: (docked: boolean) => void
   push: (kind: Kind, message: string) => void
   dismiss: (id: number) => void
   start: (title: string, steps: number) => number
@@ -43,6 +46,10 @@ export const LIVE_DONE_MS = 4500
 export const useToasts = create<ToastState>((set, get) => ({
   toasts: [],
   live: [],
+  docked: false,
+  setDocked(docked) {
+    set({ docked })
+  },
   push(kind, message) {
     const id = nextId++
     set({ toasts: [...get().toasts, { id, kind, message }] })
