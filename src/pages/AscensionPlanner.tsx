@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
 
 import { CardArt, rarityColor } from '@/components/Art'
+import { Button } from '@/components/Button'
 import { Figure } from '@/components/Stat'
 import type { AssetRef } from '@/data/assets'
 import type { AscensionConfig } from '@/data/ascension'
@@ -15,6 +16,7 @@ import { receiveFor } from '@/lib/pool'
 import { ascendPath, buyFragments, fragmentOffers, fragmentsFor } from '@/lib/shinePlan'
 import { KIND_LABEL, kindOf } from '@/lib/stats'
 import { useNow } from '@/lib/time'
+import { useTransaction } from '@/wallet/useTransaction'
 
 import { ShineRun, type ShinePlan, type ShineRole } from './ShineRun'
 
@@ -63,6 +65,8 @@ export function ShinePlanner({
   const [useOwn, setUseOwn] = useState(true)
   // Once Shine it is pressed the plan is kept as it was: cards and divisions change under the run.
   const [shining, setShining] = useState<ShinePlan | null>(null)
+  const [startToken, setStartToken] = useState(0)
+  const { spectating } = useTransaction()
 
   const divisions = useMemo(() => (army.data?.divisions ?? []).filter((d) => d.leader && d.units.length), [army.data])
   const division = shining?.division ?? divisions.find((d) => d.id === divisionId) ?? divisions[0] ?? null
@@ -97,25 +101,28 @@ export function ShinePlanner({
   const stepsOf = (c: Card) => Math.min(extra[c.asset.assetId] ?? 0, c.path.length)
   const setSteps = (c: Card, n: number) => setExtra((x) => ({ ...x, [c.asset.assetId]: Math.max(0, Math.min(c.path.length, n)) }))
 
-  // The division with the shined cards: each takes the stats of its template that many stars up.
-  const shined = (a: AssetRef | undefined | null): AssetRef | undefined => {
-    if (!a) return undefined
-    const c = cards.find((x) => x.asset.assetId === a.assetId)
-    const n = c ? stepsOf(c) : 0
-    const to = n ? stats.get(c!.path[n - 1]) : undefined
-    return to ? { ...a, stats: to } : a
-  }
-  const units: Unit[] = division.units.map((u) => ({
-    asset: shined(u.asset)!,
-    gear: {
-      weapon: shined(u.gear.weapon),
-      supply: shined(u.gear.supply),
-      creature: shined(u.gear.creature),
-      lavalux: shined(u.gear.lavalux)
-    }
-  }))
+  // The division with shined cards: each takes the stats of its template that many stars up.
   const before = liveStats(division.units, division.units.length, division.leader) ?? division
-  const after = liveStats(units, units.length, shined(division.leader)) ?? before
+  const statsWith = (stepsFor: (c: Card) => number) => {
+    const shined = (a: AssetRef | undefined | null): AssetRef | undefined => {
+      if (!a) return undefined
+      const c = cards.find((x) => x.asset.assetId === a.assetId)
+      const n = c ? stepsFor(c) : 0
+      const to = n ? stats.get(c!.path[n - 1]) : undefined
+      return to ? { ...a, stats: to } : a
+    }
+    const units: Unit[] = division.units.map((u) => ({
+      asset: shined(u.asset)!,
+      gear: {
+        weapon: shined(u.gear.weapon),
+        supply: shined(u.gear.supply),
+        creature: shined(u.gear.creature),
+        lavalux: shined(u.gear.lavalux)
+      }
+    }))
+    return liveStats(units, units.length, shined(division.leader)) ?? before
+  }
+  const after = statsWith(stepsOf)
 
   // What it costs: Fragments per card, from your own first if you like, the rest off the market.
   let needed = 0
@@ -168,6 +175,44 @@ export function ShinePlanner({
   const payback = (g: number) => (costTlm !== null && g > 0 ? (costTlm / g) * 3600 : null)
   const changed = needed > 0
 
+  // One more star on each card alone, quickest payback first: what it costs and what it adds per
+  // hour, on the mission the division runs, or on a better one the star opens up.
+  const bestBefore = best(before.atk, before.def, before.move)
+  const ranking = cards
+    .flatMap((c) => {
+      const f = fragmentsFor(cfg, c.asset.rarity, stars(c.asset), 1)
+      if (f === null) return []
+      const a = statsWith((x) => (x === c ? 1 : 0))
+      const onCurrent = current && isTokenLoop(current) ? tlmPerHour(current, a.move, tokens) - nowPerHour : 0
+      const top = best(a.atk, a.def, a.move)
+      const opens = top && top.e.id !== bestBefore?.e.id && top.perHour - nowPerHour > onCurrent ? top : null
+      const gain = opens ? opens.perHour - nowPerHour : onCurrent
+      const b = buyFragments(f - (useOwn ? Math.min(fragmentsOwned, f) : 0), offers)
+      const tlmCost = pools.data ? receiveFor(pools.data.tlm, 'WAX', b.wax) : null
+      const secs = tlmCost !== null && gain > 0 ? (tlmCost / gain) * 3600 : Infinity
+      return [
+        {
+          c,
+          f,
+          wax: b.wax,
+          tlmCost,
+          gain,
+          secs,
+          short: b.short,
+          a,
+          opens,
+          needsForge: stars(c.asset) + 1 > (player.data?.forgeLevel ?? 0)
+        }
+      ]
+    })
+    .sort((x, y) => x.secs - y.secs || y.gain - x.gain)
+    .slice(0, 10)
+  const idle = !division.lock && !out
+  const upgrade = (c: Card) => {
+    setExtra({ [c.asset.assetId]: 1 })
+    setStartToken((t) => t + 1)
+  }
+
   return (
     <section className="bl-section asp">
       <div>
@@ -195,6 +240,72 @@ export function ShinePlanner({
           </button>
         ))}
       </div>
+
+      {ranking.length > 0 && (
+        <div className="asp__rank panel panel--tight">
+          <div className="asp__rank-head">
+            <b>Best next star in Division {division.id}</b>
+            <small className="faint">
+              One more star on each card alone, quickest payback first
+              {current ? `, on ${current.title}` : ''}.
+            </small>
+          </div>
+          <ol>
+            {ranking.map((r, i) => {
+              const why = spectating
+                ? 'Read-only while spectating.'
+                : !idle
+                  ? 'The division is out on a mission or has a reward to claim.'
+                  : r.needsForge
+                    ? `Needs Forge level ${stars(r.c.asset) + 1} to be equipped.`
+                    : r.short
+                      ? 'The market holds too few Fragments for it.'
+                      : ''
+              return (
+                <li key={r.c.asset.assetId}>
+                  <span className="asp__rank-n num">{i + 1}</span>
+                  <CardArt asset={r.c.asset} shape="square" className="asp__rank-art" />
+                  <span className="asp__rank-name">
+                    <b>{r.c.asset.name}</b>
+                    <small className="faint">
+                      {r.c.place} · {'★'.repeat(stars(r.c.asset))}
+                      <span className="c-green">★</span>
+                      {r.a.move !== before.move && (
+                        <>
+                          {' '}
+                          · move {formatNumber(before.move, 0)} → {formatNumber(r.a.move, 0)}
+                        </>
+                      )}
+                      {r.opens && <span className="c-green"> · opens {r.opens.e.title}</span>}
+                    </small>
+                  </span>
+                  <span className="asp__rank-fig num">
+                    <b>{r.wax > 0 ? `${formatNumber(r.wax, 0)} WAX` : 'your Fragments'}</b>
+                    <small className="faint">{r.f} Fragments</small>
+                  </span>
+                  <span className="asp__rank-fig num">
+                    <b className={r.gain > 0 ? 'c-green' : ''}>{formatSigned(r.gain)}</b>
+                    <small className="faint">TLM / h</small>
+                  </span>
+                  <span className="asp__rank-fig num">
+                    <b>{Number.isFinite(r.secs) ? formatDuration(r.secs) : 'never'}</b>
+                    <small className="faint">pays back</small>
+                  </span>
+                  <Button
+                    size="sm"
+                    color="gradientYellow"
+                    disabled={!!why || !!shining}
+                    title={why || `Buy what is missing, ascend ${r.c.asset.name} one star and put it back`}
+                    onClick={() => upgrade(r.c)}
+                  >
+                    Upgrade
+                  </Button>
+                </li>
+              )
+            })}
+          </ol>
+        </div>
+      )}
 
       {cards.length === 0 ? (
         <div className="empty">
@@ -390,6 +501,7 @@ export function ShinePlanner({
           <ShineRun
             account={account}
             onStart={setShining}
+            startToken={startToken}
             onReset={() => {
               setShining(null)
               setExtra({})

@@ -849,3 +849,93 @@
   background: var(--red);
   color: #fff;
 }
+
+/* Best next star: one more star on each card, quickest payback first. */
+.asp__rank {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.asp__rank-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.asp__rank ol {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.asp__rank li {
+  display: grid;
+  grid-template-columns: 20px 40px minmax(0, 1fr) 110px 80px 90px auto;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 4px;
+  border-top: 1px solid var(--border);
+}
+
+.asp__rank li:first-child {
+  border-top: 0;
+}
+
+.asp__rank-n {
+  color: var(--text-faint);
+  font-weight: 700;
+  text-align: right;
+}
+
+.asp__rank-art {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+}
+
+.asp__rank-name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.asp__rank-name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asp__rank-name small,
+.asp__rank-fig small {
+  font-size: 11px;
+}
+
+.asp__rank-fig {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  .asp__rank li {
+    grid-template-columns: 20px 40px minmax(0, 1fr) auto;
+  }
+
+  .asp__rank-fig {
+    grid-column: 3;
+    flex-direction: row;
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .asp__rank li > .btn,
+  .asp__rank li > button {
+    grid-column: 4;
+    grid-row: 1;
+  }
+}

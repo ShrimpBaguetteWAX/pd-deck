@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 import { ascendAction, sacrificeAction } from '@/chain/actions/ascend'
 import { buySalesActions } from '@/chain/actions/market'
@@ -104,7 +104,8 @@ export function ShineRun({
   editable,
   blocked: reason = '',
   onStart,
-  onReset
+  onReset,
+  startToken = 0
 }: {
   account: string
   plan: ShinePlan
@@ -118,6 +119,8 @@ export function ShineRun({
   onStart: (plan: ShinePlan) => void
   /** Back to planning, once a run is finished. */
   onReset: () => void
+  /** Bumped to start the run right away (an Upgrade button), once the plan is in. */
+  startToken?: number
 }) {
   const { run, pending, spectating } = useTransaction()
   const army = useArmy(account)
@@ -336,6 +339,12 @@ export function ShineRun({
     }
     void army.refetch()
   }
+
+  // Started from an Upgrade button: go as soon as the plan it set is rendered.
+  useEffect(() => {
+    if (startToken && !blocked && !busy && !progress) void execute()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [startToken])
 
   const n = p.cards.length
   const label = (x: Phase) =>
