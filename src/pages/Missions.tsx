@@ -188,6 +188,17 @@ export default function Missions() {
 
   const divisions = useMemo(() => (army.data?.divisions ?? []).filter((d) => d.units.length > 0), [army.data])
   const busy = useMemo(() => new Set(deployments.data?.map((d) => d.divisionId) ?? []), [deployments.data])
+  // Your divisions on each mission: still out, and back but not yet claimed.
+  const outByMission = useMemo(() => {
+    const m = new Map<number, { out: number; back: number }>()
+    for (const d of deployments.data ?? []) {
+      const c = m.get(d.missionId) ?? { out: 0, back: 0 }
+      if (d.unlockAt > now) c.out++
+      else c.back++
+      m.set(d.missionId, c)
+    }
+    return m
+  }, [deployments.data, now])
   const idle = useMemo(
     () => divisions.filter((d) => !busy.has(d.id) && !(d.lock && +chainDate(d.lock.locked_until) > now)),
     [divisions, busy, now]
@@ -480,6 +491,7 @@ export default function Missions() {
           const shownMove = view === 'est' ? r.assumedMove : move
           const shownPerHour = view === 'est' ? r.estPerHour : perHour
           const open = expanded === e.id
+          const mine = outByMission.get(e.id)
           const atkOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.atk >= e.minAtk
           const defOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.def >= e.minDef
           const reason = !divisions.length
@@ -500,6 +512,29 @@ export default function Missions() {
                   <div className="mrow__title">
                     <b>{e.title}</b>
                     <span className="mrow__sub">
+                      {mine && (
+                        <Tooltip
+                          text={[
+                            mine.out ? `${mine.out} of your divisions ${mine.out === 1 ? 'is' : 'are'} out on this mission` : '',
+                            mine.back ? `${mine.back} ${mine.back === 1 ? 'is' : 'are'} back, waiting for the claim` : ''
+                          ]
+                            .filter(Boolean)
+                            .join('; ')}
+                        >
+                          <em className="mrow__mine">
+                            {mine.out > 0 && (
+                              <>
+                                <span className="num">{mine.out}</span> <small>out</small>
+                              </>
+                            )}
+                            {mine.back > 0 && (
+                              <span className="mrow__back">
+                                <span className="num">{mine.back}</span> <small>back</small>
+                              </span>
+                            )}
+                          </em>
+                        </Tooltip>
+                      )}
                       {e.state === 'upcoming' && <em className="mrow__flag">Starts {shortDuration(e.startAt - now)}</em>}
                       {e.state === 'active' && Number.isFinite(e.endAt) && (
                         <Tooltip text="How long this mission can still be joined. A division already out keeps its lock and reward.">

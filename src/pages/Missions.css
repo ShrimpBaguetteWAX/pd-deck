@@ -962,3 +962,57 @@
 .mtable__sort.is-on {
   color: var(--text);
 }
+
+/* Your divisions on the mission: a cyan dot for those out, green for those back and unclaimed. */
+.mrow__mine {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 7px;
+  border-radius: 999px;
+  background: rgba(0, 212, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(0, 212, 255, 0.28);
+  color: var(--text);
+  font-family: var(--font-mono, ui-monospace, monospace);
+  font-size: 11px;
+  font-style: normal;
+}
+
+.mrow__mine::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 5px rgba(0, 212, 255, 0.7);
+}
+
+.mrow__mine small {
+  color: var(--text-dim);
+  font-family: var(--font-display);
+  font-size: 9px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.mrow__back {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--green);
+}
+
+.mrow__mine small + .mrow__back {
+  margin-left: 4px;
+}
+
+.mrow__back small {
+  color: var(--green);
+}
+
+/* Only back, none out: the dot turns green too. */
+.mrow__mine:not(:has(> .num))::before {
+  background: var(--green);
+  box-shadow: 0 0 5px rgba(46, 229, 157, 0.7);
+}

@@ -451,10 +451,17 @@
   color: #fff;
 }
 
+/* The fill always spans the whole bar inside its rim and is revealed from the left, so even a sliver
+   follows the bar's rounded end instead of being a tiny pill of its own. */
 .is-kitten .couch__mine-fill {
+  inset: 1.5px;
+  width: auto;
   border-radius: 999px;
   background: #cf6f97;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  -webkit-mask: linear-gradient(90deg, #000 calc(var(--f, 0) * 100%), transparent calc(var(--f, 0) * 100% + 4px));
+  mask: linear-gradient(90deg, #000 calc(var(--f, 0) * 100%), transparent calc(var(--f, 0) * 100% + 4px));
+  transition: none;
 }
 
 .is-kitten .couch__mine-fill::after {
