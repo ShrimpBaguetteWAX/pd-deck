@@ -12,10 +12,12 @@ import { useMining } from '@/mining/useMining'
 import { useReportCount, useTabTitle } from '@/state/tabCount'
 import { useTransaction } from '@/wallet/useTransaction'
 
-import { useBloodOrb } from './couch/bloodOrb'
+import { BLOOD, CHERRY, useBloodOrb } from './couch/bloodOrb'
 import { InfernalFrame } from './couch/InfernalFrame'
+import { KittenFrame } from './couch/KittenFrame'
 
 import './Couch.css'
+import './couch/Kitten.css'
 
 /*
  * Couch mode, Infernal: one screen for the phone lying next to you. Today's TLM on two plaques at
@@ -25,6 +27,10 @@ import './Couch.css'
  * ones, which open a panel to send them to their best TLM mission) and the mine as a bar of lava
  * that fills toward the next mine. It keeps the screen awake and buzzes when something becomes
  * ready; with the bell on it chimes too, also in a background tab.
+ *
+ * It comes in two looks, switched at the top right and remembered in this browser: Infernal, and
+ * Kitten, where the same screen is candy and rose gold, the blood is a cherry potion and a little
+ * horned kitten on the ring shows the state (asleep, awake, wings out when the loop is ready).
  */
 
 const clock = (ms: number) => {
@@ -36,9 +42,9 @@ const clock = (ms: number) => {
 }
 const tlm = (n: number | undefined) => (n === undefined ? '–' : formatNumber(n, n >= 100 ? 0 : 2))
 
-/** Couch mode's typefaces, loaded only when it opens. */
+/** Couch mode's typefaces (both looks), loaded only when it opens. */
 const FONT_HREF =
-  'https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cinzel+Decorative:wght@900&family=EB+Garamond:ital,wght@0,500;1,400&display=swap'
+  'https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700&family=Cinzel+Decorative:wght@900&family=EB+Garamond:ital,wght@0,500;1,400&family=Fredoka:wght@400;500;600&family=Grenze+Gotisch:wght@600;700&display=swap'
 function useCouchFonts() {
   useEffect(() => {
     if (document.querySelector(`link[href="${FONT_HREF}"]`)) return
@@ -47,6 +53,30 @@ function useCouchFonts() {
     link.href = FONT_HREF
     document.head.appendChild(link)
   }, [])
+}
+
+type Look = 'kitten' | 'infernal'
+const LOOK_KEY = 'pd:couch-look'
+/** Which look the couch wears, remembered in this browser; the kitten unless Infernal was picked. */
+function useLook(): [Look, () => void] {
+  const [look, setLook] = useState<Look>(() => {
+    try {
+      return localStorage.getItem(LOOK_KEY) === 'infernal' ? 'infernal' : 'kitten'
+    } catch {
+      return 'kitten'
+    }
+  })
+  const toggle = () =>
+    setLook((l) => {
+      const next = l === 'kitten' ? 'infernal' : 'kitten'
+      try {
+        localStorage.setItem(LOOK_KEY, next)
+      } catch {
+        // Private mode: it holds for this visit.
+      }
+      return next
+    })
+  return [look, toggle]
 }
 
 /** Keeps the screen on while the page is open and visible; the browser drops the lock when hidden. */
@@ -108,6 +138,56 @@ function Pit() {
             } as React.CSSProperties
           }
         />
+      ))}
+    </div>
+  )
+}
+
+/** The kitten's night: twinkling stars, a pink glow below, hearts and little flames drifting up; drawn once. */
+const STARS = Array.from({ length: 30 }, (_, i) => ({
+  left: `${(i * 37 + 11) % 100}%`,
+  top: `${(i * 23) % 62}%`,
+  delay: `${-((i * 0.7) % 3)}s`,
+  opacity: 0.3 + ((i * 13) % 7) / 10
+}))
+const FLOATIES = Array.from({ length: 12 }, (_, i) => ({
+  left: `${(i * 43 + 5) % 100}%`,
+  size: 6 + ((i * 5) % 8),
+  dx: `${((i * 29) % 60) - 30}px`,
+  rot: `${((i * 37) % 90) - 45}deg`,
+  duration: `${9 + ((i * 3) % 8)}s`,
+  delay: `${-((i * 1.7) % 14)}s`,
+  heart: i % 3 !== 0
+}))
+function Night() {
+  return (
+    <div className="couch__pit" aria-hidden="true">
+      {STARS.map((x, i) => (
+        <span key={i} className="couch__star" style={{ left: x.left, top: x.top, animationDelay: x.delay, opacity: x.opacity }} />
+      ))}
+      {FLOATIES.map((x, i) => (
+        <svg
+          key={i}
+          className="couch__floaty"
+          viewBox="-7 -8 14 14"
+          style={
+            {
+              left: x.left,
+              width: x.size,
+              height: x.size,
+              '--dx': x.dx,
+              '--rot': x.rot,
+              animationDuration: x.duration,
+              animationDelay: x.delay
+            } as React.CSSProperties
+          }
+        >
+          {x.heart ? (
+            <path d="M0 3.4C-6.2-1.4-3.4-6.4 0-3C3.4-6.4 6.2-1.4 0 3.4Z" fill="#ff7aab" />
+          ) : (
+            <path d="M0-7C3-3 5 0 3 3a3.4 3.4 0 0 1-6 0C-5 0-2-2 0-7Z" fill="#ff9a5c" />
+          )}
+        </svg>
       ))}
     </div>
   )
@@ -204,6 +284,8 @@ export default function Couch() {
   const today = useTodayEarnings(account)
   const [panel, setPanel] = useState<'out' | 'idle' | null>(null)
   const card = useDockedToast()
+  const [look, toggleLook] = useLook()
+  const kitten = look === 'kitten'
   useCouchFonts()
   useWakeLock()
   useTabTitle()
@@ -253,7 +335,7 @@ export default function Couch() {
   const mineProgress = !mineOn ? 0 : mineReady ? 1 : Math.max(START, m.progress)
   // The orb brims while divisions are back, drains as they march, and otherwise fills with the next return.
   const level = looping ? 0.05 : back.length ? 0.94 : nextOut ? 0.04 + share(nextOut) * 0.86 : 0.03
-  const orb = useBloodOrb(level)
+  const orb = useBloodOrb(level, kitten ? CHERRY : BLOOD)
 
   // Back to where it was opened from; to Deployments when it was opened on its own (a home screen icon).
   const close = () => ((window.history.state as { idx?: number } | null)?.idx ? navigate(-1) : navigate('/deployments'))
@@ -298,14 +380,49 @@ export default function Couch() {
   const mineText = !mineOn ? 'Off' : m.busy ? 'Mining…' : mineReady ? 'Ready' : mineLeft !== null ? clock(mineLeft) : '…'
 
   return (
-    <div className="couch">
-      <Pit />
+    <div className={`couch${kitten ? ' is-kitten' : ''}`}>
+      {kitten ? <Night /> : <Pit />}
       <div className="couch__vignette" aria-hidden="true" />
 
       <button type="button" className="couch__close" onClick={close} aria-label="Close couch mode">
         <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" aria-hidden="true">
           <path d="M6 6l12 12M18 6L6 18" />
         </svg>
+      </button>
+
+      <button
+        type="button"
+        className="couch__look"
+        onClick={toggleLook}
+        aria-label={kitten ? 'Look: Kitten. Switch to Infernal' : 'Look: Infernal. Switch to Kitten'}
+        title={kitten ? 'Switch to Infernal' : 'Switch to Kitten'}
+      >
+        {kitten ? (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M12 3c3 4 6 6.5 6 10.5a6 6 0 0 1-12 0C6 10 8.5 8 9 5c1.5 1.5 2.4 3 3-2z" />
+          </svg>
+        ) : (
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <path d="M5 4l3.5 4.5h7L19 4l1 9a8 8 0 0 1-16 0z" />
+            <path d="M9.5 13.5h.01M14.5 13.5h.01M11 16.5l1 .8 1-.8" />
+          </svg>
+        )}
       </button>
 
       <header className="couch__top" aria-label="Earned today">
@@ -358,8 +475,10 @@ export default function Couch() {
       </header>
 
       <main className="couch__stage">
-        <div className={`couch__orb${back.length && !looping ? ' is-ready' : ''}`}>
-          <InfernalFrame />
+        <div
+          className={`couch__orb${back.length && !looping ? ' is-ready' : ''} is-${canLoop ? 'eager' : back.length || looping ? 'awake' : 'asleep'}`}
+        >
+          {kitten ? <KittenFrame /> : <InfernalFrame />}
           <canvas ref={orb.ref} className="couch__blood" />
           <div className="couch__label" aria-live="polite">
             {back.length || looping ? (

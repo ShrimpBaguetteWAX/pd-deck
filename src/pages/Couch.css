@@ -175,6 +175,33 @@
   color: var(--cz-tx);
 }
 
+/* The other look, faint at the top right like the close mark. */
+.couch__look {
+  position: absolute;
+  top: max(6px, env(safe-area-inset-top, 0px));
+  right: max(10px, env(safe-area-inset-right, 0px));
+  z-index: 3;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 32px;
+  border: 0;
+  background: none;
+  color: var(--cz-faint);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.couch__look svg {
+  width: 18px;
+  height: 18px;
+}
+
+.couch__look:hover,
+.couch__look:focus-visible {
+  color: var(--cz-tx);
+}
+
 /* ---- Top: ornament, two plaques, the bell ------------------------------------------------------------ */
 
 .couch__top {
