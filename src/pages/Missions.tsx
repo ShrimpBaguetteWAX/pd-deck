@@ -19,7 +19,7 @@ import {
   type Division
 } from '@/data/game'
 import { coveredBy, walletCosts, walletPart, type GameBalance } from '@/lib/deposit'
-import { ChevronIcon, RocketIcon, ShardIcon, ShieldIcon, SwordIcon, TimerIcon, XIcon } from '@/icons'
+import { ChevronIcon, RocketIcon, ShardIcon, ShieldIcon, SwordIcon, TimerIcon, UsersIcon, XIcon } from '@/icons'
 import { formatDuration, formatNumber, formatSigned, formatToken, percent, titleCase } from '@/lib/format'
 import {
   canDeploy,
@@ -532,6 +532,16 @@ export default function Missions() {
                                 <span className="num">{mine.back}</span> <small>back</small>
                               </span>
                             )}
+                          </em>
+                        </Tooltip>
+                      )}
+                      {e.joined > 0 && (
+                        <Tooltip
+                          text={`${formatNumber(e.joined, 0)} division${e.joined === 1 ? ' is' : 's are'} on this mission across all players, yours included (out, or back and not yet claimed).`}
+                        >
+                          <em className="mrow__all">
+                            <UsersIcon />
+                            <span className="num">{formatNumber(e.joined, 0)}</span> <small>all players</small>
                           </em>
                         </Tooltip>
                       )}
