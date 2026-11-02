@@ -675,3 +675,177 @@
   color: var(--text-faint);
   text-decoration: line-through;
 }
+
+/* ---- Shine planner ---- */
+
+.asp__divs {
+  align-self: flex-start;
+  flex-wrap: wrap;
+  border-radius: 14px;
+}
+
+.asp__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 380px), 1fr));
+  gap: 8px;
+}
+
+.asp__card {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+}
+
+.asp__card.is-on {
+  border-color: rgba(46, 229, 157, 0.45);
+  background: rgba(46, 229, 157, 0.05);
+}
+
+.asp__name {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.asp__name b {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.asp__name small {
+  font-size: 11px;
+}
+
+.asp__stars {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+}
+
+.asp__rail {
+  font-size: 13px;
+  letter-spacing: 1px;
+  white-space: nowrap;
+}
+
+.asp__stars small {
+  font-size: 11px;
+}
+
+.asp__result {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.asp__figures {
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+
+.asp__notes {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+
+.asp__own {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .asp__figures {
+    gap: 16px;
+  }
+}
+
+.asp__shop ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 4px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.asp__shop li {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.asp__shop em {
+  font-style: normal;
+}
+
+.asp__run {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.asp__go {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.asp__steps {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13px;
+}
+
+.asp__steps li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text-dim);
+}
+
+.asp__steps li span {
+  display: grid;
+  flex: none;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.asp__steps li.is-done {
+  color: var(--text);
+}
+
+.asp__steps li.is-done span {
+  background: var(--green);
+  color: #04121c;
+}
+
+.asp__steps li.is-failed span {
+  background: var(--red);
+  color: #fff;
+}

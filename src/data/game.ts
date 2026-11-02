@@ -241,7 +241,11 @@ export interface Division {
 
 /** A division's stats from its roster, the way the contract sums them; null if any unit is unresolved. */
 /** A division as the contract adds it up; the warlord takes its move reduction off the total. */
-function liveStats(units: Unit[], rowCount: number, leader?: AssetRef | null): { atk: number; def: number; move: number } | null {
+export function liveStats(
+  units: Unit[],
+  rowCount: number,
+  leader?: AssetRef | null
+): { atk: number; def: number; move: number } | null {
   if (units.length !== rowCount || units.some((u) => !u.asset.stats)) return null
   let atk = 0
   let def = 0

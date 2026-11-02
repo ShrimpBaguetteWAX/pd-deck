@@ -17,6 +17,8 @@ import { formatNumber } from '@/lib/format'
 import { KIND_LABEL, kindOf } from '@/lib/stats'
 import { useTransaction } from '@/wallet/useTransaction'
 
+import { ShinePlanner } from './AscensionPlanner'
+
 /*
  * The Ascension tab: the Ascend Nexus (raise a card a star with Fragments) and the Sacrificial
  * Altar (burn cards for Fragments). Both work on cards in the wallet: a staked card has to be
@@ -109,6 +111,8 @@ export function Ascension({ account, market }: { account: string | null; market:
           </span>
         )}
       </section>
+
+      <ShinePlanner account={account} cfg={cfg} stats={stats.data} market={market} fragmentsOwned={fragmentIds.length} />
 
       <AscendList rows={ascendable} fragmentIds={fragmentIds} paused={cfg.paused} busy={busy} spectating={spectating} run={run} />
       <SacrificeList
