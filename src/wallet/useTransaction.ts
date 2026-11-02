@@ -81,6 +81,8 @@ export function useTransaction() {
     /** Inside a live toast: no toasts of its own; a failure is handed to onFail instead. */
     quiet?: boolean
     onFail?: (message: string, cancelled: boolean) => void
+    /** Called as soon as everything is on chain, before the player's data is read again. */
+    onLanded?: () => void
   }
 
   /** Resolves true once signed and refreshed, false when cancelled, refused or failed. */
@@ -92,7 +94,8 @@ export function useTransaction() {
     }
     setPending(key)
     try {
-      return await runOne(account, build, success, opts)
+      // The page is free again the moment the transaction lands; the refresh after it runs in the background.
+      return await runOne(account, build, success, { ...opts, onLanded: () => setPending(null) })
     } finally {
       setPending(null)
     }
@@ -129,6 +132,7 @@ export function useTransaction() {
         }
       }
       if (success && !opts.quiet) toast.success(success)
+      opts.onLanded?.()
       if (opts.refresh !== false) {
         await sleep(CATCH_UP_MS)
         await refreshPlayer(account)

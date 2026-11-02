@@ -39,9 +39,9 @@ interface ToastState {
 
 let nextId = 1
 /** How long a toast stays before it goes on its own. */
-export const TOAST_MS = 6500
+export const TOAST_MS = 4000
 /** How long a finished live toast shows its summary. */
-export const LIVE_DONE_MS = 4500
+export const LIVE_DONE_MS = 3000
 
 export const useToasts = create<ToastState>((set, get) => ({
   toasts: [],

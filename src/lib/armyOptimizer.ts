@@ -1127,6 +1127,81 @@ export function packMore(divisions: OptimizedDivision[], input: OptimizeInput): 
   return best === divisions ? divisions : valued(best, input)
 }
 
+/**
+ * Hands the warlords round once the army is planned. Warlords of the same kind take different
+ * amounts of move off by their shine, and a reduction is worth most in the division with the most
+ * move to cancel; building the divisions one by one cannot see that. Two new divisions swap
+ * warlords, or one takes an unused warlord instead, whenever the army then earns more and every
+ * warlord still has the slots for its mercenaries. The units and their gear stay as packed;
+ * divisions kept as they are stay as they are.
+ */
+export function repairWarlords(divisions: OptimizedDivision[], input: OptimizeInput): OptimizedDivision[] {
+  const total = (ds: OptimizedDivision[]) => valued(ds, input).reduce((n, d) => n + d.perHour, 0)
+  const refs = new Map<string, AssetRef>()
+  for (const w of input.pool.warlord) refs.set(w.assetId, w)
+  for (const d of divisions) for (const [k, a] of d.plan.assets) refs.set(k, a)
+  const option = (a: AssetRef): WarlordOption => ({
+    key: a.assetId,
+    slots: Number(a.stats?.slots_max ?? 0),
+    minLevel: Number(a.stats?.min_forge_level || 0),
+    cost: 0,
+    moveReduction: Number(a.stats?.movecost_reduction || 0)
+  })
+  const led = (d: OptimizedDivision, w: WarlordOption): OptimizedDivision | null => {
+    const b = d.plan.bundle
+    if (w.slots < b.mercs.length) return null
+    // The move before any warlord: the units' own, as packed.
+    const raw = b.units.reduce((n, u) => n + u.move, 0)
+    const bundle: Bundle = { ...b, warlord: w, move: Math.max(0, raw - (w.moveReduction ?? 0)) }
+    const assets = new Map(d.plan.assets)
+    assets.delete(b.warlord.key)
+    const ref = refs.get(w.key)
+    if (ref) assets.set(w.key, ref)
+    return { ...d, plan: { bundle, assets }, perHour: tlmPerHour(d.mission, bundle.move, input.market) }
+  }
+  const used = new Set(divisions.map((d) => d.plan.bundle.warlord.key))
+  let spare = input.pool.warlord
+    .filter((a) => !used.has(a.assetId) && Number(a.stats?.min_forge_level || 0) <= input.forgeLevel)
+    .map(option)
+    .filter((w) => w.slots > 0)
+  let best = [...divisions]
+  let bestTotal = total(best)
+  const movable = (d: OptimizedDivision) => d.existingId === undefined
+  for (let round = 0; round < 60; round++) {
+    let improved = false
+    for (let i = 0; i < best.length && !improved; i++) {
+      if (!movable(best[i])) continue
+      for (let j = i + 1; j < best.length && !improved; j++) {
+        if (!movable(best[j])) continue
+        const a = led(best[i], best[j].plan.bundle.warlord)
+        const b = led(best[j], best[i].plan.bundle.warlord)
+        if (!a || !b) continue
+        const next = best.map((d, k) => (k === i ? a : k === j ? b : d))
+        const t = total(next)
+        if (t > bestTotal + 1e-9) {
+          best = next
+          bestTotal = t
+          improved = true
+        }
+      }
+      for (let s = 0; s < spare.length && !improved; s++) {
+        const a = led(best[i], spare[s])
+        if (!a) continue
+        const next = best.map((d, k) => (k === i ? a : d))
+        const t = total(next)
+        if (t > bestTotal + 1e-9) {
+          spare = spare.map((w, k) => (k === s ? best[i].plan.bundle.warlord : w))
+          best = next
+          bestTotal = t
+          improved = true
+        }
+      }
+    }
+    if (!improved) break
+  }
+  return bestTotal > total(divisions) + 1e-9 ? valued(best, input) : divisions
+}
+
 const earning = (n: Node, input: OptimizeInput) => valued(n.divisions, input).reduce((sum, d) => sum + d.perHour, 0)
 
 /** The army plan that earns the most, over the strategies. */
@@ -1159,6 +1234,11 @@ export function optimizeArmy(input: OptimizeInput, onProgress?: (p: Progress) =>
     // Then trade units between the new divisions of each length until their move costs are close.
     const divisions = alignedDivisions(balanceMoves(best.divisions, input), input.market, input.anchors)
     best = { ...best, divisions, perHour: divisions.reduce((n, d) => n + d.perHour, 0) }
+  }
+  // Last, the warlords go where their move reduction cancels the most.
+  {
+    const divisions = repairWarlords(best.divisions, input)
+    if (divisions !== best.divisions) best = { ...best, divisions, perHour: divisions.reduce((n, d) => n + d.perHour, 0) }
   }
   return best
 }

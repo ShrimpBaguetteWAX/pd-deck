@@ -126,16 +126,23 @@ const power = (c: { atk: number; def: number }) => c.atk + c.def
 /**
  * Puts the gear on the mercenaries and computes the division, the contract's way: per mercenary,
  * (merc + equipment + supply + creature) × Lava Lux, rounded down; move = (merc move − supply
- * reduction) × Lava Lux move. Strongest mercenaries get the strongest Lava Lux and are equipped
- * first (so the multiplier works on more); supplies go where they cut the most move.
+ * reduction) × Lava Lux move. The strongest weapons and creatures go to the strongest mercenaries;
+ * then the strongest Lava Lux (by its multipliers, then the least move it adds) to the units
+ * strongest with that gear, so the multiplier works on the most; supplies go where they cut the most move.
  */
 export function evaluate(p: Parts): { units: UnitPlan[]; atk: number; def: number; move: number } {
   const units = [...p.mercs].sort((a, b) => power(b) - power(a)).map((merc) => ({ merc, gear: {} as UnitPlan['gear'] }))
-  const lava = [...p.gear.lavalux].sort((a, b) => (b.atkMult ?? 1) + (b.defMult ?? 1) - ((a.atkMult ?? 1) + (a.defMult ?? 1)))
-  lava.forEach((l, i) => units[i] && (units[i].gear.lavalux = l))
   for (const kind of ['weapon', 'creature'] as const) {
     ;[...p.gear[kind]].sort((a, b) => power(b) - power(a)).forEach((g, i) => units[i] && (units[i].gear[kind] = g))
   }
+  const lava = [...p.gear.lavalux].sort(
+    (a, b) =>
+      (b.atkMult ?? 1) + (b.defMult ?? 1) - ((a.atkMult ?? 1) + (a.defMult ?? 1)) || (a.moveMult ?? 1) - (b.moveMult ?? 1)
+  )
+  const armed = (u: (typeof units)[number]) =>
+    power(u.merc) + (u.gear.weapon ? power(u.gear.weapon) : 0) + (u.gear.creature ? power(u.gear.creature) : 0)
+  const byArmed = [...units].sort((a, b) => armed(b) - armed(a))
+  lava.forEach((l, i) => byArmed[i] && (byArmed[i].gear.lavalux = l))
   // Supplies: the biggest move cuts to the mercenaries with the most move to cut.
   const byMove = [...units].sort(
     (a, b) => b.merc.move * (b.gear.lavalux?.moveMult ?? 1) - a.merc.move * (a.gear.lavalux?.moveMult ?? 1)
@@ -464,8 +471,9 @@ export function buildAtCount(input: SolveInput, ta: number, td: number, L: numbe
     cell = back.cell
   }
   const mercBack = backtrack(c.g, c.mercs, mercTracked.trail, k, cell)
-  const warlord = c.warlordFor(mercBack.chosen.length)
-  return warlord ? price({ warlord, mercs: mercBack.chosen, gear: picked }, input) : null
+  // The grid only knows how many slots it needs; with the units known, the warlord that leaves the least move.
+  if (!c.warlordFor(mercBack.chosen.length)) return null
+  return withBestWarlord({ mercs: mercBack.chosen, gear: picked }, input)
 }
 
 /** The cheapest flat-stat bundle at Forge level L (level cost included), or null. `bound` prunes. */
@@ -532,10 +540,38 @@ const withItem = (b: Parts, it: Candidate): Parts =>
 
 const contents = (b: Parts) => [...b.mercs, ...GEAR_KINDS.flatMap((k) => b.gear[k])]
 
-/** Re-picks the cheapest warlord that fits and prices the result. */
+/**
+ * The warlord for these units, priced: the cheapest that fits; among equally cheap ones the one that
+ * leaves the division the least move (warlords of the same kind take different amounts off by their
+ * shine), then the fewest slots, then the smallest reduction that does it, so the warlords that take
+ * the most off stay free for slower divisions. Warlords alike in slots and reduction are tried once.
+ */
+function withBestWarlord(p: Omit<Parts, 'warlord'>, input: SolveInput): Bundle | null {
+  const fitAll = input.warlords.filter((o) => o.slots >= p.mercs.length)
+  if (!fitAll.length) return null
+  // A warlord that would need a higher Forge level only when no other fits.
+  const atLevel = fitAll.filter((o) => o.minLevel <= input.economy.forgeLevel)
+  const fit = atLevel.length ? atLevel : fitAll
+  const cheapest = Math.min(...fit.map((o) => o.cost))
+  const kinds = new Map<string, WarlordOption>()
+  for (const w of fit) if (w.cost === cheapest) kinds.set(`${w.slots}:${w.moveReduction ?? 0}`, kinds.get(`${w.slots}:${w.moveReduction ?? 0}`) ?? w)
+  let best: Bundle | null = null
+  for (const w of kinds.values()) {
+    const b = price({ ...p, warlord: w }, input)
+    const better =
+      !best ||
+      b.move < best.move ||
+      (b.move === best.move &&
+        (w.slots < best.warlord.slots ||
+          (w.slots === best.warlord.slots && (w.moveReduction ?? 0) < (best.warlord.moveReduction ?? 0))))
+    if (better) best = b
+  }
+  return best
+}
+
+/** Re-picks the warlord for the units (see withBestWarlord) and prices the result. */
 function settle(p: Parts, input: SolveInput): Bundle | null {
-  const w = input.warlords.filter((o) => o.slots >= p.mercs.length).sort((a, b) => a.cost - b.cost)[0]
-  return w ? price({ ...p, warlord: w }, input) : null
+  return withBestWarlord({ mercs: p.mercs, gear: p.gear }, input)
 }
 
 /** Drops the most expensive items the target does not need, one at a time. */

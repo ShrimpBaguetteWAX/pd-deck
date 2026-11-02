@@ -9,6 +9,8 @@
   gap: 10px;
   width: min(380px, calc(100vw - 32px));
   transform: translateX(-50%);
+  /* The column itself never catches a click; only the toasts in it do. */
+  pointer-events: none;
 }
 
 /*
@@ -36,6 +38,7 @@
   text-align: left;
   font-size: 14px;
   box-shadow: var(--shadow);
+  pointer-events: auto;
   transform-origin: top center;
   animation:
     toast-in 0.38s cubic-bezier(0.2, 0.9, 0.3, 1.2),

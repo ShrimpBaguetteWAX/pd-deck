@@ -91,8 +91,9 @@ export function planMissionDivision(
             }
           : null
       const usual = lava
-        ? // A multiplier's worth, in stat points on a typical line.
-          (lava.atkMult - 1 + lava.defMult - 1) * 100 + (lava.moveMult - 1) * 20 * moveWeight
+        ? // A Lava Lux costs the move it adds and is worth its multiplier: a shined one (more of
+          // both multipliers, less move) is always the cheaper pick, never saved for later.
+          Math.max(0.1, 40 + (lava.moveMult - 1) * 20 * moveWeight - (lava.atkMult - 1 + lava.defMult - 1) * 40)
         : Math.max(0.1, atk + def + moveWeight * (move - moveReduction) + (kind === 'mercenary' ? mercPenalty : 0))
       const cost = options.costOf ? Math.max(0.1, options.costOf(a, usual)) : usual
       assets.set(key, a)

@@ -31,6 +31,7 @@ import { useTransaction } from '@/wallet/useTransaction'
 
 import { DisbandAllModal, MissionDivisionModal, disbandActions } from './ArmyMissions'
 import { OptimizeArmyModal } from './ArmyOptimize'
+import { ArmyPresetsModal } from './ArmyPresets'
 
 import { divisionAllowance, FREE_DIVISIONS } from '@/chain/config'
 
@@ -68,6 +69,7 @@ export default function Army() {
   const [disbandAllOpen, setDisbandAllOpen] = useState(false)
   const [missionOpen, setMissionOpen] = useState(false)
   const [optimizeOpen, setOptimizeOpen] = useState(false)
+  const [presetsOpen, setPresetsOpen] = useState(false)
   /** A mercenary on its way to another division: being dragged, or picked with its Move button. */
   const [moving, setMoving] = useState<{ unit: Unit; from: Division } | null>(null)
   /**
@@ -82,8 +84,11 @@ export default function Army() {
   const divisions = army.data?.divisions ?? []
   const selected = divisions.find((d) => d.id === selectedId) ?? divisions[0] ?? null
 
+  // Only the first time is a division picked for the player. A refresh that briefly lacks the selected
+  // division (a lagging node, a reload after a transaction) shows the first one meanwhile without
+  // forgetting the choice, so the focus comes back when the division does.
   useEffect(() => {
-    if (selected && selected.id !== selectedId) setSelectedId(selected.id)
+    if (selectedId === null && selected) setSelectedId(selected.id)
   }, [selected, selectedId])
 
   useEffect(() => {
@@ -164,17 +169,44 @@ export default function Army() {
     if (picks.length) setPreview({ mode: 'fill', division: d, lines: picks.map((asset) => ({ asset })) })
   }
 
-  /** Auto-equip's plan: the best free gear onto the strongest mercenaries missing it, within the Forge slot budget. */
+  /**
+   * Auto-equip's plan: the best free gear onto the strongest mercenaries missing it, within the Forge
+   * slot budget. Weapons, creatures and supplies go by strength to the strongest mercenaries; Lava Lux
+   * last, the strongest multiplier (then the least move it adds) to the units strongest with their
+   * gear, old and new, since it multiplies all of it.
+   */
   function autoEquip(d: Division) {
     const units = [...d.units].sort((x, y) => power(y.asset.stats) - power(x.asset.stats))
     const lines: PlanLine[] = []
-    for (const kind of GEAR_KINDS) {
+    const added = new Map<Unit, AssetRef[]>()
+    const give = (unit: Unit, kind: GearKind, asset: AssetRef) => {
+      lines.push({ asset, unit, kind })
+      added.set(unit, [...(added.get(unit) ?? []), asset])
+    }
+    for (const kind of ['weapon', 'creature', 'supply'] as GearKind[]) {
       let budget = gearBudget(kind)
       const pool = free[kind].filter(usable).sort(byPower)
       for (const unit of units) {
         if (budget <= 0 || !pool.length) break
         if (unit.gear[kind]) continue
-        lines.push({ asset: pool.shift()!, unit, kind })
+        give(unit, kind, pool.shift()!)
+        budget--
+      }
+    }
+    {
+      const mult = (a: AssetRef) => Number(a.stats?.attack_mult_bp || 0) + Number(a.stats?.defense_mult_bp || 0)
+      const pool = free.lavalux
+        .filter(usable)
+        .sort((x, y) => mult(y) - mult(x) || Number(x.stats?.movecost_mult_bp || 0) - Number(y.stats?.movecost_mult_bp || 0))
+      const armed = (u: Unit) =>
+        power(u.asset.stats) +
+        GEAR_KINDS.reduce((n, k) => n + (k !== 'lavalux' && u.gear[k] ? power(u.gear[k]!.stats) : 0), 0) +
+        (added.get(u) ?? []).reduce((n, a) => n + power(a.stats), 0)
+      let budget = gearBudget('lavalux')
+      for (const unit of [...units].sort((x, y) => armed(y) - armed(x))) {
+        if (budget <= 0 || !pool.length) break
+        if (unit.gear.lavalux) continue
+        give(unit, 'lavalux', pool.shift()!)
         budget--
       }
     }
@@ -225,7 +257,8 @@ export default function Army() {
     setDropId(null)
     if (!ok0) return
     const gear = GEAR_KINDS.flatMap((k) => (unit.gear[k] ? [[k, unit.gear[k]!] as const] : []))
-    const ok = await run(
+    // The focus stays on the division the player is working on, wherever the mercenary went.
+    await run(
       (a, p) => [
         ...gear.map(([, g]) => unassignGear(a, p, from.id, unit.asset.assetId, g.assetId)),
         removeUnit(a, p, unit.asset.assetId),
@@ -235,7 +268,6 @@ export default function Army() {
       `${unit.asset.name} moved to division #${target.id}${gear.length ? ` with ${gear.length} gear` : ''}`,
       `move-${unit.asset.assetId}`
     )
-    if (ok) setSelectedId(target.id)
   }
 
   /** Whether a division can take the mercenary being moved: another one, at home, with a free slot. */
@@ -315,6 +347,14 @@ export default function Army() {
               Disband all
             </Button>
           )}
+          <Button
+            color="ghost"
+            size="sm"
+            title="Save the army as it stands, or bring a saved one back"
+            onClick={() => setPresetsOpen(true)}
+          >
+            Presets
+          </Button>
           <Button
             size="sm"
             color="gradientYellow"
@@ -662,6 +702,19 @@ export default function Army() {
             setDisbandAllOpen(false)
             setSelectedId(null)
           }}
+        />
+      )}
+      {presetsOpen && (
+        <ArmyPresetsModal
+          account={account}
+          divisions={divisions}
+          free={free}
+          editable={(d) => {
+            const t = stateOf(d).tone
+            return t === 'is-idle' || t === 'is-empty'
+          }}
+          onClose={() => setPresetsOpen(false)}
+          onDone={() => setPresetsOpen(false)}
         />
       )}
       {optimizeOpen && (
@@ -1075,7 +1128,8 @@ function PickerModal({ kind, unit, division, pool, budget, forgeLevel, pending, 
   const multi = kind === 'mercenary'
   const max = multi ? Math.max(0, division.slotsMax - division.units.length) : 1
   const sorted = useMemo(() => [...pool].sort(byPower), [pool])
-  const [chosen, setChosen] = useState<string[]>(() => (multi ? sorted.slice(0, max).map((a) => a.assetId) : []))
+  // Nothing is ticked up front: the player picks every mercenary themselves.
+  const [chosen, setChosen] = useState<string[]>([])
   const capped = budget <= 0
 
   const toggle = (id: string) => {

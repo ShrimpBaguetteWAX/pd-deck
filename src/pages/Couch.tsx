@@ -511,8 +511,8 @@ export default function Couch() {
           {back.map((d) => (
             <li key={`b-${d.missionId}-${d.divisionId}`} className="is-home">
               <span>
-                <b>Division {d.divisionId}</b>
-                <small>{loop.econ.get(d.missionId)?.title ?? `Mission #${d.missionId}`}</small>
+                <b>{loop.econ.get(d.missionId)?.title ?? `Mission #${d.missionId}`}</b>
+                <small>Division {d.divisionId}</small>
               </span>
               <span className="t">
                 Returned
@@ -526,8 +526,8 @@ export default function Couch() {
           {out.map((d) => (
             <li key={`${d.missionId}-${d.divisionId}`}>
               <span>
-                <b>Division {d.divisionId}</b>
-                <small>{loop.econ.get(d.missionId)?.title ?? `Mission #${d.missionId}`}</small>
+                <b>{loop.econ.get(d.missionId)?.title ?? `Mission #${d.missionId}`}</b>
+                <small>Division {d.divisionId}</small>
               </span>
               <span className="t num">
                 {clock(d.unlockAt - now)}
