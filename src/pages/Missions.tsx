@@ -45,6 +45,7 @@ import { MISSION_THUMBS } from '@/data/missionThumbs'
 import { chainDate, shortDuration, useNow } from '@/lib/time'
 import { useCollectionTemplates, useTemplatePrices } from '@/data/blends'
 import { useTransaction } from '@/wallet/useTransaction'
+import type { MissionEntryRow } from '@/data/types'
 
 import './Missions.css'
 
@@ -189,15 +190,10 @@ export default function Missions() {
 
   const divisions = useMemo(() => (army.data?.divisions ?? []).filter((d) => d.units.length > 0), [army.data])
   const busy = useMemo(() => new Set(deployments.data?.map((d) => d.divisionId) ?? []), [deployments.data])
-  // Your divisions on each mission: still out, and back but not yet claimed.
+  // Your divisions still running on each mission (those back and waiting for the claim left out).
   const outByMission = useMemo(() => {
-    const m = new Map<number, { out: number; back: number }>()
-    for (const d of deployments.data ?? []) {
-      const c = m.get(d.missionId) ?? { out: 0, back: 0 }
-      if (d.unlockAt > now) c.out++
-      else c.back++
-      m.set(d.missionId, c)
-    }
+    const m = new Map<number, number>()
+    for (const d of deployments.data ?? []) if (d.unlockAt > now) m.set(d.missionId, (m.get(d.missionId) ?? 0) + 1)
     return m
   }, [deployments.data, now])
   const idle = useMemo(
@@ -211,22 +207,32 @@ export default function Missions() {
   }, [divisions])
   const movePer100 = moveSet ?? armyMove ?? MOVE_DEFAULT
 
-  // The whole game's flow per hour, from every player's divisions out now: each one joins again as
-  // soon as its cycle ends (its own join-to-unlock time), paying the entry and collecting the reward.
+  // The whole game's flow per hour, from every player's divisions still running: each one joins again
+  // as soon as its cycle ends (its own join-to-unlock time), paying the entry and collecting the reward.
+  // Divisions back and waiting for the claim are left out, here and in each mission's count.
   const flowIds = useMemo(() => missions.filter((e) => e.joined > 0).map((e) => e.id), [missions])
   const entries = useMissionEntries(flowIds)
+  const running = useMemo(() => {
+    const m = new Map<number, MissionEntryRow[]>()
+    for (const [id, list] of entries.data ?? [])
+      m.set(
+        id,
+        list.filter((r) => +chainDate(r.unlock_time) > now)
+      )
+    return m
+  }, [entries.data, now])
   const flow = useMemo(() => {
     const f = { divisions: 0, atk: 0, def: 0, tlmIn: 0, defIn: 0, tlmOut: 0, defOut: 0 }
     for (const e of missions) {
-      if (!e.joined) continue
-      const rows = entries.data?.get(e.id)
+      const rows = running.get(e.id)
+      if (!rows?.length) continue
       // Cycles per hour, from each entry's own join-to-unlock time.
-      const cycles = (rows ?? []).reduce((n, r) => {
+      const cycles = rows.reduce((n, r) => {
         const ms = +chainDate(r.unlock_time) - +chainDate(r.join_time)
         return ms > 0 ? n + 3_600_000 / ms : n
       }, 0)
-      f.divisions += rows?.length ?? 0
-      for (const r of rows ?? []) {
+      f.divisions += rows.length
+      for (const r of rows) {
         f.atk += Number(r.atk) || 0
         f.def += Number(r.def) || 0
       }
@@ -236,7 +242,7 @@ export default function Missions() {
       f.defOut += cycles * e.rewardDef
     }
     return f
-  }, [missions, entries.data])
+  }, [missions, running])
   // Until every entry is read the figures wait, rather than show a guess.
   const flowReady = !!entries.data || !flowIds.length
   const flowValue = (n: number) => (flowReady ? formatNumber(n, 0) : '…')
@@ -368,7 +374,7 @@ export default function Missions() {
         <Figure
           label="Divisions out"
           value={flowValue(flow.divisions)}
-          help="Every player's divisions on an open mission right now, out or back and not yet claimed."
+          help="Every player's divisions still running on an open mission right now; those back and waiting for the claim are not counted."
         />
         <Figure
           label="Attack out"
@@ -567,7 +573,8 @@ export default function Missions() {
           const shownMove = view === 'est' ? r.assumedMove : move
           const shownPerHour = view === 'est' ? r.estPerHour : perHour
           const open = expanded === e.id
-          const mine = outByMission.get(e.id)
+          const mine = outByMission.get(e.id) ?? 0
+          const allOut = running.get(e.id)?.length ?? 0
           const atkOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.atk >= e.minAtk
           const defOk = divisions.some((d) => d.atk >= e.minAtk && d.def >= e.minDef) || strongest.def >= e.minDef
           const reason = !divisions.length
@@ -588,39 +595,23 @@ export default function Missions() {
                   <div className="mrow__title">
                     <b>{e.title}</b>
                     <span className="mrow__sub">
-                      {mine && (
-                        <Tooltip
-                          text={[
-                            mine.out ? `${mine.out} of your divisions ${mine.out === 1 ? 'is' : 'are'} out on this mission` : '',
-                            mine.back ? `${mine.back} ${mine.back === 1 ? 'is' : 'are'} back, waiting for the claim` : ''
-                          ]
-                            .filter(Boolean)
-                            .join('; ')}
-                        >
+                      {mine ? (
+                        <Tooltip text={`${mine} of your divisions ${mine === 1 ? 'is' : 'are'} still running on this mission`}>
                           <em className="mrow__mine">
-                            {mine.out > 0 && (
-                              <>
-                                <span className="num">{mine.out}</span> <small>out</small>
-                              </>
-                            )}
-                            {mine.back > 0 && (
-                              <span className="mrow__back">
-                                <span className="num">{mine.back}</span> <small>back</small>
-                              </span>
-                            )}
+                            <span className="num">{mine}</span> <small>out</small>
                           </em>
                         </Tooltip>
-                      )}
-                      {e.joined > 0 && (
+                      ) : null}
+                      {allOut ? (
                         <Tooltip
-                          text={`${formatNumber(e.joined, 0)} division${e.joined === 1 ? ' is' : 's are'} on this mission across all players, yours included (out, or back and not yet claimed).`}
+                          text={`${formatNumber(allOut, 0)} division${allOut === 1 ? ' is' : 's are'} still running on this mission across all players, yours included. Those back and waiting for the claim are not counted.`}
                         >
                           <em className="mrow__all">
                             <UsersIcon />
-                            <span className="num">{formatNumber(e.joined, 0)}</span> <small>all players</small>
+                            <span className="num">{formatNumber(allOut, 0)}</span> <small>all players</small>
                           </em>
                         </Tooltip>
-                      )}
+                      ) : null}
                       {e.state === 'upcoming' && <em className="mrow__flag">Starts {shortDuration(e.startAt - now)}</em>}
                       {e.state === 'active' && Number.isFinite(e.endAt) && (
                         <Tooltip text="How long this mission can still be joined. A division already out keeps its lock and reward.">

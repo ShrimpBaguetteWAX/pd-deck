@@ -963,7 +963,7 @@
   color: var(--text);
 }
 
-/* Your divisions on the mission: a cyan dot for those out, green for those back and unclaimed. */
+/* Your divisions still running on the mission. */
 .mrow__mine {
   display: inline-flex;
   align-items: center;
@@ -994,27 +994,6 @@
   font-weight: 800;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-}
-
-.mrow__back {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--green);
-}
-
-.mrow__mine small + .mrow__back {
-  margin-left: 4px;
-}
-
-.mrow__back small {
-  color: var(--green);
-}
-
-/* Only back, none out: the dot turns green too. */
-.mrow__mine:not(:has(> .num))::before {
-  background: var(--green);
-  box-shadow: 0 0 5px rgba(46, 229, 157, 0.7);
 }
 
 /* Every player's divisions on the mission: a pink pill beside yours. */
