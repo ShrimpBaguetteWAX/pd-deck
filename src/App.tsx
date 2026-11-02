@@ -22,6 +22,7 @@ const Arbitrage = lazy(() => import('@/pages/Arbitrage'))
 const Planets = lazy(() => import('@/pages/Planets'))
 const Couch = lazy(() => import('@/pages/Couch'))
 const Flow = lazy(() => import('@/pages/Flow'))
+const Inventory = lazy(() => import('@/pages/Inventory'))
 
 /** Pages behind sign-in share the session check and the app shell. */
 function PrivateLayout() {
@@ -82,6 +83,7 @@ export function App() {
               <Route path="/blend" element={<Blends />} />
               <Route path="/swap" element={<Swap />} />
               <Route path="/ledger" element={<Ledger />} />
+              <Route path="/inventory" element={<Inventory />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="/arbitrage" element={<Arbitrage />} />
               <Route path="/planets" element={<Planets />} />

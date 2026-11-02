@@ -120,3 +120,52 @@ export interface SaleToReprice extends SaleToList {
 export function repriceSalesActions(account: string, permission: string, sales: SaleToReprice[]): AnyAction[] {
   return sales.flatMap((s) => [cancelSaleAction(account, permission, s.saleId), ...listSalesActions(account, permission, [s])])
 }
+
+/**
+ * Sells one NFT into an open buy offer. The NFT is first offered to the market (memo "tbuyoffer"
+ * for a template offer, "buyoffer" for an offer on this very NFT), then fulfilltbuyo or acceptbuyo:
+ * the contract takes the last offer made to it, so the order matters. The price is asserted, so a
+ * changed or withdrawn offer fails the transaction instead of selling cheaper. The WAX is paid
+ * straight to the seller.
+ */
+export function sellToBuyofferActions(
+  account: string,
+  permission: string,
+  offer: { id: string; kind: 'template' | 'asset'; amount: string },
+  assetId: string
+): AnyAction[] {
+  const auth = [{ actor: account, permission }]
+  const price = waxAsset(BigInt(offer.amount))
+  const handOver = (memo: string): AnyAction => ({
+    account: CONTRACTS.ATOMICASSETS,
+    name: 'createoffer',
+    authorization: auth,
+    data: { sender: account, recipient: ATOMICMARKET, sender_asset_ids: [assetId], recipient_asset_ids: [], memo }
+  })
+  if (offer.kind === 'template') {
+    return [
+      handOver('tbuyoffer'),
+      {
+        account: ATOMICMARKET,
+        name: 'fulfilltbuyo',
+        authorization: auth,
+        data: {
+          seller: account,
+          buyoffer_id: offer.id,
+          asset_id: assetId,
+          expected_price: price,
+          taker_marketplace: BUY_MARKETPLACE
+        }
+      }
+    ]
+  }
+  return [
+    handOver('buyoffer'),
+    {
+      account: ATOMICMARKET,
+      name: 'acceptbuyo',
+      authorization: auth,
+      data: { buyoffer_id: offer.id, expected_asset_ids: [assetId], expected_price: price, taker_marketplace: BUY_MARKETPLACE }
+    }
+  ]
+}

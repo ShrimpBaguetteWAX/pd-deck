@@ -19,6 +19,7 @@ import {
   GearIcon,
   RocketIcon,
   SwordIcon,
+  StarIcon,
   UsersIcon
 } from '@/icons'
 import { useClockFor } from '@/lib/time'
@@ -37,6 +38,7 @@ const NAV = [
   { to: '/blend', label: 'Blend', icon: SparkIcon },
   { to: '/swap', label: 'Swap', icon: SwapIcon },
   { to: '/ledger', label: 'Ledger', icon: LedgerIcon },
+  { to: '/inventory', label: 'Inventory', icon: StarIcon },
   { to: '/flow', label: 'Token flow', icon: FlowIcon },
   { to: '/settings', label: 'Settings', icon: GearIcon }
 ]

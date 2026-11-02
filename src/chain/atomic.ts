@@ -172,6 +172,9 @@ function nodesInOrder(path: string): string[] {
   return [...fast.slice(start), ...fast.slice(0, start), ...rest]
 }
 
+const chunks = <T>(xs: T[], n: number): T[][] =>
+  Array.from({ length: Math.ceil(xs.length / n) }, (_, i) => xs.slice(i * n, i * n + n))
+
 function toQuery(params: Params): string {
   const query = new URLSearchParams()
   for (const [key, value] of Object.entries(params)) {
@@ -283,6 +286,7 @@ export interface AtomicAsset {
   schema: { schema_name: string }
   template: { template_id: string } | null
   data: Record<string, unknown>
+  is_transferable?: boolean
 }
 
 export interface AtomicTemplate {
@@ -308,6 +312,41 @@ export interface AtomicSale {
   /** The collection's cut at the time of the sale (0.05 = 5%). */
   current_collection_fee?: number | string
 }
+
+/** An open AtomicMarket buy offer, ready to be accepted. */
+export interface BuyOffer {
+  id: string
+  /** On a template (anyone holding it can sell), or on one specific NFT. */
+  kind: 'template' | 'asset'
+  /** WAX offered. */
+  wax: number
+  /** Raw price in WAX's smallest unit, exactly as offered: the sale asserts it. */
+  amount: string
+  /** The collection's cut (0.05 = 5%). */
+  collectionFee: number
+  /** The NFT the offer is for (asset offers only). */
+  assetId?: string
+}
+
+interface OfferRow {
+  buyoffer_id: string
+  buyer: string
+  template?: { template_id: string } | null
+  assets?: { asset_id: string }[]
+  price: { token_symbol: string; token_precision: number; amount: string }
+  collection?: { market_fee?: number | string }
+}
+
+const offerOf = (r: OfferRow, kind: BuyOffer['kind']): BuyOffer | null =>
+  r.price.token_symbol !== 'WAX' || r.price.token_precision !== 8
+    ? null
+    : {
+        id: String(r.buyoffer_id),
+        kind,
+        wax: Number(r.price.amount) / 1e8,
+        amount: String(r.price.amount),
+        collectionFee: Number(r.collection?.market_fee ?? 0)
+      }
 
 /** What a template actually sold for lately (AtomicMarket's own statistics), in WAX. */
 export interface TemplatePrice {
@@ -427,6 +466,82 @@ export const atomic = {
       median: Number(r.suggested_median) / 10 ** r.token_precision,
       sales: Number(r.sales)
     }))
+  },
+
+  /** Every asset a wallet holds, in every collection, paged from one node. */
+  getAllOwnedAssets(owner: string): Promise<AtomicAsset[]> {
+    return getPaged(
+      (page) => `/atomicassets/v1/assets${toQuery({ owner, limit: 1000, page, order: 'asc', sort: 'asset_id' })}`,
+      30,
+      1000
+    )
+  },
+
+  /**
+   * The highest open template buy offer per template: an offer anyone holding the template can
+   * accept. Read 100 templates at a time, every offer highest first. The account's own offers are
+   * left out (it cannot sell to itself).
+   */
+  async getTemplateBuyofferTops(templateIds: string[], exceptBuyer?: string): Promise<Map<string, BuyOffer>> {
+    const out = new Map<string, BuyOffer>()
+    await Promise.all(
+      chunks(templateIds, 100).map(async (ids) => {
+        const rows = await limited(() =>
+          getPaged<OfferRow>(
+            (page) =>
+              `/atomicmarket/v1/template_buyoffers${toQuery({ state: 0, template_id: ids.join(','), symbol: 'WAX', limit: 100, page, sort: 'price', order: 'desc' })}`,
+            20,
+            100
+          )
+        )
+        for (const r of rows) {
+          const t = r.template?.template_id
+          const offer = offerOf(r, 'template')
+          if (!t || !offer || r.buyer === exceptBuyer) continue
+          if (offer.wax > (out.get(t)?.wax ?? 0)) out.set(t, offer)
+        }
+      })
+    )
+    return out
+  },
+
+  /** Open buy offers made on the wallet's own NFTs, one NFT each: the best per asset. */
+  async getAssetBuyofferTops(seller: string): Promise<Map<string, BuyOffer>> {
+    const rows = await getPaged<OfferRow>(
+      (page) =>
+        `/atomicmarket/v1/buyoffers${toQuery({ state: 0, seller, symbol: 'WAX', limit: 100, page, sort: 'price', order: 'desc' })}`,
+      10,
+      100
+    )
+    const out = new Map<string, BuyOffer>()
+    for (const r of rows) {
+      const offer = offerOf(r, 'asset')
+      if (!offer || r.assets?.length !== 1) continue
+      const id = String(r.assets[0].asset_id)
+      if (offer.wax > (out.get(id)?.wax ?? 0)) out.set(id, { ...offer, assetId: id })
+    }
+    return out
+  },
+
+  /** The cheapest WAX listing per template, 100 templates at a time. */
+  async getCheapestListings(templateIds: string[]): Promise<Map<string, number>> {
+    const out = new Map<string, number>()
+    await Promise.all(
+      chunks(templateIds, 100).map(async (ids) => {
+        const rows = await limited(() =>
+          get<AtomicSale[]>(
+            `/atomicmarket/v1/sales/templates${toQuery({ symbol: 'WAX', template_id: ids.join(','), limit: 100 })}`
+          )
+        )
+        for (const s of rows) {
+          const t = s.assets[0]?.template?.template_id
+          if (!t || s.assets.length !== 1) continue
+          const wax = Number(s.price.amount) / 10 ** s.price.token_precision
+          if (!out.has(t) || wax < out.get(t)!) out.set(t, wax)
+        }
+      })
+    )
+    return out
   },
 
   /** Every asset a wallet holds in a collection, paged. */

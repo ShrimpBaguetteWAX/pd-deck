@@ -1,0 +1,174 @@
+.inv {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.inv__top {
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+
+.inv__refresh {
+  margin-left: auto;
+}
+
+.inv__bar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+
+.inv__search {
+  width: min(100%, 340px);
+}
+
+.inv__toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.inv__table {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.inv__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 70px 150px 150px 110px minmax(130px, auto);
+  align-items: center;
+  gap: 12px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 14px;
+}
+
+.inv__row > .num {
+  text-align: right;
+  white-space: nowrap;
+}
+
+.inv__head {
+  border: 0;
+  background: none;
+  color: var(--text-faint);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.inv__nft {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.inv__img {
+  flex: none;
+  width: 44px;
+  height: 44px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--surface-2);
+}
+
+.inv__name {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.inv__name a {
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv__name a:hover {
+  color: var(--cyan);
+}
+
+.inv__name small {
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inv__row small {
+  font-size: 11px;
+}
+
+.inv__empty {
+  padding: 18px 12px;
+}
+
+.inv__more {
+  align-self: center;
+}
+
+@media (max-width: 760px) {
+  .inv__row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .inv__head {
+    display: none;
+  }
+
+  .inv__row > .num {
+    grid-column: 2;
+  }
+
+  .inv__row > .num:nth-child(2) {
+    grid-row: 1;
+  }
+
+  .inv__act {
+    grid-column: 1 / -1;
+  }
+}
+
+/* At least 70% of the lowest listing: worth selling into the offer. */
+.inv__row.is-hot {
+  border-color: rgba(46, 229, 157, 0.5);
+  background: linear-gradient(90deg, rgba(46, 229, 157, 0.12), rgba(46, 229, 157, 0.03));
+  box-shadow: inset 3px 0 0 var(--green);
+}
+
+.inv__ratio {
+  color: var(--green);
+  font-weight: 700;
+}
+
+.inv__act {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.inv__confirm {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.inv__confirm small {
+  width: 100%;
+  color: var(--text-dim);
+  text-align: right;
+}
