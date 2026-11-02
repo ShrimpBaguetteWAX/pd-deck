@@ -216,7 +216,7 @@ export default function Missions() {
   const flowIds = useMemo(() => missions.filter((e) => e.joined > 0).map((e) => e.id), [missions])
   const entries = useMissionEntries(flowIds)
   const flow = useMemo(() => {
-    const f = { divisions: 0, tlmIn: 0, defIn: 0, tlmOut: 0, defOut: 0 }
+    const f = { divisions: 0, atk: 0, def: 0, tlmIn: 0, defIn: 0, tlmOut: 0, defOut: 0 }
     for (const e of missions) {
       if (!e.joined) continue
       const rows = entries.data?.get(e.id)
@@ -226,6 +226,10 @@ export default function Missions() {
         return ms > 0 ? n + 3_600_000 / ms : n
       }, 0)
       f.divisions += rows?.length ?? 0
+      for (const r of rows ?? []) {
+        f.atk += Number(r.atk) || 0
+        f.def += Number(r.def) || 0
+      }
       f.tlmIn += cycles * e.costTlm
       f.defIn += cycles * e.costDef
       f.tlmOut += cycles * e.rewardTlm
@@ -365,6 +369,18 @@ export default function Missions() {
           label="Divisions out"
           value={flowValue(flow.divisions)}
           help="Every player's divisions on an open mission right now, out or back and not yet claimed."
+        />
+        <Figure
+          label="Attack out"
+          value={flowValue(flow.atk)}
+          tone="c-atk"
+          help="The attack of all those divisions together, as each had it when it joined."
+        />
+        <Figure
+          label="Defense out"
+          value={flowValue(flow.def)}
+          tone="c-def"
+          help="The defense of all those divisions together, as each had it when it joined."
         />
         <Figure
           label="TLM demand / h"
