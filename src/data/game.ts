@@ -465,6 +465,26 @@ async function fetchDeployments(account: string): Promise<Deployment[]> {
     .sort((a, b) => a.unlockAt - b.unlockAt)
 }
 
+/**
+ * Every player's entries on the given missions (one table per mission, read page by page): each
+ * division out, with when it joined and when it unlocks.
+ */
+export function useMissionEntries(missionIds: number[]): UseQueryResult<Map<number, MissionEntryRow[]>> {
+  const ids = [...missionIds].sort((a, b) => a - b)
+  return useQuery({
+    queryKey: ['missentries', ids.join(',')],
+    queryFn: async () => {
+      const lists = await Promise.all(
+        ids.map((id) => getRows<MissionEntryRow>({ code: CONTRACTS.MISSIONS, table: 'missentries', scope: String(id) }))
+      )
+      return new Map(ids.map((id, i) => [id, lists[i]]))
+    },
+    enabled: ids.length > 0,
+    staleTime: 60_000,
+    refetchInterval: 120_000
+  })
+}
+
 export function useDeployments(account: string | null): UseQueryResult<Deployment[]> {
   return useQuery({
     queryKey: ['deployments', account],

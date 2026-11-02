@@ -14,6 +14,7 @@ import {
   useGameBalance,
   useMarket,
   useMissionConfig,
+  useMissionEntries,
   usePlayer,
   useTemplates,
   type Division
@@ -210,6 +211,32 @@ export default function Missions() {
   }, [divisions])
   const movePer100 = moveSet ?? armyMove ?? MOVE_DEFAULT
 
+  // The whole game's flow per hour, from every player's divisions out now: each one joins again as
+  // soon as its cycle ends (its own join-to-unlock time), paying the entry and collecting the reward.
+  const flowIds = useMemo(() => missions.filter((e) => e.joined > 0).map((e) => e.id), [missions])
+  const entries = useMissionEntries(flowIds)
+  const flow = useMemo(() => {
+    const f = { divisions: 0, tlmIn: 0, defIn: 0, tlmOut: 0, defOut: 0 }
+    for (const e of missions) {
+      if (!e.joined) continue
+      const rows = entries.data?.get(e.id)
+      // Cycles per hour, from each entry's own join-to-unlock time.
+      const cycles = (rows ?? []).reduce((n, r) => {
+        const ms = +chainDate(r.unlock_time) - +chainDate(r.join_time)
+        return ms > 0 ? n + 3_600_000 / ms : n
+      }, 0)
+      f.divisions += rows?.length ?? 0
+      f.tlmIn += cycles * e.costTlm
+      f.defIn += cycles * e.costDef
+      f.tlmOut += cycles * e.rewardTlm
+      f.defOut += cycles * e.rewardDef
+    }
+    return f
+  }, [missions, entries.data])
+  // Until every entry is read the figures wait, rather than show a guess.
+  const flowReady = !!entries.data || !flowIds.length
+  const flowValue = (n: number) => (flowReady ? formatNumber(n, 0) : '…')
+
   const rows = useMemo<Row[]>(() => {
     const lootOf = (e: MissionEconomics) => {
       if (!e.rewardNft || !pools.data) return 0
@@ -332,6 +359,39 @@ export default function Missions() {
 
   return (
     <div className="page missions">
+      {/* The game's flow per hour, from every player's divisions out now. */}
+      <header className="missions__flow panel panel--tight">
+        <Figure
+          label="Divisions out"
+          value={flowValue(flow.divisions)}
+          help="Every player's divisions on an open mission right now, out or back and not yet claimed."
+        />
+        <Figure
+          label="TLM demand / h"
+          value={flowValue(flow.tlmIn)}
+          tone="c-tlm"
+          help="TLM paid in entry fees per hour if every division out joins its mission again as soon as its cycle ends."
+        />
+        <Figure
+          label="DEF demand / h"
+          value={flowValue(flow.defIn)}
+          tone="c-def"
+          help="DEF paid in entry fees per hour if every division out joins its mission again as soon as its cycle ends."
+        />
+        <Figure
+          label="TLM payout / h"
+          value={flowValue(flow.tlmOut)}
+          tone="c-tlm"
+          help="TLM the missions pay out per hour to the divisions out now, each on its own cycle."
+        />
+        <Figure
+          label="DEF payout / h"
+          value={flowValue(flow.defOut)}
+          tone="c-def"
+          help="DEF the missions pay out per hour to the divisions out now, each on its own cycle."
+        />
+      </header>
+
       {/* Filters */}
       <div className="missions__bar">
         <div className="segmented">

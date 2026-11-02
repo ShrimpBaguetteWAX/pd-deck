@@ -1046,3 +1046,16 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+
+/* The game's flow per hour, over the table. */
+.missions__flow {
+  display: flex;
+  gap: 26px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 640px) {
+  .missions__flow {
+    gap: 16px;
+  }
+}
